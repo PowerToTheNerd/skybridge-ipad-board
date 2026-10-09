@@ -21,7 +21,7 @@
     white: "Soft white",
     cream: "Cream",
   };
-  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], rail: true, paper: "night", finger: "move", grid: true, grain: true, layout: "mine" };
+  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], saved: [], rail: true, paper: "night", finger: "move", grid: true, grain: true, layout: "mine" };
   const LAYOUTS = ["mine", "both", "gemini"];
 
   const el = {
@@ -100,6 +100,7 @@
     hsvChip: document.getElementById("hsvChip"),
     hsvHex: document.getElementById("hsvHex"),
     hsvRecent: document.getElementById("hsvRecent"),
+    hsvSaved: document.getElementById("hsvSaved"),
     eraserInput: document.getElementById("eraserInput"),
     eraserOut: document.getElementById("eraserOut"),
     rail: document.getElementById("rail"),
@@ -139,6 +140,7 @@
   // Smoothing and tidy got stronger defaults; settings saved before that start over on them.
   if (settings.sv !== DEFAULTS.sv) Object.assign(settings, { smooth: DEFAULTS.smooth, tidy: DEFAULTS.tidy, sv: DEFAULTS.sv });
   if (!Array.isArray(settings.recent)) settings.recent = [];
+  if (!Array.isArray(settings.saved)) settings.saved = [];
   function saveSettings() {
     storage("set", SETTINGS_KEY, JSON.stringify(settings));
   }
@@ -1345,6 +1347,57 @@
       return dot;
     }));
   }
+  // Colours kept on purpose: tap one to use it, hold one to remove it, tap + to keep the colour in the picker.
+  const SAVED_MAX = 12;
+  function renderSaved() {
+    const current = hsvToHex(hsv);
+    const dots = settings.saved.map((hex) => {
+      const dot = document.createElement("button");
+      dot.type = "button";
+      dot.className = "color-swatch saved";
+      dot.style.background = hex;
+      dot.setAttribute("aria-label", `Saved colour ${hex}`);
+      dot.setAttribute("aria-pressed", String(hex === current));
+      let timer = 0;
+      let held = false;
+      const cancel = () => clearTimeout(timer);
+      dot.addEventListener("pointerdown", () => {
+        held = false;
+        timer = setTimeout(() => {
+          held = true;
+          settings.saved = settings.saved.filter((c) => c !== hex);
+          saveSettings();
+          renderSaved();
+          toast(`Removed ${hex}`, { label: "Undo", run: () => { settings.saved = [...settings.saved, hex].slice(0, SAVED_MAX); saveSettings(); renderSaved(); } });
+        }, 600);
+      });
+      for (const type of ["pointerup", "pointerleave", "pointercancel"]) dot.addEventListener(type, cancel);
+      dot.addEventListener("contextmenu", (event) => event.preventDefault());
+      dot.addEventListener("click", () => {
+        if (held) return;
+        Object.assign(hsv, hexToHsv(hex));
+        paintPicker();
+        setPen(hex);
+        if (lasso.selected.length) recolorSelection(hex);
+        renderSaved();
+      });
+      return dot;
+    });
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "color-swatch saved-add";
+    add.setAttribute("aria-label", "Save this colour");
+    add.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4.5v11M4.5 10h11"/></svg>';
+    add.addEventListener("click", () => {
+      if (settings.saved.includes(current)) { toast("Already saved"); return; }
+      if (settings.saved.length >= SAVED_MAX) { toast("Full: hold a colour to remove it"); return; }
+      settings.saved = [...settings.saved, current];
+      saveSettings();
+      renderSaved();
+    });
+    el.hsvSaved.replaceChildren(...dots, add);
+    el.hsvSaved.dataset.empty = settings.saved.length ? "false" : "true";
+  }
   function dragOn(node, onMove, onEnd) {
     let id = null;
     node.addEventListener("pointerdown", (event) => {
@@ -1371,6 +1424,7 @@
     settings.recent = [hex, ...settings.recent.filter((c) => c !== hex)].slice(0, 8);
     saveSettings();
     renderRecent();
+    renderSaved();
     if (lasso.selected.length) recolorSelection(hex);
   };
   const frac = (event, node) => {
@@ -1390,10 +1444,12 @@
   if (/^#[0-9a-f]{6}$/i.test(pen === "ink" ? "" : pen)) Object.assign(hsv, hexToHsv(pen));
   paintPicker();
   renderRecent();
+  renderSaved();
   if (settings.pen && settings.pen !== "ink") {
     pen = settings.pen;
     if (/^#[0-9a-f]{6}$/i.test(pen)) Object.assign(hsv, hexToHsv(pen));
     paintPicker();
+    renderSaved();
     renderTools();
   }
   el.colorBtn.addEventListener("click", () => {
@@ -1859,13 +1915,49 @@
   // ---------------------------------------------------------------------------
   // Check my work and the mic controls. They run on the PC page; the verdict comes back as text.
   // ---------------------------------------------------------------------------
-  function showVerdict({ ok, live, text, error }) {
+  // After a check, write the result on the board: "Correct!" beside finished work, or a ring around
+  // the entry that is wrong. It is ordinary ink (one Undo takes it off), and never says the answer.
+  let markIds = [];
+  async function markWork({ verdict, box }) {
+    const Marks = window.SkybridgeMarks;
+    if (!Marks || (verdict !== "correct" && !(verdict === "wrong" && box))) return;
+    const work = strokes.filter((stroke) => !stroke.eraser && !stroke.hl && !markIds.includes(stroke.id) && stroke.points.length);
+    if (verdict === "correct" && !work.length) return;
+    let made;
+    if (verdict === "correct") {
+      const xs = work.flatMap((stroke) => stroke.points.map((point) => point[0]));
+      const ys = work.flatMap((stroke) => stroke.points.map((point) => point[1]));
+      const ink = { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+      const rect = el.canvas.getBoundingClientRect();
+      made = Marks.correct(ink, { x1: view.x + rect.width / view.zoom, y1: view.y + rect.height / view.zoom });
+    } else {
+      made = Marks.circle(box);
+    }
+    // A new check replaces the marks the last one left.
+    const old = strokes.filter((stroke) => markIds.includes(stroke.id)).map((stroke) => itemOf(strokes, stroke));
+    for (const { s } of old) boards.mine.remove(s.id);
+    markIds = [];
+    const added = [];
+    for (const line of made.strokes) {
+      const stroke = { id: newId(), color: line.color, eraser: false, hl: false, width: line.width, sim: false, clean: true, points: line.points };
+      const item = { s: stroke, i: strokes.length };
+      boards.mine.put([item]);
+      added.push(item);
+      markIds.push(stroke.id);
+      await new Promise((resolve) => setTimeout(resolve, 110));
+    }
+    record("mine", old, added);
+    lastBoard = "mine";
+  }
+
+  function showVerdict({ ok, live, text, error, verdict, box }) {
     checking = false;
     el.verdict.hidden = false;
     el.verdict.dataset.state = ok ? "ok" : "error";
     el.verdictTitle.textContent = ok ? (live ? "Gemini is checking" : "Check my work") : "Couldn't check";
     el.verdictText.textContent = ok ? (live ? "Gemini is reading your board. Listen for the answer." : text || "Checked.") : error || "The check failed.";
     updateButtons();
+    if (ok && !live) markWork({ verdict, box });
   }
 
   async function checkWithoutPc() {

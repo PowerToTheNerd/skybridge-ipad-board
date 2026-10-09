@@ -181,6 +181,11 @@
     <div class="color-grid" id="colorGrid" role="radiogroup" aria-label="Pen colour"></div>
     <!-- Any colour: an in-page picker (the browser's own colour popover misbehaves on iPad). -->
     <div class="hsv" id="hsv" aria-label="Any colour">
+      <div class="hsv-saved-box">
+        <span class="hsv-saved-label">Saved <small>Hold one to remove</small></span>
+        <div class="hsv-saved" id="hsvSaved" aria-label="Saved colours"></div>
+        <span class="hsv-saved-hint">Tap + to keep the colour you are mixing.</span>
+      </div>
       <div class="hsv-sv" id="hsvSV" role="slider" aria-label="Shade and brightness"><i id="hsvSVKnob"></i></div>
       <div class="hsv-hue" id="hsvHue" role="slider" aria-label="Hue"><i id="hsvHueKnob"></i></div>
       <div class="hsv-row"><span class="hsv-chip" id="hsvChip"></span><output id="hsvHex">#2b6fd6</output><span class="hsv-note">Any colour</span></div>
@@ -234,6 +239,7 @@
   <script src="./mathcheck.js"></script>
   <script src="./ai.js"></script>
   <script src="./smart.js"></script>
+  <script src="./marks.js"></script>
   <script src="./pad.js"></script>
   <script src="./export.js"></script>
 </body>

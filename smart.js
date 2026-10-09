@@ -193,15 +193,28 @@
     return line;
   }
 
+  // The reader's "ymin,xmin,ymax,xmax" (0 to 1000 of the picture) as a box on the board.
+  function boardBox(text, page) {
+    const n = String(text || "").match(/-?\d+(?:\.\d+)?/g)?.map(Number);
+    if (!n || n.length < 4 || !page.toBoard || n.slice(0, 4).some((v) => !Number.isFinite(v))) return null;
+    const [y0, x0, y1, x1] = n.slice(0, 4).map((v) => Math.min(1000, Math.max(0, v)));
+    if (y1 <= y0 || x1 <= x0) return null;
+    const { width, height } = page.canvas;
+    const [ax, ay] = page.toBoard((x0 / 1000) * width, (y0 / 1000) * height);
+    const [bx, by] = page.toBoard((x1 / 1000) * width, (y1 / 1000) * height);
+    return [ax, ay, bx, by];
+  }
+
   async function check() {
     if (!AI.hasKey()) {
       return { ok: false, error: "To check without your PC, add your Gemini key under Notebooks, then Smart features." };
     }
     if (navigator.onLine === false) return { ok: false, error: "No connection. Checking needs the internet or your PC." };
     let image;
+    let page;
     try {
-      const { canvas } = await window.SkybridgeExport.renderBoard();
-      image = shrink(canvas);
+      page = await window.SkybridgeExport.renderBoard();
+      image = shrink(page.canvas);
     } catch (error) {
       return { ok: false, error: error.message || "There is nothing on the page yet." };
     }
@@ -209,7 +222,7 @@
       const { model, reading } = await AI.readWork(image, { mode: "practice" });
       const rows = MathCheck.runChecks(reading.checks);
       const result = MathCheck.verdict(reading, rows, "practice");
-      return { ok: true, text: summary(result, model), verdict: result.verdict };
+      return { ok: true, text: summary(result, model), verdict: result.verdict, box: result.verdict === "wrong" ? boardBox(reading.mistake_box, page) : null };
     } catch (error) {
       return { ok: false, error: AI.explain(error) };
     }

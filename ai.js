@@ -57,6 +57,8 @@ The problem: ${problem && problem.trim() ? problem.trim() : "(not given: work it
    Leave a field empty when it does not apply. Copy numbers exactly as written.
 3. verdict: "correct", "wrong", "incomplete" (right so far but unfinished) or "unreadable".
    first_mistake: where the first mistake is (which line or step and which entry), without the correct value.
+   mistake_box: where that first mistake sits in the picture, as "ymin,xmin,ymax,xmax" with every number from 0
+   to 1000 (0,0 is the top left corner of the image). Box just the wrong entry or expression. Empty if no mistake.
    feedback: one or two sentences for the student. ${mode === "explain" ? EXPLAIN_RULE : PRACTICE_RULE}
 Answer with JSON only.`;
 
@@ -76,6 +78,7 @@ Answer with JSON only.`;
       },
       verdict: STR,
       first_mistake: STR,
+      mistake_box: STR,
       feedback: STR,
     },
     required: ["transcription", "checks", "verdict"],

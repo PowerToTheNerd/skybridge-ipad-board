@@ -219,7 +219,11 @@
       const layer = inkLayer(strokes, box, scale, inkW * scale, inkH * scale);
       ctx.drawImage(layer, ((width - inkW) / 2) * scale, (cardH + (card ? GAP : 0)) * scale);
     }
-    return { canvas: out, width, height, scale };
+    // Where a pixel of this picture sits on the board (to put a mark beside the writing it came from).
+    const inkLeft = (width - inkW) / 2;
+    const inkTop = cardH + (card ? GAP : 0);
+    const toBoard = box ? (px, py) => [px / scale - inkLeft + box.x0, py / scale - inkTop + box.y0] : null;
+    return { canvas: out, width, height, scale, toBoard };
   }
 
   const frames = (count) => new Promise((resolve) => {

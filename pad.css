@@ -868,3 +868,17 @@ input[type="range"] {
 .nb-btn:active { transform: scale(0.98); background: rgba(255, 255, 255, 0.09); }
 .nb-link { justify-self: start; padding: 4px 0; border: 0; background: none; color: #d9a3a3; font: inherit; font-size: 14px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .nb-fold-body { max-height: 38vh; overflow-y: auto; }
+
+/* Saved colours at the top of the picker. */
+.hsv-saved-box { display: grid; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.hsv-saved-label { display: flex; justify-content: space-between; align-items: baseline; color: var(--text); font-size: 14px; font-weight: 500; }
+.hsv-saved-label small { color: var(--muted); font-size: 12px; font-weight: 400; }
+.hsv-saved { display: flex; flex-wrap: wrap; gap: 10px; }
+.hsv-saved .color-swatch { width: 32px; height: 32px; touch-action: manipulation; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+.hsv-saved .color-swatch[aria-pressed="true"] { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text); }
+.hsv-saved .saved-add { display: grid; place-items: center; background: transparent; border: 1.5px dashed var(--line-strong); box-shadow: none; color: var(--muted); }
+.hsv-saved .saved-add svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.hsv-saved-hint { color: var(--muted); font-size: 12px; }
+.hsv-saved[data-empty="false"] ~ .hsv-saved-hint { display: none; }
+.hsv-saved-label small { display: none; }
+.hsv-saved-box:has(.saved:not(.saved-add)) .hsv-saved-label small { display: inline; }
