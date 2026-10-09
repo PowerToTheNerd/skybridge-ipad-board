@@ -46,6 +46,8 @@
     textSheet: document.getElementById("textSheet"),
     textOut: document.getElementById("textOut"),
     textCopy: document.getElementById("textCopy"),
+    textPlace: document.getElementById("textPlace"),
+    lassoEdit: document.getElementById("lassoEdit"),
     textClose: document.getElementById("textClose"),
     lassoDone: document.getElementById("lassoDone"),
     lassoEnds: [...document.querySelectorAll(".lasso-end")],
@@ -265,9 +267,43 @@
     return Ink?.isHex(name) ? Ink.colorOn(name, cssColor("paper")) : cssColor(name);
   }
 
+  // Typed text on the page (a "Place on page" from To text): a stroke with a `text`, whose two points
+  // are the corners of its box. The font size comes from the box height, so a corner resize scales it.
+  const TEXT_FAMILIES = {
+    hand: '"Virgil", "Segoe Print", "Comic Sans MS", cursive',
+    roboto: '"Skybridge Roboto", Roboto, "Segoe UI", sans-serif',
+    inter: '"Skybridge Inter", Inter, "Segoe UI", sans-serif',
+    jetbrains: '"Skybridge JetBrains Mono", "JetBrains Mono", Consolas, monospace',
+  };
+  const TEXT_LINE = 1.3;
+  const measurer = document.createElement("canvas").getContext("2d");
+  function textBox(text, size, font) {
+    const lines = String(text).split("\n");
+    measurer.font = `${size}px ${TEXT_FAMILIES[font] || TEXT_FAMILIES.hand}`;
+    const width = Math.max(size, ...lines.map((line) => measurer.measureText(line).width));
+    return { width, height: lines.length * size * TEXT_LINE };
+  }
+  function drawText(target, stroke) {
+    const [[x0, y0], [x1, y1]] = stroke.points;
+    const lines = String(stroke.text).split("\n");
+    const size = Math.abs(y1 - y0) / lines.length / TEXT_LINE;
+    if (!(size > 0.5)) return;
+    const family = TEXT_FAMILIES[stroke.font] || TEXT_FAMILIES.hand;
+    target.save();
+    target.font = `${size}px ${family}`;
+    target.fillStyle = strokeColor(stroke.color);
+    target.textBaseline = "alphabetic";
+    const widest = Math.max(1, ...lines.map((line) => target.measureText(line).width));
+    target.translate(Math.min(x0, x1), Math.min(y0, y1));
+    target.scale(Math.max(0.2, Math.min(4, Math.abs(x1 - x0) / widest)), 1);
+    lines.forEach((line, i) => target.fillText(line, 0, (i * TEXT_LINE + 1) * size));
+    target.restore();
+  }
+
   function drawStroke(target, stroke) {
     const points = stroke.points;
     if (!points.length) return;
+    if (stroke.text && points.length >= 2) { drawText(target, stroke); return; }
     target.save();
     target.globalCompositeOperation = stroke.eraser ? "destination-out" : "source-over";
     target.strokeStyle = stroke.eraser ? "#000" : strokeColor(stroke.color);
@@ -2379,6 +2415,7 @@
     const top = (y0 - view.y) * view.zoom;
     Object.assign(el.lassoBox.style, { left: `${left}px`, top: `${top}px`, width: `${(x1 - x0) * view.zoom}px`, height: `${(y1 - y0) * view.zoom}px` });
     el.lassoBar.classList.toggle("below", top < 64);
+    el.lassoEdit.hidden = !(lasso.selected.length === 1 && lasso.selected[0].text);
     // One straight line selected: its two ends become handles to pull, instead of the corners.
     const ends = lasso.selected.length === 1 ? lineEnds(lasso.selected[0]) : null;
     el.lassoBox.dataset.line = String(Boolean(ends));
@@ -2395,7 +2432,7 @@
   // A stroke that is one straight line (a held-still line, or a drawn one that came out straight): its two ends.
   function lineEnds(stroke) {
     const pts = stroke.points;
-    if (stroke.eraser || pts.length < 2) return null;
+    if (stroke.eraser || stroke.text || pts.length < 2) return null;
     const a = pts[0];
     const b = pts[pts.length - 1];
     const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
@@ -2454,6 +2491,11 @@
     for (let i = strokes.length - 1; i >= 0; i -= 1) {
       const stroke = strokes[i];
       if (stroke.eraser || live.has(stroke.id) || stroke.points.length < 2) continue;
+      if (stroke.text) {
+        const [[ax, ay], [bx, by]] = stroke.points;
+        if (point[0] >= Math.min(ax, bx) - reach && point[0] <= Math.max(ax, bx) + reach && point[1] >= Math.min(ay, by) - reach && point[1] <= Math.max(ay, by) + reach) return stroke;
+        continue;
+      }
       const near = reach + stroke.width / 2;
       for (let k = 1; k < stroke.points.length; k += 1) {
         const [ax, ay] = stroke.points[k - 1];
@@ -2483,6 +2525,11 @@
     } else if (box && Math.hypot(box[2] - box[0], box[3] - box[1]) * view.zoom > 30) {
       lasso.selected = strokes.filter((stroke) => {
         if (stroke.eraser || live.has(stroke.id) || !stroke.points.length) return false;
+        if (stroke.text) {
+          const [[ax, ay], [bx, by]] = stroke.points;
+          const spots = [[ax, ay], [bx, by], [(ax + bx) / 2, (ay + by) / 2]];
+          return spots.filter((spot) => Ink().inside(spot, path)).length >= 2;
+        }
         const step = Math.max(1, Math.floor(stroke.points.length / 30));
         let inside = 0;
         let total = 0;
@@ -2576,10 +2623,11 @@
   }
 
   el.lassoBrackets.addEventListener("click", () => addBrackets(true));
+  let textTarget = null; // the text item being edited, or null for a new one
   // To text: the selected writing is read (by the PC or by Gemini) and shown to copy.
   el.lassoText.addEventListener("click", async () => {
-    const picked = [...lasso.selected];
-    if (!picked.length || !window.SkybridgeSmart) return;
+    const picked = lasso.selected.filter((stroke) => !stroke.text);
+    if (!picked.length || !window.SkybridgeSmart) { if (lasso.selected.length) toast("That is already typed text"); return; }
     el.lassoText.disabled = true;
     el.lassoText.textContent = "Reading…";
     try {
@@ -2587,6 +2635,8 @@
       if (!result.ok) { toast(result.error); return; }
       if (!result.text) { toast("Couldn't find any writing to read there."); return; }
       el.textOut.value = result.text;
+      textTarget = null;
+      el.textPlace.textContent = "Place on page";
       el.textSheet.hidden = false;
       el.textOut.focus();
       el.textOut.setSelectionRange(0, 0);
@@ -2595,7 +2645,59 @@
       el.lassoText.textContent = "To text";
     }
   });
-  el.textClose.addEventListener("click", () => { el.textSheet.hidden = true; });
+  el.textClose.addEventListener("click", () => { el.textSheet.hidden = true; textTarget = null; });
+
+  // Place on page: the text becomes a movable item under the writing it came from (or in view when edited
+  // from the lasso). Edit reopens the sheet for the selected text and Update changes it in place.
+  el.lassoEdit.addEventListener("click", () => {
+    const item = lasso.selected.length === 1 ? lasso.selected[0] : null;
+    if (!item?.text) return;
+    textTarget = item.id;
+    el.textOut.value = item.text;
+    el.textPlace.textContent = "Update text";
+    el.textSheet.hidden = false;
+    el.textOut.focus();
+  });
+  el.textPlace.addEventListener("click", () => {
+    const text = el.textOut.value.replace(/\s+$/, "");
+    if (!text.trim()) { toast("Nothing to place yet"); return; }
+    const old = textTarget ? strokes.find((stroke) => stroke.id === textTarget) : null;
+    let made;
+    if (old) {
+      const [[x0, y0], [, y1]] = old.points;
+      const size = Math.min(80, Math.max(10, Math.abs(y1 - y0) / old.text.split("\n").length / TEXT_LINE));
+      const box = textBox(text, size, old.font);
+      made = { ...copyStroke(old), text, points: [[x0, y0], [x0 + box.width, y0 + box.height]] };
+      const before = [itemOf(strokes, old)];
+      const item = { s: made, i: strokes.indexOf(old) };
+      boards.mine.put([item]);
+      record("mine", before, [item]);
+    } else {
+      const size = 26;
+      let x = view.x + 60 / view.zoom;
+      let y = view.y + 90 / view.zoom;
+      if (lasso.selected.length) {
+        // Just under the writing it came from.
+        const [x0, , , y1] = selectionBounds();
+        x = x0;
+        y = y1 + 28;
+      }
+      const font = settings.card.font in TEXT_FAMILIES ? settings.card.font : "hand";
+      const box = textBox(text, size, font);
+      made = { id: newId(), color: "ink", eraser: false, hl: false, width: 1, sim: false, clean: true, text, font, points: [[x, y], [x + box.width, y + box.height]] };
+      const item = { s: made, i: strokes.length };
+      boards.mine.put([item]);
+      record("mine", [], [item]);
+    }
+    lastBoard = "mine";
+    lasso.selected = strokes.filter((stroke) => stroke.id === made.id);
+    textTarget = null;
+    el.textSheet.hidden = true;
+    rebuildBase();
+    positionLasso();
+    schedulePaint();
+    toast(old ? "Text updated" : "Placed on the page", { label: "Undo", run: undoAction });
+  });
   el.textCopy.addEventListener("click", async () => {
     const text = el.textOut.value;
     try {
