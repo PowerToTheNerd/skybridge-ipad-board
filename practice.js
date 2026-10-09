@@ -1,5 +1,6 @@
 /*
- * Practice problems: pick a topic, and Gemini (with your own key) writes one problem for it. It goes on
+ * Practice problems: pick a topic, and Gemini (with your own key) writes a batch for it, kept on this iPad
+ * and given out one at a time, never the same one twice, so most of the time no call is needed at all. It goes on
  * the current page as a problem card, or into a new notebook. It never gives the answer: Check my work
  * grades what you write, with the exact checker.
  *
@@ -7,7 +8,7 @@
  * matrix really is invertible (or has an LU with no row swaps) when the topic needs that. A problem
  * that does not check out is thrown away and another is asked for.
  *
- * window.SkybridgePractice = { TOPICS, make(topicId, { avoid }) -> { ok, problem | error }, items(problem), problemText(problem) }
+ * window.SkybridgePractice = { TOPICS, take(topicId) -> { ok, problem, fromBank, left | error }, counts(), onChange(fn), items(problem), problemText(problem) }
  */
 (() => {
   const AI = window.SkybridgeAI;
@@ -27,21 +28,26 @@
   ];
 
   const STR = { type: "STRING" };
-  const SCHEMA = {
+  const ONE = {
     type: "OBJECT",
     properties: { title: STR, text: STR, lines: { type: "ARRAY", items: STR } },
     required: ["title", "text", "lines"],
   };
+  const SCHEMA = { type: "OBJECT", properties: { problems: { type: "ARRAY", items: ONE } }, required: ["problems"] };
+  const BATCH = 5; // problems asked for in one call
+  const LOW = 2; // unseen problems left before the bank is topped up in the background
 
-  const promptFor = (topic, avoid) => `You write ONE practice problem for a student studying linear algebra. Topic: ${topic.brief}.
-Answer with JSON only: {"title": "...", "text": "...", "lines": ["..."]}
+  const promptFor = (topic, avoid, count) => `You write ${count} DIFFERENT practice problems for a student studying linear algebra. Topic: ${topic.brief}.
+Answer with JSON only: {"problems": [{"title": "...", "text": "...", "lines": ["..."]}, ...]}
+For each problem:
 - title: the topic name, at most 28 characters.
 - text: the instruction, one or two short sentences, like "Find the LU decomposition of A."
 - lines: the given matrices or equations, each as LaTeX on its own line. Write a matrix like
-  "A = \\\\begin{bmatrix} 2 & 1 \\\\\\\\ 4 & 3 \\\\end{bmatrix}" (rows separated by \\\\\\\\, entries by &).
-Rules: use whole numbers (small, like -5 to 9) or simple fractions only. Make it solvable by hand with one
-exact answer. NEVER include the answer, any steps, any hint, or the word "solution".
-Variety: ${Math.floor(Math.random() * 1e6)}.${avoid?.length ? ` Do not repeat these earlier problems: ${avoid.slice(-4).join(" | ")}.` : ""}`;
+  "A = \\begin{bmatrix} 2 & 1 \\\\ 4 & 3 \\end{bmatrix}" (rows separated by \\\\, entries by &).
+Rules: use whole numbers (small, like -5 to 9) or simple fractions only. Make each one solvable by hand with one
+exact answer, and vary the sizes and the numbers from problem to problem. NEVER include the answer, any steps, any hint,
+or the word "solution".
+Variety: ${Math.floor(Math.random() * 1e6)}.${avoid?.length ? ` Do not repeat these: ${avoid.slice(-8).join(" | ")}.` : ""}`;
 
   // The matrices written in a problem's lines, as rows of numbers (null if any is not exact numbers).
   function matricesOf(lines) {
@@ -82,28 +88,144 @@ Variety: ${Math.floor(Math.random() * 1e6)}.${avoid?.length ? ` Do not repeat th
     return "";
   }
 
-  async function make(topicId, { avoid = [] } = {}) {
-    const topic = TOPICS.find((t) => t.id === topicId) || TOPICS[TOPICS.length - 1];
-    if (!AI?.hasKey()) return { ok: false, error: "To make practice problems, add your free Gemini key under Notebooks, then Smart features." };
-    if (navigator.onLine === false) return { ok: false, error: "No connection. Practice problems need the internet." };
-    let why = "";
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+  // ---- the bank: problems written ahead, kept on the iPad, each given out once ----------------------
+  // One call writes a batch; "next problem" then costs no call at all until the bank runs low.
+  const DB = "skybridge-practice";
+  const STORE = "bank";
+  const memory = new Map();
+  let dbPromise = null;
+  function openDb() {
+    dbPromise = dbPromise || new Promise((resolve) => {
       try {
-        const { data } = await AI.ask(promptFor(topic, avoid), SCHEMA);
-        const lines = (Array.isArray(data.lines) ? data.lines : [data.lines]).map((line) => String(line ?? "").trim()).filter(Boolean).slice(0, 6);
-        const problem = {
-          topic: topic.id,
-          title: String(data.title || topic.label).split(/\s+/).join(" ").slice(0, 40) || topic.label,
-          text: String(data.text || "").trim().slice(0, 300),
-          lines,
-        };
-        why = trouble(topic, problem);
-        if (!why) return { ok: true, problem };
+        const request = indexedDB.open(DB, 1);
+        request.onupgradeneeded = () => request.result.createObjectStore(STORE, { keyPath: "id" });
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => resolve(null);
+      } catch { resolve(null); }
+    });
+    return dbPromise;
+  }
+  async function allRecords() {
+    const db = await openDb();
+    if (!db) return [...memory.values()];
+    return new Promise((resolve) => {
+      const request = db.transaction(STORE).objectStore(STORE).getAll();
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => resolve([...memory.values()]);
+    });
+  }
+  async function putRecord(record) {
+    memory.set(record.id, record);
+    const db = await openDb();
+    if (!db) return;
+    await new Promise((resolve) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).put(record);
+      tx.oncomplete = tx.onerror = tx.onabort = () => resolve();
+    });
+  }
+
+  // The same problem in other words of spacing or case is the same problem.
+  function fingerprint(problem) {
+    const text = `${problem.text} ${problem.lines.join(" ")}`.toLowerCase().replace(/[^a-z0-9]+/g, "");
+    let h = 5381;
+    for (let i = 0; i < text.length; i += 1) h = (Math.imul(h, 33) ^ text.charCodeAt(i)) >>> 0;
+    return h.toString(36);
+  }
+
+  const listeners = new Set();
+  const changed = () => listeners.forEach((fn) => fn());
+  async function counts() {
+    const out = { total: 0 };
+    for (const record of await allRecords()) {
+      if (record.seen) continue;
+      out[record.topic] = (out[record.topic] || 0) + 1;
+      out.total += 1;
+    }
+    return out;
+  }
+
+  const concrete = TOPICS.filter((t) => t.id !== "random");
+  const topicOf = (id) => TOPICS.find((t) => t.id === id) || TOPICS[TOPICS.length - 1];
+
+  // Write a batch for a topic and keep the good ones. `background` is for quiet top-ups.
+  const filling = new Map();
+  function refill(topic, { background = false } = {}) {
+    if (filling.has(topic.id)) return filling.get(topic.id);
+    const job = (async () => {
+      if (!AI?.hasKey()) return { ok: false, error: "To make practice problems, add your free Gemini key under Notebooks, then Smart features." };
+      if (navigator.onLine === false) return { ok: false, error: "No connection. New problems need the internet." };
+      const records = await allRecords();
+      const known = new Set(records.map((r) => r.id));
+      const avoid = records.filter((r) => r.topic === topic.id).slice(-8).map((r) => r.problem.text);
+      let why = "";
+      try {
+        const { data } = await AI.ask(promptFor(topic, avoid, BATCH), SCHEMA, { background });
+        let added = 0;
+        for (const raw of Array.isArray(data.problems) ? data.problems : []) {
+          const lines = (Array.isArray(raw?.lines) ? raw.lines : [raw?.lines]).map((line) => String(line ?? "").trim()).filter(Boolean).slice(0, 6);
+          const problem = {
+            topic: topic.id,
+            title: String(raw?.title || topic.label).split(/\s+/).join(" ").slice(0, 40) || topic.label,
+            text: String(raw?.text || "").trim().slice(0, 300),
+            lines,
+          };
+          why = trouble(topic, problem) || why;
+          if (trouble(topic, problem)) continue;
+          const id = `${topic.id}:${fingerprint(problem)}`;
+          if (known.has(id)) continue; // already in the bank, seen or not
+          known.add(id);
+          await putRecord({ id, topic: topic.id, problem, seen: false, at: Date.now() });
+          added += 1;
+        }
+        changed();
+        return added ? { ok: true, added } : { ok: false, error: `Gemini's problems didn't check out${why ? ` (${why})` : ""}. Try again.` };
       } catch (error) {
         return { ok: false, error: AI.explain(error) };
       }
+    })().finally(() => filling.delete(topic.id));
+    filling.set(topic.id, job);
+    return job;
+  }
+
+  let coolUntil = 0;
+  // Keep the bank from running dry: quietly, only online, only when Google isn't pushing back.
+  async function topUp(topic) {
+    if (Date.now() < coolUntil || !AI?.hasKey() || navigator.onLine === false || AI.busy?.()) return;
+    const left = (await counts())[topic.id] || 0;
+    if (left >= LOW) return;
+    const result = await refill(topic, { background: true });
+    if (!result.ok) coolUntil = Date.now() + 5 * 60000;
+  }
+
+  // The next problem for a topic that this iPad hasn't given yet. From the bank when it can; one call
+  // (which fills the bank) when it can't. Random picks a topic that has problems waiting, if any.
+  async function take(pick) {
+    let topic = topicOf(pick);
+    if (topic.id === "random") {
+      const have = await counts();
+      const stocked = concrete.filter((t) => (have[t.id] || 0) > 0);
+      const pool = stocked.length ? stocked : concrete;
+      topic = pool[Math.floor(Math.random() * pool.length)];
     }
-    return { ok: false, error: `Gemini's problem didn't check out (${why}). Try again.` };
+    const waiting = async () => (await allRecords()).filter((r) => r.topic === topic.id && !r.seen).sort((a, b) => a.at - b.at);
+    let pool = await waiting();
+    let fromBank = true;
+    if (!pool.length) {
+      const made = await refill(topic);
+      if (!made.ok) return made;
+      pool = await waiting();
+      fromBank = false;
+      if (!pool.length) return { ok: false, error: "No new problem this time. Try again." };
+    }
+    const record = pool[0];
+    record.seen = true;
+    record.seenAt = Date.now();
+    await putRecord(record);
+    changed();
+    const left = pool.length - 1;
+    if (left < LOW) topUp(topic); // not waited for
+    return { ok: true, problem: { ...record.problem, pick }, fromBank, left };
   }
 
   // The packet the problem card draws (the same card Gemini uses on My board).
@@ -114,5 +236,5 @@ Variety: ${Math.floor(Math.random() * 1e6)}.${avoid?.length ? ` Do not repeat th
 
   const problemText = (problem) => (problem ? [problem.title, problem.text, ...problem.lines].join(". ") : "");
 
-  window.SkybridgePractice = { TOPICS, make, items, problemText, trouble };
+  window.SkybridgePractice = { TOPICS, take, counts, onChange: (fn) => listeners.add(fn), items, problemText, trouble };
 })();

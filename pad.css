@@ -964,3 +964,6 @@ input[type="range"] {
   #settings { width: min(640px, calc(100vw - 24px)); grid-template-columns: 1fr 1fr; column-gap: 24px; align-items: start; }
   #settings .preview, #settings #recenterBtn { grid-column: 1 / -1; }
 }
+
+/* "Next problem" sits beside Hide on a practice problem's card. */
+.my-board-problem-hide.practice-next { right: 62px; }

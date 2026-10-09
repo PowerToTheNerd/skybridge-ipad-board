@@ -263,8 +263,8 @@ Answer with JSON only.`;
   }
 
   // Words only (no picture): a practice problem. `prompt` is built by practice.js.
-  async function ask(prompt, schema) {
-    const { model, text } = await generate(null, prompt, schema, { temperature: 0.9 });
+  async function ask(prompt, schema, { background = false } = {}) {
+    const { model, text } = await generate(null, prompt, schema, { temperature: 0.9 }, { background });
     return { model, data: parseJson(text) };
   }
 
@@ -275,6 +275,12 @@ Answer with JSON only.`;
 
   // Says what went wrong and, for the free-tier problems, which model said what (429 is Google's
   // rate limit; 503 and 500 are Google being overloaded; 404 is a model that isn't offered).
+  // True while every model is resting after a limit or a busy answer: background top-ups wait.
+  function busy() {
+    const now = Date.now();
+    return MODELS.filter((name) => !missing.has(name)).every((name) => (rest.get(name) || 0) > now);
+  }
+
   function explain(error) {
     const kind = error?.kind;
     const where = error?.tried?.length ? ` (${[...new Set(error.tried)].join(", ")})` : "";
@@ -288,5 +294,5 @@ Answer with JSON only.`;
     return error?.message || "Reading the page failed.";
   }
 
-  window.SkybridgeAI = { hasKey, getKey, setKey, indexPage, transcribe, ask, readWork, explain, cleanIndex, shortTitle, parseJson, timing, MODELS };
+  window.SkybridgeAI = { hasKey, getKey, setKey, indexPage, transcribe, ask, readWork, explain, busy, cleanIndex, shortTitle, parseJson, timing, MODELS };
 })();

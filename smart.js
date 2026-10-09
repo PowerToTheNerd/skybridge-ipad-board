@@ -120,7 +120,24 @@
 
   // Handwriting to typed text for the strokes you pick (the lasso's "To text"): read by the PC when
   // it is on, otherwise by Gemini with your key, the same readers that name pages.
+  // Answers already paid for are kept for a while, so asking again about the same writing costs no call.
+  const memo = new Map();
+  const MEMO_MS = 30 * 60000;
+  const MEMO_MAX = 24;
+  function remember(key, value) {
+    memo.set(key, { value, at: Date.now() });
+    while (memo.size > MEMO_MAX) memo.delete(memo.keys().next().value);
+  }
+  function recall(key) {
+    const hit = memo.get(key);
+    if (!hit || Date.now() - hit.at > MEMO_MS) { memo.delete(key); return null; }
+    return hit.value;
+  }
+
   async function convert(strokes) {
+    const key = `text|${Notebooks.hashOf(strokes)}`;
+    const known = recall(key);
+    if (known !== null) return { ok: true, text: known, cached: true };
     const how = reader();
     if (!how) {
       return { ok: false, error: navigator.onLine === false && AI?.hasKey() ? "No connection. Turning writing into text needs the internet or your PC." : "To turn writing into text, add your free Gemini key under Notebooks, then Smart features." };
@@ -130,13 +147,17 @@
     if (how === "pc") {
       try {
         const read = await readViaPc(image);
-        return { ok: true, text: String(read.text || "").trim() };
+        const text = String(read.text || "").trim();
+        if (text) remember(key, text);
+        return { ok: true, text };
       } catch (error) {
         if (!AI?.hasKey() || navigator.onLine === false) return { ok: false, error: error.message };
       }
     }
     try {
-      return { ok: true, text: (await AI.transcribe(image)).text };
+      const text = (await AI.transcribe(image)).text;
+      if (text) remember(key, text);
+      return { ok: true, text };
     } catch (error) {
       return { ok: false, error: AI.explain(error) };
     }
@@ -291,7 +312,18 @@
     return [ax, ay, bx, by];
   }
 
+  // The writing as it was before Check added its own marks (a green "Correct!" or a red ring), so that
+  // checking again without changing anything is answered from memory.
+  const MARKS = new Set(["#34c38f", "#ef5350"]);
+  const workKey = () => {
+    const work = (window.SkybridgePad?.strokes || []).filter((stroke) => !(stroke.clean && MARKS.has(stroke.color)));
+    return `check|${Notebooks.hashOf(work)}|${bridge?.problemText?.() || ""}`;
+  };
+
   async function check() {
+    const key = workKey();
+    const known = recall(key);
+    if (known) return { ...known, text: `${known.text}\n(Same page as your last check, so no new request was made.)`, cached: true };
     if (!AI.hasKey()) {
       return { ok: false, error: "To check without your PC, add your Gemini key under Notebooks, then Smart features." };
     }
@@ -308,7 +340,10 @@
       const { model, reading } = await AI.readWork(image, { problem: bridge.problemText?.() || "", mode: "practice" });
       const rows = MathCheck.runChecks(reading.checks);
       const result = MathCheck.verdict(reading, rows, "practice");
-      return { ok: true, text: summary(result, model), verdict: result.verdict, box: result.verdict === "wrong" ? boardBox(reading.mistake_box, page) : null };
+      const answer = { ok: true, text: summary(result, model), verdict: result.verdict, box: result.verdict === "wrong" ? boardBox(reading.mistake_box, page) : null };
+      // A page nothing could be read from is worth asking again; a verdict is worth keeping.
+      if (result.verdict !== "unreadable") remember(key, answer);
+      return answer;
     } catch (error) {
       return { ok: false, error: AI.explain(error) };
     }

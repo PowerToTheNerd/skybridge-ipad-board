@@ -2457,20 +2457,32 @@
     if (!problem || !whiteboard || !window.SkybridgePractice) return;
     await whiteboard.draw({ board: "mine", clear: true, title: problem.title, items: window.SkybridgePractice.items(problem) });
     const fresh = el.stage.querySelector(".my-board-problem");
-    if (fresh) fresh._practice = true;
+    if (fresh) {
+      fresh._practice = true;
+      if (!fresh.querySelector(".practice-next")) {
+        const next = document.createElement("button");
+        next.type = "button";
+        next.className = "my-board-problem-hide practice-next";
+        next.textContent = "Next problem";
+        next.addEventListener("click", nextPractice);
+        fresh.append(next);
+      }
+    }
   }
 
-  const askedBefore = [];
-  async function makePractice() {
+  // Put a practice problem on this page, or in a new notebook. It comes from the bank on this iPad when
+  // there is one waiting (no call at all), and from one call that fills the bank when there isn't.
+  let practiceBusy = false;
+  async function placePractice(pick, where) {
     const Practice = window.SkybridgePractice;
-    if (!Practice) return;
+    if (!Practice || practiceBusy) return;
+    practiceBusy = true;
     el.practiceGo.disabled = true;
-    el.practiceGo.textContent = "Writing a problem…";
+    el.practiceGo.textContent = "Getting a problem…";
     try {
-      const made = await Practice.make(el.practiceTopic.value, { avoid: askedBefore });
+      const made = await Practice.take(pick);
       if (!made.ok) { toast(made.error, !window.SkybridgeAI.hasKey() ? { label: "Open", run: () => { document.getElementById("smartFold").open = true; } } : undefined); return; }
-      askedBefore.push(Practice.problemText(made.problem));
-      if (el.practiceWhere.value === "new") {
+      if (where === "new") {
         await newNotebook();
         const label = Practice.TOPICS.find((t) => t.id === made.problem.topic)?.label || made.problem.title;
         await Notebooks.rename(nb.id, label);
@@ -2482,12 +2494,26 @@
       el.notebookSheet.hidden = true;
       el.notebookBtn.setAttribute("aria-expanded", "false");
       renderNotebookUi();
-      toast("Practice problem ready. Write your work below it.");
+      toast(made.fromBank ? `Practice problem ready (${made.left} more saved)` : "Practice problem ready. Write your work below it.");
     } finally {
+      practiceBusy = false;
       el.practiceGo.disabled = false;
       el.practiceGo.textContent = "Make a problem";
     }
   }
+  const makePractice = () => placePractice(el.practiceTopic.value, el.practiceWhere.value);
+  // "Next problem" on the card: another one of the same kind. A page with your work on it stays as it is.
+  const nextPractice = () => {
+    const worked = strokes.filter((stroke) => !stroke.eraser).length >= 3;
+    return placePractice(nb?.problem?.pick || nb?.problem?.topic || el.practiceTopic.value, worked ? "new" : "page");
+  };
+  function renderPracticeCount() {
+    window.SkybridgePractice?.counts().then((count) => {
+      el.practiceOut.textContent = count.total ? `${count.total} saved` : "";
+    });
+  }
+  window.SkybridgePractice?.onChange(renderPracticeCount);
+  renderPracticeCount();
   el.practiceGo.addEventListener("click", makePractice);
   if (window.SkybridgePractice) {
     for (const topic of window.SkybridgePractice.TOPICS) {
