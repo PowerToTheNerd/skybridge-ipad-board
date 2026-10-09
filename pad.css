@@ -230,7 +230,7 @@ canvas {
 .rail[data-collapsed="true"] { padding: 6px; }
 .rail[data-collapsed="true"] .rail-toggle svg { transform: rotate(180deg); }
 .rail-toggle svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-.zoom-pill { position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 30; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--panel, rgba(30,30,34,.92)); color: inherit; font-size: 14px; backdrop-filter: blur(10px); }
+.zoom-pill { position: fixed; right: max(14px, env(safe-area-inset-right)); bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 30; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--panel, rgba(30,30,34,.92)); color: inherit; font-size: 14px; backdrop-filter: blur(10px); }
 
 .settings {
   position: fixed;
