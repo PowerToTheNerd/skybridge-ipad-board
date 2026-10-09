@@ -127,6 +127,8 @@
     localTest: document.getElementById("localTest"),
     localResult: document.getElementById("localResult"),
     localRemove: document.getElementById("localRemove"),
+    localPair: document.getElementById("localPair"),
+    syncFold: document.getElementById("syncFold"),
     notebookList: document.getElementById("notebookList"),
     notebookNew: document.getElementById("notebookNew"),
     syncOut: document.getElementById("syncOut"),
@@ -3426,6 +3428,7 @@
       note = "Changes are waiting to sync. They go to your PC when it is on and on the same Wi-Fi.";
     }
     renderSmartUi();
+    if (Local) renderLocal();
     el.syncOut.textContent = out;
     el.syncNote.textContent = note;
     el.syncCodeRow.hidden = !hosted;
@@ -3548,6 +3551,7 @@
     el.localOut.textContent = !Local.endpoint(cfg.url) ? "Not set" : cfg.mode === "off" ? "Off" : cfg.mode === "only" ? "Instead of Gemini" : "Before Gemini";
     el.localOut.dataset.state = on ? "on" : "off";
     el.localRemove.hidden = !cfg.url && !cfg.key;
+    el.localPair.hidden = !Local.needsPair();
   }
   if (Local) {
     renderLocal();
@@ -3562,6 +3566,11 @@
     });
     el.localVision.addEventListener("change", () => saveLocal({ vision: el.localVision.value === "yes" }));
     el.localMode.addEventListener("change", () => saveLocal({ mode: el.localMode.value }));
+    el.localPair.addEventListener("click", () => {
+      el.syncFold.open = true;
+      el.syncFold.scrollIntoView({ block: "start", behavior: "smooth" });
+      (el.syncHost.offsetParent ? el.syncHost : el.syncFold).focus?.({ preventScroll: true });
+    });
     el.localRemove.addEventListener("click", () => { saveLocal({ url: "", key: "", model: "", vision: false, mode: "first" }); el.localResult.hidden = true; toast("Local model forgotten"); });
     el.localTest.addEventListener("click", async () => {
       el.localTest.disabled = true;
@@ -3570,6 +3579,7 @@
       try {
         const result = await Local.test();
         el.localResult.hidden = false;
+        renderLocal();
         el.localResult.textContent = result.ok ? `It answered in ${(result.ms / 1000).toFixed(1)} s: "${result.text}".` : result.error;
         el.localResult.dataset.state = result.ok ? "on" : "off";
       } finally {

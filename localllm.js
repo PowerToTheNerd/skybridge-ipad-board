@@ -59,7 +59,7 @@
     const url = endpoint(cfg.url);
     if (!url) return "Type your server's address, for example http://127.0.0.1:8888/v1.";
     if (mixed(url)) {
-      return "This page is https, and a browser won't let an https page call an http address directly. So requests go through Skybridge on your PC, which must be on, and the address must be one the PC can reach (http://127.0.0.1:8888/v1 for a server on the PC). For use without the PC, give an https address (a Tailscale or Cloudflare tunnel).";
+      return "This page is https, and a browser won't let an https page call an http address directly. So requests go through Skybridge on your PC: pair with it first (Sync with Skybridge), keep it on, and use an address the PC can reach (your PC's own address works, like http://10.0.0.5:8888/v1). For use without the PC, give an https address (a Tailscale or Cloudflare tunnel).";
     }
     return /^https:/i.test(url)
       ? "This https address is called straight from the iPad, so it works without the PC. The server must allow requests from this page (CORS)."
@@ -122,7 +122,7 @@
 
   function viaPc(url, cfg, body) {
     return new Promise((resolve) => {
-      if (!bridge?.ready()) { resolve({ ok: false, status: 0, error: "This address goes through Skybridge, and your PC isn't connected." }); return; }
+      if (!bridge?.ready()) { resolve({ ok: false, status: 0, pair: true, error: "Pair with Skybridge first. This address is http, so the iPad can only reach it through your PC." }); return; }
       const id = `l${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
       const timer = setTimeout(() => { waits.delete(id); resolve({ ok: false, status: 0, error: "No answer from the PC." }); }, TIMEOUT_MS + 5000);
       waits.set(id, { resolve, timer });
@@ -150,7 +150,9 @@
     if (!result.ok && result.network && !mixed(url) && bridge?.ready()) result = await viaPc(url, cfg, bodyFor(cfg, request, true));
     if (!result.ok) {
       const why = result.status === 401 || result.status === 403 ? "The local server didn't accept the key." : result.error;
-      throw new LocalError(why || "The local model didn't answer.");
+      const failure = new LocalError(why || "The local model didn't answer.");
+      failure.pair = result.pair === true;
+      throw failure;
     }
     if (!result.text.trim()) throw new LocalError("The local model gave an empty answer.");
     return result.text;
@@ -162,9 +164,11 @@
       const text = await chat({ prompt: "Reply with the single word: ready", temperature: 0 });
       return { ok: true, text: text.trim().slice(0, 80), ms: Date.now() - started };
     } catch (error) {
-      return { ok: false, error: error.message };
+      return { ok: false, error: error.message, pair: error.pair === true };
     }
   }
 
-  window.SkybridgeLocal = { config, save, endpoint, usable, route, chat, test, explainRoute, attach: (given) => { bridge = given; }, onRelay, label, LocalError };
+  const needsPair = () => route() === "relay" && !bridge?.ready();
+
+  window.SkybridgeLocal = { config, save, endpoint, usable, route, chat, test, explainRoute, needsPair, attach: (given) => { bridge = given; }, onRelay, label, LocalError };
 })();

@@ -267,8 +267,10 @@
         </div>
       </div>
       <div class="page" data-page="smart" role="tabpanel">
-        <section class="nb-section">
-          <div class="nb-section-head"><h3>Gemini</h3><output id="smartOut"></output></div>
+        <div class="nb-folds nb-folds-top">
+        <details class="nb-fold" id="geminiFold">
+          <summary><span>Gemini</span><output id="smartOut"></output></summary>
+          <div class="nb-fold-body">
           <p class="nb-hint" id="smartNote"></p>
           <label class="nb-address">
             <span>Gemini API key</span>
@@ -279,8 +281,8 @@
           <button type="button" class="nb-btn" id="smartNow">Read pages now</button>
           <button type="button" class="nb-link" id="geminiKeyRemove" hidden>Remove the key from this iPad</button>
           <p class="nb-fine">Your key stays on this iPad. Page pictures go to Google when Gemini reads them.</p>
-        </section>
-        <div class="nb-folds">
+          </div>
+        </details>
           <details class="nb-fold" id="liveFold">
             <summary><span>Gemini Live (experimental)</span><output id="liveOut"></output></summary>
             <div class="nb-fold-body">
@@ -319,8 +321,9 @@
               </label>
               <label class="nb-address">
                 <span>API key (if it has one)</span>
-                <input type="password" id="localKey" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Optional">
+                <input type="password" id="localKey" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Leave empty if it has none">
               </label>
+              <p class="nb-fine">No key needed when the server runs without one. Unsloth Studio with keyless access on your network needs none.</p>
               <label class="nb-address">
                 <span>Model name (optional)</span>
                 <input type="text" id="localModel" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="whatever the server calls it">
@@ -341,6 +344,7 @@
                 </select>
               </label>
               <p class="nb-fine" id="localRoute"></p>
+              <button type="button" class="nb-btn" id="localPair" hidden>Pair with Skybridge first</button>
               <button type="button" class="nb-btn" id="localTest">Test it</button>
               <p class="nb-hint" id="localResult" hidden></p>
               <button type="button" class="nb-link" id="localRemove" hidden>Forget this address and key</button>
