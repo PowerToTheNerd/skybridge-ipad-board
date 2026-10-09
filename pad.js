@@ -1842,9 +1842,9 @@
     if (card._tools) {
       // Next problem is added after the card is drawn: gather it in, in the order Move, Next, Hide.
       const tools = card.querySelector(".card-tools");
-      const next = card.querySelector(":scope > .practice-next");
+      const extra = card.querySelectorAll(":scope > .practice-next");
       const hide = tools.querySelector(".my-board-problem-hide:not(.card-move):not(.practice-next)");
-      if (next) { tools.append(next); if (hide) tools.append(hide); }
+      if (extra.length) { extra.forEach((button) => tools.append(button)); if (hide) tools.append(hide); }
       applyCardLook(card);
       return;
     }
@@ -2931,7 +2931,7 @@
   async function markWork({ verdict, box }) {
     const Marks = window.SkybridgeMarks;
     if (!Marks || (verdict !== "correct" && !(verdict === "wrong" && box))) return;
-    const work = strokes.filter((stroke) => !stroke.eraser && !stroke.hl && !markIds.includes(stroke.id) && stroke.points.length);
+    const work = strokes.filter((stroke) => !stroke.eraser && !stroke.hl && !stroke.pin && !markIds.includes(stroke.id) && stroke.points.length);
     if (verdict === "correct" && !work.length) return;
     let made;
     if (verdict === "correct") {
@@ -2955,6 +2955,15 @@
       added.push(item);
       markIds.push(stroke.id);
       await new Promise((resolve) => setTimeout(resolve, 110));
+    }
+    if (made.label) {
+      const { text, size, color, x, y } = made.label;
+      const box = textBox(text, size, "inter");
+      const stroke = { id: newId(), color, eraser: false, hl: false, width: 1, sim: false, clean: true, text, font: "inter", points: [[x, y], [x + box.width, y + box.height]] };
+      const item = { s: stroke, i: strokes.length };
+      boards.mine.put([item]);
+      added.push(item);
+      markIds.push(stroke.id);
     }
     record("mine", old, added);
     lastBoard = "mine";
@@ -3095,6 +3104,7 @@
     const card = el.stage.querySelector(".my-board-problem");
     if (card?._practice) card.remove();
     if (!problem || !whiteboard || !window.SkybridgePractice) return;
+    if (problem.pinned) return; // it is written on the page itself (Pin to page)
     await whiteboard.draw({ board: "mine", clear: true, title: problem.title, items: window.SkybridgePractice.items(problem) });
     const fresh = el.stage.querySelector(".my-board-problem");
     if (fresh) {
@@ -3105,10 +3115,100 @@
         next.className = "my-board-problem-hide practice-next";
         next.textContent = "Next problem";
         next.addEventListener("click", problem.source === "homework" ? nextHomework : nextPractice);
-        fresh.append(next);
+        const pin = document.createElement("button");
+        pin.type = "button";
+        pin.className = "my-board-problem-hide practice-next card-pin";
+        pin.textContent = "Pin to page";
+        pin.title = "Write the problem on the paper itself, so it moves and zooms with your work";
+        pin.addEventListener("click", pinProblem);
+        fresh.append(next, pin);
       }
       decorateCard(fresh);
     }
+  }
+
+  // ---- Pin to page: the problem becomes text on the paper (a movable text item, not your writing) ----
+  const latexPlain = (text) => String(text || "")
+    .replace(/\\(?:left|right|,|;|!|quad|qquad)/g, " ").replace(/\\cdot/g, "·").replace(/\\times/g, "×").replace(/\\pm/g, "±")
+    .replace(/\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, (_, a, b) => (/^[\w.]+$/.test(a) && /^[\w.]+$/.test(b) ? `${a}/${b}` : `(${a})/(${b})`))
+    .replace(/\\sqrt\s*\{([^{}]*)\}/g, "√($1)").replace(/\^\{([^{}]*)\}/g, "^$1").replace(/_\{([^{}]*)\}/g, "_$1")
+    .replace(/\\([a-zA-Z]+)/g, "$1").replace(/[{}]/g, "").replace(/\s+/g, " ").trim();
+  function matrixBlock(body) {
+    const rows = body.split(/\\\\/).map((row) => row.split("&").map((cell) => latexPlain(cell))).filter((row) => row.some(Boolean));
+    if (!rows.length) return [];
+    const columns = Math.max(...rows.map((row) => row.length));
+    const widths = Array.from({ length: columns }, (_, c) => Math.max(...rows.map((row) => (row[c] || "").length)));
+    const cells = rows.map((row) => widths.map((width, c) => (row[c] || "").padStart(width)).join("  "));
+    if (cells.length === 1) return [`[ ${cells[0]} ]`];
+    return cells.map((row, i) => `${i === 0 ? "┌" : i === cells.length - 1 ? "└" : "│"} ${row} ${i === 0 ? "┐" : i === cells.length - 1 ? "┘" : "│"}`);
+  }
+  // One given line ("A = [matrix] B = [matrix]" or an equation) as lines of plain monospace text.
+  function givenLines(latex) {
+    const blocks = [];
+    let last = 0;
+    const pattern = /\\begin\{[bpvBV]?matrix\}([\s\S]*?)\\end\{[bpvBV]?matrix\}/g;
+    for (let hit = pattern.exec(latex); hit; hit = pattern.exec(latex)) {
+      const label = latexPlain(latex.slice(last, hit.index));
+      if (label) blocks.push([label]);
+      blocks.push(matrixBlock(hit[1]));
+      last = pattern.lastIndex;
+    }
+    const rest = latexPlain(latex.slice(last));
+    if (rest) blocks.push([rest]);
+    const height = Math.max(1, ...blocks.map((block) => block.length));
+    const middle = Math.floor((height - 1) / 2);
+    const out = Array.from({ length: height }, () => []);
+    for (const block of blocks) {
+      const width = Math.max(...block.map((line) => [...line].length));
+      const top = block.length === 1 ? middle : 0;
+      for (let i = 0; i < height; i += 1) out[i].push((block[i - top] || "").padEnd(width));
+    }
+    return out.map((parts) => parts.join(" ").replace(/\s+$/, ""));
+  }
+  const wrapWords = (text, max) => {
+    const lines = [];
+    let line = "";
+    for (const word of String(text).split(/\s+/).filter(Boolean)) {
+      if (line && line.length + word.length + 1 > max) { lines.push(line); line = word; } else line = line ? `${line} ${word}` : word;
+    }
+    if (line) lines.push(line);
+    return lines;
+  };
+  function problemAsText(problem) {
+    const out = [problem.title, ""];
+    out.push(...wrapWords(problem.text, 46));
+    for (const line of problem.lines || []) out.push("", ...givenLines(line));
+    return out.join("\n").replace(/\n+$/, "");
+  }
+  async function pinProblem() {
+    const problem = nb?.problem;
+    if (!problem || problem.pinned) return;
+    try { await document.fonts.load('22px "Skybridge JetBrains Mono"'); } catch {}
+    const text = problemAsText(problem);
+    const size = 22;
+    const box = textBox(text, size, "jetbrains");
+    const x = view.x + 120 / view.zoom; // clear of the tool rail
+    const y = view.y + 84 / view.zoom;
+    const made = { id: newId(), color: "#8a94a0", eraser: false, hl: false, width: 1, sim: false, clean: true, pin: true, text, font: "jetbrains", points: [[x, y], [x + box.width, y + box.height]] };
+    const item = { s: made, i: strokes.length };
+    boards.mine.put([item]);
+    record("mine", [], [item]);
+    lastBoard = "mine";
+    nb.problem = { ...problem, pinned: true };
+    saving = saving.then(() => Notebooks.save(nb.id, { meta: { problem: nb.problem }, touch: false })).catch(() => {});
+    el.stage.querySelector(".my-board-problem")?._practice && showPracticeCard(nb.problem);
+    lasso.selected = strokes.filter((stroke) => stroke.id === made.id);
+    rebuildBase();
+    positionLasso();
+    schedulePaint();
+    toast("Pinned to the page. Lasso it to move it.", { label: "Undo", run: unpinProblem });
+  }
+  function unpinProblem() {
+    undoAction();
+    if (!nb?.problem?.pinned) return;
+    nb.problem = { ...nb.problem, pinned: false };
+    saving = saving.then(() => Notebooks.save(nb.id, { meta: { problem: nb.problem }, touch: false })).catch(() => {});
+    showPracticeCard(nb.problem);
   }
 
   // Put a practice problem on this page, or in a new notebook. It comes from the bank on this iPad when
@@ -3145,7 +3245,7 @@
   const makePractice = () => placePractice(el.practiceTopic.value, el.practiceWhere.value);
   // "Next problem" on the card: another one of the same kind. A page with your work on it stays as it is.
   const nextPractice = () => {
-    const worked = strokes.filter((stroke) => !stroke.eraser).length >= 3;
+    const worked = strokes.filter((stroke) => !stroke.eraser && !stroke.pin).length >= 3;
     return placePractice(nb?.problem?.pick || nb?.problem?.topic || el.practiceTopic.value, worked ? "new" : "page");
   };
   // ---- homework PDFs: the problems Gemini read out of an imported PDF (see homework.js) ----------------
@@ -3206,7 +3306,7 @@
     const set = await Homework.get(problem.set);
     if (!set) { toast("That homework was removed from this iPad."); return; }
     if (problem.index + 1 >= set.problems.length) { toast(`That was the last problem in ${set.name}.`); return; }
-    const worked = strokes.filter((stroke) => !stroke.eraser).length >= 3;
+    const worked = strokes.filter((stroke) => !stroke.eraser && !stroke.pin).length >= 3;
     await placeHomework(set.id, problem.index + 1, worked ? "new" : "page");
   };
   if (Homework) {

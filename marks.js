@@ -5,7 +5,7 @@
  *
  * window.SkybridgeMarks = { correct(ink, view), circle(box), TEXT }
  *   ink: { x0, y0, x1, y1 } of the writing; view: { x0, y0, x1, y1 } of what is on screen.
- *   Each returns { strokes: [{ color, width, points }] } in board coordinates.
+ *   Each returns { strokes: [{ color, width, points }] } in board coordinates (correct also returns a `label` for the pad to write as text).
  */
 (() => {
   const GOOD = "#34c38f";
@@ -81,29 +81,38 @@
     return [Math.round(x * 10) / 10, Math.round(y * 10) / 10, Math.round((base * (0.7 + 0.3 * Math.min(1, edge))) * 1000) / 1000];
   });
 
-  // "Correct!" with a tick, to the right of the work when there is room on screen, else beneath it.
+  // A compact badge: a tick in a hand-drawn circle with the word "Correct" beside it, to the right of the work when
+  // there is room on screen, else beneath it. The word is a text item (the pad draws it); the circle and tick are pen strokes.
   function correct(ink, view) {
-    const inkH = Math.max(1, ink.y1 - ink.y0);
-    const height = Math.min(84, Math.max(46, inkH * 0.45));
-    const measure = word(TEXT, 0, 0, height).width;
-    const tickW = height * 0.9;
-    const total = tickW + height * 0.3 + measure;
-    let left = ink.x1 + 44;
-    let top = (ink.y0 + ink.y1) / 2 - height / 2;
+    const size = 36; // the circle's width; everything else follows from it
+    const label = { text: "Correct", size: 22 };
+    const labelW = label.size * 3.7; // a good guess for the box; the pad measures the real width
+    const total = size + 12 + labelW;
+    let left = ink.x1 + 40;
+    let top = (ink.y0 + ink.y1) / 2 - size / 2;
     if (view && left + total > view.x1 - 16) {
       left = ink.x0;
-      top = ink.y1 + 36;
-      if (top + height > view.y1 - 16) top = Math.max(ink.y0, view.y1 - height - 16);
+      top = ink.y1 + 30;
+      if (top + size > view.y1 - 16) top = Math.max(ink.y0, view.y1 - size - 16);
     }
-    const tick = [[0, 0.58], [0.3, 0.92], [0.96, 0.05]].map(([x, y]) => [left + x * tickW, top + y * height]);
-    const text = word(TEXT, left + tickW + height * 0.3, top, height);
-    const lines = [tick, ...text.strokes];
+    const rand = jitter(Math.floor(left * 7 + top * 13) % 9973 + 11);
+    const cx = left + size / 2;
+    const cy = top + size / 2;
+    const ring = [];
+    const steps = 40;
+    for (let k = 0; k <= steps; k += 1) {
+      const t = k / steps;
+      const a = -Math.PI * 0.62 + (TAU + 0.35) * t;
+      const grow = 1 + 0.03 * t + 0.015 * rand();
+      ring.push([cx + (size / 2) * grow * Math.cos(a), cy + (size / 2) * grow * Math.sin(a)]);
+    }
+    const tick = [[0.27, 0.53], [0.44, 0.7], [0.74, 0.31]].map(([x, y]) => [left + x * size, top + y * size]);
     return {
-      strokes: lines.map((line, i) => ({
-        color: GOOD,
-        width: i === 0 ? 4 : 3.2,
-        points: pressured(smooth(line, 3)),
-      })),
+      strokes: [
+        { color: GOOD, width: 3, points: pressured(ring, 0.5) },
+        { color: GOOD, width: 3.4, points: pressured(smooth(tick, 4), 0.55) },
+      ],
+      label: { text: label.text, size: label.size, color: GOOD, x: left + size + 12, y: cy - (label.size * 1.3) / 2 },
     };
   }
 
