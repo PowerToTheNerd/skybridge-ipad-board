@@ -20,12 +20,13 @@
     chalk: "Chalkboard",
     white: "Soft white",
     cream: "Cream",
+    custom: "Your paper",
   };
   // App colour: four looks and one of your own. Every bar, panel and menu follows it; the ink and
   // the paper keep their own colours.
   const THEMES = { black: "Black", white: "White", green: "Green", purple: "Purple", custom: "Your colour" };
   const THEME_HUES = { black: 210, white: 215, green: 156, purple: 265 };
-  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], palette: [], rail: true, paper: "night", theme: "green", accent: "#7c5cd6", fx: false, page: "pen", finger: "move", grid: "dots", gridSize: 24, grain: true, layout: "mine" };
+  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], palette: [], rail: true, paper: "night", theme: "green", accent: "#7c5cd6", paperColor: "#2d3b57", fxs: {}, page: "pen", finger: "move", grid: "dots", gridSize: 24, grain: true, layout: "mine" };
   const LAYOUTS = ["mine", "both", "gemini"];
 
   const el = {
@@ -62,7 +63,16 @@
     preview: document.getElementById("preview"),
     papers: document.getElementById("papers"),
     themes: document.getElementById("themes"),
-    fx: document.getElementById("fxBtn"),
+    labBtn: document.getElementById("labBtn"),
+    labList: document.getElementById("labList"),
+    paperPicker: document.getElementById("paperPicker"),
+    paperSV: document.getElementById("paperSV"),
+    paperSVKnob: document.getElementById("paperSVKnob"),
+    paperHue: document.getElementById("paperHue"),
+    paperHueKnob: document.getElementById("paperHueKnob"),
+    paperChip: document.getElementById("paperChip"),
+    hoverGlow: document.getElementById("hoverGlow"),
+    wetCanvas: document.getElementById("wetCanvas"),
     themePicker: document.getElementById("themePicker"),
     themeSV: document.getElementById("themeSV"),
     themeSVKnob: document.getElementById("themeSVKnob"),
@@ -167,7 +177,12 @@
   const settings = { ...DEFAULTS };
   try { Object.assign(settings, JSON.parse(storage("get", SETTINGS_KEY) || "{}")); } catch {}
   if (!(settings.paper in PAPERS)) settings.paper = DEFAULTS.paper;
-  if (!["pen", "paper"].includes(settings.page)) settings.page = "pen";
+  const PAGES = ["pen", "paper", "lab"];
+  if (!PAGES.includes(settings.page)) settings.page = "pen";
+  if (!/^#[0-9a-f]{6}$/i.test(settings.paperColor)) settings.paperColor = DEFAULTS.paperColor;
+  // Experimental effects, all off until switched on. (The first one used to be a single "fx" switch.)
+  if (settings.fx === true && settings.fxs?.light === undefined) settings.fxs = { ...(settings.fxs || {}), light: true };
+  settings.fxs = settings.fxs && typeof settings.fxs === "object" ? settings.fxs : {};
   if (!(settings.theme in THEMES)) settings.theme = DEFAULTS.theme; // the older Auto and fixed colours come back as green
   if (!/^#[0-9a-f]{6}$/i.test(settings.accent)) settings.accent = DEFAULTS.accent;
   // The pattern used to be on or off; now it is blank, dots, a square grid or lined.
@@ -1032,7 +1047,7 @@
     view.x = Math.round(x * 10) / 10;
     view.y = Math.round(y * 10) / 10;
     // The dot grid moves and scales with the board so it feels like paper sliding.
-    el.stage.style.backgroundPosition = `${-view.x * view.zoom}px ${-view.y * view.zoom}px`;
+    gridPosition();
     el.stage.style.backgroundSize = `${settings.gridSize * view.zoom}px ${settings.gridSize * view.zoom}px`;
     renderZoomPill();
     queueSave(1500);
@@ -1297,6 +1312,7 @@
       }
     }
     finish(id);
+    wetShimmer(stroke);
     // A quick zigzag over ink erases what it crosses; anything else is a step to undo.
     if (!scribbleErase("mine", stroke)) record("mine", [], [itemOf(strokes, stroke)]);
   }
@@ -1666,6 +1682,144 @@
   }
   el.canvas.addEventListener("pointerdown", () => { document.documentElement.dataset.writing = "on"; }, true);
 
+  // ---- your own paper: a colour picker; ink, marks and grid follow so they stay readable ----------
+  const luma = (rgb) => (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
+  const hexRgb = (value) => [1, 3, 5].map((i) => parseInt(value.slice(i, i + 2), 16));
+  function isDarkPaper() {
+    return luma(hexRgb(settings.paper === "custom" ? settings.paperColor : (cssColor("paper") || "#0d1613"))) < 0.5;
+  }
+  const PAPER_VARS = ["paper", "grid", "ink", "mark-1", "mark-2", "mark-3", "grain-opacity"];
+  function applyPaper() {
+    const root = document.documentElement.style;
+    if (settings.paper === "custom") {
+      const dark = luma(hexRgb(settings.paperColor)) < 0.5;
+      root.setProperty("--paper", settings.paperColor);
+      root.setProperty("--grid", dark ? "rgba(255, 255, 255, 0.2)" : "rgba(60, 55, 45, 0.26)");
+      root.setProperty("--ink", dark ? "#e3ece6" : "#2a2d2b");
+      root.setProperty("--mark-1", dark ? "#a9d9c2" : "#2b6f55");
+      root.setProperty("--mark-2", dark ? "#d8d89a" : "#94690f");
+      root.setProperty("--mark-3", dark ? "#e38f8f" : "#b23a30");
+      root.setProperty("--grain-opacity", dark ? "0.35" : "0.4");
+    } else {
+      PAPER_VARS.forEach((name) => root.removeProperty(`--${name}`));
+    }
+    // The living-paper light is white on dark paper and a soft shadow on light paper.
+    root.setProperty("--lp-rgb", isDarkPaper() ? "255, 255, 255" : "40, 34, 20");
+  }
+  const paperHsv = { h: 220, s: 0.5, v: 0.34 };
+  function paintPaperPicker() {
+    el.paperSV.style.background = `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(${paperHsv.h} 100% 50%))`;
+    el.paperSVKnob.style.left = `${paperHsv.s * 100}%`;
+    el.paperSVKnob.style.top = `${(1 - paperHsv.v) * 100}%`;
+    el.paperHueKnob.style.left = `${(paperHsv.h / 360) * 100}%`;
+    el.paperChip.style.background = settings.paperColor;
+  }
+  function paperPickerMove() {
+    settings.paper = "custom";
+    settings.paperColor = hsvToHex(paperHsv);
+    renderSettings();
+    rebuildBase();
+    paint();
+  }
+  const paperPickerEnd = () => { saveSettings(); sendPaper(); };
+  dragOn(el.paperSV, (event) => {
+    const [x, y] = frac(event, el.paperSV);
+    paperHsv.s = x;
+    paperHsv.v = 1 - y;
+    paperPickerMove();
+  }, paperPickerEnd);
+  dragOn(el.paperHue, (event) => {
+    paperHsv.h = frac(event, el.paperHue)[0] * 359.9;
+    paperPickerMove();
+  }, paperPickerEnd);
+  Object.assign(paperHsv, hexToHsv(settings.paperColor));
+
+  // ---- experimental effects: all off until switched on, paused while a pen is down ------------------
+  const FX = [
+    { id: "light", label: "Theme light", hint: "A slow drift of soft light across the toolbar and rail." },
+    { id: "living", label: "Living paper", hint: "A faint, slow light drifting across the paper. The paper itself and the ink stay still." },
+    { id: "hover", label: "Pencil hover glow", hint: "A soft ring that follows the Pencil just above the screen (iPads that sense hover)." },
+    { id: "wet", label: "Wet ink", hint: "A new stroke shines for a moment, then dries." },
+    { id: "parallax", label: "Paper parallax", hint: "The grid slides a touch slower than the ink when you move the board." },
+  ];
+  for (const effect of FX) {
+    const row = document.createElement("div");
+    row.className = "setting";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "tool wide";
+    button.setAttribute("aria-pressed", "false");
+    button.textContent = effect.label;
+    const hint = document.createElement("span");
+    hint.className = "setting-hint";
+    hint.textContent = effect.hint;
+    row.append(button, hint);
+    el.labList.append(row);
+    effect.button = button;
+    button.addEventListener("click", () => {
+      settings.fxs[effect.id] = !settings.fxs[effect.id];
+      saveSettings();
+      renderSettings();
+    });
+  }
+  const fxOn = (id) => Boolean(settings.fxs[id]);
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+
+  // Pencil hover glow: one small element moved by transform in an animation frame.
+  let hoverFrame = 0;
+  let hoverAt = null;
+  function showHover() {
+    hoverFrame = 0;
+    if (!hoverAt) { el.hoverGlow.style.opacity = "0"; return; }
+    el.hoverGlow.style.transform = `translate3d(${hoverAt[0] - 22}px, ${hoverAt[1] - 22}px, 0)`;
+    el.hoverGlow.style.opacity = "1";
+  }
+  el.canvas.addEventListener("pointermove", (event) => {
+    if (!fxOn("hover") || event.pointerType !== "pen") return;
+    hoverAt = event.buttons === 0 ? [event.clientX, event.clientY] : null;
+    if (!hoverFrame) hoverFrame = requestAnimationFrame(showHover);
+  }, { passive: true });
+  for (const type of ["pointerdown", "pointerleave", "pointercancel"]) {
+    el.canvas.addEventListener(type, () => {
+      hoverAt = null;
+      if (fxOn("hover") && !hoverFrame) hoverFrame = requestAnimationFrame(showHover);
+    }, { passive: true });
+  }
+
+  // Wet ink: draw the finished stroke on its own layer with a shine, then fade that layer out.
+  let wetTimer = 0;
+  function wetShimmer(stroke) {
+    if (!fxOn("wet") || stroke.eraser || stroke.hl || reducedMotion?.matches) return;
+    const layer = el.wetCanvas;
+    if (layer.width !== el.canvas.width || layer.height !== el.canvas.height) {
+      layer.width = el.canvas.width;
+      layer.height = el.canvas.height;
+    }
+    const wet = layer.getContext("2d");
+    wet.setTransform(1, 0, 0, 1, 0, 0);
+    wet.clearRect(0, 0, layer.width, layer.height);
+    toScreen(wet);
+    wet.save();
+    wet.shadowColor = isDarkPaper() ? "rgba(255, 255, 255, 0.95)" : "rgba(255, 255, 255, 1)";
+    wet.shadowBlur = 14 * ratio;
+    drawStroke(wet, stroke);
+    wet.restore();
+    layer.style.transition = "none";
+    layer.style.opacity = "0.9";
+    clearTimeout(wetTimer);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      layer.style.transition = "opacity 1100ms ease-out";
+      layer.style.opacity = "0";
+    }));
+    wetTimer = setTimeout(() => wet.clearRect(0, 0, layer.width, layer.height), 1400);
+  }
+
+  // The grid slides a touch slower than the ink when parallax is on.
+  function gridPosition() {
+    const k = fxOn("parallax") ? 0.9 : 1;
+    el.stage.style.backgroundPosition = `${-view.x * view.zoom * k}px ${-view.y * view.zoom * k}px`;
+  }
+
   function paintPaper() {
     const line = cssColor("grid");
     const pattern = {
@@ -1684,14 +1838,22 @@
   }
 
   function sendPaper() {
-    send({ t: "paper", paper: settings.paper, grid: settings.grid !== "none", gridStyle: settings.grid, gridSize: settings.gridSize, grain: settings.grain, smooth: settings.smooth });
+    // The PC only knows its own papers, so your paper shows there as the nearest dark or light one.
+    const pcPaper = settings.paper === "custom" ? (isDarkPaper() ? "black" : "white") : settings.paper;
+    send({ t: "paper", paper: pcPaper, grid: settings.grid !== "none", gridStyle: settings.grid, gridSize: settings.gridSize, grain: settings.grain, smooth: settings.smooth });
   }
 
   function renderSettings() {
     document.documentElement.dataset.paper = settings.paper;
     applyTheme();
-    document.documentElement.dataset.fx = settings.fx ? "on" : "off";
-    el.fx.setAttribute("aria-pressed", String(Boolean(settings.fx)));
+    applyPaper();
+    for (const effect of FX) {
+      document.documentElement.dataset[`fx${effect.id}`] = settings.fxs[effect.id] ? "on" : "off";
+      effect.button?.setAttribute("aria-pressed", String(Boolean(settings.fxs[effect.id])));
+    }
+    gridPosition();
+    el.paperPicker.hidden = settings.paper !== "custom";
+    paintPaperPicker();
     document.documentElement.dataset.grid = settings.grid === "none" ? "off" : "on";
     document.documentElement.dataset.grain = settings.grain ? "on" : "off";
     paintPaper();
@@ -1734,9 +1896,12 @@
     button.setAttribute("role", "radio");
     button.setAttribute("aria-label", label);
     button.title = label;
-    // Each swatch shows its own paper colour.
-    document.documentElement.dataset.paper = key;
-    button.style.background = cssColor("paper");
+    // Each swatch shows its own paper colour (your own paper shows the colour wheel).
+    if (key === "custom") button.style.background = "conic-gradient(#f66, #fd6, #6d8, #6df, #86f, #f6c, #f66)";
+    else {
+      document.documentElement.dataset.paper = key;
+      button.style.background = cssColor("paper");
+    }
     button.addEventListener("click", () => {
       settings.paper = key;
       saveSettings();
@@ -1744,6 +1909,7 @@
       sendPaper();
       rebuildBase(); // light paper uses dark ink
       paint();
+      if (key === "custom") setSettingsOpen(true);
     });
     el.papers.append(button);
   });
@@ -1800,11 +1966,6 @@
   }, saveSettings);
   Object.assign(themeHsv, hexToHsv(settings.accent));
 
-  el.fx.addEventListener("click", () => {
-    settings.fx = !settings.fx;
-    saveSettings();
-    renderSettings();
-  });
   el.grain.addEventListener("click", () => {
     settings.grain = !settings.grain;
     saveSettings();
@@ -1871,7 +2032,7 @@
   let pageLock = 0;
   function showPage(name, smooth) {
     pageLock = performance.now() + (smooth ? 600 : 100);
-    el.pages.scrollTo({ left: name === "paper" ? el.pages.clientWidth : 0, behavior: smooth ? "smooth" : "auto" });
+    el.pages.scrollTo({ left: PAGES.indexOf(name) * el.pages.clientWidth, behavior: smooth ? "smooth" : "auto" });
     el.tabs.forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.page === name)));
   }
   el.tabs.forEach((tab) => tab.addEventListener("click", () => {
@@ -1881,7 +2042,7 @@
   }));
   el.pages.addEventListener("scroll", () => {
     if (performance.now() < pageLock) return;
-    const name = el.pages.scrollLeft > el.pages.clientWidth / 2 ? "paper" : "pen";
+    const name = PAGES[Math.min(PAGES.length - 1, Math.round(el.pages.scrollLeft / el.pages.clientWidth))];
     if (name === settings.page) return;
     settings.page = name;
     saveSettings();
@@ -1906,6 +2067,13 @@
       el.colorSheet.hidden = true;
     }
   }
+  el.labBtn.addEventListener("click", () => {
+    const open = el.settings.hidden || settings.page !== "lab";
+    settings.page = "lab";
+    saveSettings();
+    setSettingsOpen(open);
+    if (open) showPage("lab", false);
+  });
   el.settingsBtn.addEventListener("click", () => setSettingsOpen(el.settings.hidden));
   // Starting to write closes the panel.
   el.canvas.addEventListener("pointerdown", () => setSettingsOpen(false), true);

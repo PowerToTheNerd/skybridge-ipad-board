@@ -972,7 +972,7 @@ input[type="range"] {
 
 /* Pen and paper are two swipeable pages, so the panel stays short. */
 #settings { display: flex; flex-direction: column; overflow: hidden; width: min(400px, calc(100vw - 24px)); }
-.page-tabs { flex: none; }
+.page-tabs { flex: none; grid-template-columns: repeat(3, 1fr); }
 .pages { display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; margin: 0 -16px; min-height: 0; }
 .pages::-webkit-scrollbar { display: none; }
 .page { flex: 0 0 100%; scroll-snap-align: start; scroll-snap-stop: always; display: grid; gap: 12px; align-content: start; padding: 0 16px; overflow-y: auto; max-height: calc(100dvh - var(--bar-h) - env(safe-area-inset-top) - 130px); overscroll-behavior: contain; }
@@ -983,7 +983,7 @@ input[type="range"] {
 /* Theme effects: a slow drift of soft light across the toolbar and rail. The paper stays still, it is
    off unless switched on, it stops while a pen is down, and it respects reduced motion. */
 @property --fx-x { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
-:root[data-fx="on"] :is(.bar, .rail)::after {
+:root[data-fxlight="on"] :is(.bar, .rail)::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -997,6 +997,34 @@ input[type="range"] {
 @keyframes fx-drift { from { --fx-x: 0%; } to { --fx-x: 100%; } }
 :root[data-writing="on"] :is(.bar, .rail)::after { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) {
-  :root[data-fx="on"] :is(.bar, .rail)::after { animation: none; --fx-x: 30%; }
+  :root[data-fxlight="on"] :is(.bar, .rail)::after { animation: none; --fx-x: 30%; }
 }
 .page-tabs button[aria-selected="true"] { background: var(--line-strong); color: var(--text); }
+
+.gear { width: 44px; padding: 0; display: grid; place-items: center; }
+.gear svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.lab-list { display: grid; gap: 14px; }
+
+/* Experimental effects. Each is behind a switch (off by default) and paused while a pen is down. */
+@property --lp-x { syntax: "<percentage>"; inherits: false; initial-value: 20%; }
+:root[data-fxliving="on"] .stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at var(--lp-x) 25%, rgba(var(--lp-rgb), 0.09), transparent 46%),
+    radial-gradient(circle at calc(100% - var(--lp-x)) 85%, rgba(var(--lp-rgb), 0.06), transparent 50%);
+  animation: lp-drift 45s ease-in-out infinite alternate;
+}
+@keyframes lp-drift { from { --lp-x: 10%; } to { --lp-x: 90%; } }
+:root[data-writing="on"] .stage::after { animation-play-state: paused; }
+.hover-glow {
+  position: fixed; left: 0; top: 0; width: 44px; height: 44px; border-radius: 50%; z-index: 4;
+  pointer-events: none; opacity: 0; transition: opacity 120ms; will-change: transform;
+  background: radial-gradient(circle, rgba(var(--glow-rgb), 0.38), rgba(var(--glow-rgb), 0.12) 55%, transparent 72%);
+}
+:root[data-fxhover="off"] .hover-glow, :root[data-writing="on"] .hover-glow { display: none; }
+.wet-layer { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0; }
+:root[data-fxwet="off"] .wet-layer { display: none; }
+@media (prefers-reduced-motion: reduce) { :root[data-fxliving="on"] .stage::after { animation: none; --lp-x: 30%; } }

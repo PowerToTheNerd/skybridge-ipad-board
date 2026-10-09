@@ -36,6 +36,7 @@
     <div class="tools">
       <button type="button" class="tool" id="clearBtn" disabled>Clear</button>
       <button type="button" class="tool" id="settingsBtn" aria-expanded="false" aria-controls="settings">Pen<span class="long"> &amp; paper</span></button>
+      <button type="button" class="tool gear" id="labBtn" aria-label="Experimental effects" title="Experimental effects"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M2.8 12h2.6M18.6 12h2.6M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg></button>
       <button type="button" class="tool" id="exportBtn" aria-expanded="false" aria-controls="exportSheet">Export</button>
     </div>
 
@@ -88,6 +89,7 @@
 
   <main class="stage" id="stage" data-problem-stage>
     <canvas id="canvas" aria-label="Your board. Write with Apple Pencil; it appears on My board on your PC."></canvas>
+    <canvas class="wet-layer" id="wetCanvas" aria-hidden="true"></canvas>
     <!-- Lasso selection: drag the box to move, a corner to resize. -->
     <div class="lasso-box" id="lassoBox" hidden>
       <i class="lasso-handle" data-corner="nw"></i><i class="lasso-handle" data-corner="ne"></i>
@@ -103,11 +105,13 @@
       </div>
     </div>
   </main>
+  <div class="hover-glow" id="hoverGlow" aria-hidden="true"></div>
 
   <section class="settings" id="settings" role="dialog" aria-label="Pen and paper settings" hidden>
     <div class="page-tabs segmented" role="tablist" aria-label="Settings pages" id="settingsTabs">
       <button type="button" role="tab" data-page="pen" aria-selected="true">Pen</button>
       <button type="button" role="tab" data-page="paper" aria-selected="false">Paper</button>
+      <button type="button" role="tab" data-page="lab" aria-selected="false">Experimental</button>
     </div>
     <div class="pages" id="settingsPages">
       <div class="page" data-page="pen" role="tabpanel">
@@ -144,6 +148,11 @@
     <div class="setting">
       <span class="setting-head">Paper</span>
       <div class="papers" role="radiogroup" aria-label="Paper colour" id="papers"></div>
+      <div class="hsv theme-picker" id="paperPicker" hidden>
+        <div class="hsv-sv" id="paperSV" role="slider" aria-label="Paper shade"><i id="paperSVKnob"></i></div>
+        <div class="hsv-hue" id="paperHue" role="slider" aria-label="Paper hue"><i id="paperHueKnob"></i></div>
+        <div class="hsv-row"><span class="hsv-chip" id="paperChip"></span><span class="hsv-note">Your paper colour</span></div>
+      </div>
       <span class="setting-head">App colour</span>
       <div class="papers" role="radiogroup" aria-label="App colour" id="themes"></div>
       <div class="hsv theme-picker" id="themePicker" hidden>
@@ -151,7 +160,6 @@
         <div class="hsv-hue" id="themeHue" role="slider" aria-label="App colour hue"><i id="themeHueKnob"></i></div>
         <div class="hsv-row"><span class="hsv-chip" id="themeChip"></span><span class="hsv-note">Your app colour</span></div>
       </div>
-      <button type="button" class="tool wide" id="fxBtn" aria-pressed="false">Theme effects (slow light)</button>
       <div class="grid-row">
         <div class="segmented grid-styles" role="radiogroup" aria-label="Paper pattern" id="gridStyles">
           <button type="button" role="radio" data-grid="none" aria-label="Blank paper" title="Blank">
@@ -175,6 +183,10 @@
       </label>
     </div>
     <button type="button" class="tool wide" id="recenterBtn">Back to the start, at 100%</button>
+      </div>
+      <div class="page" data-page="lab" role="tabpanel">
+        <p class="setting-hint">Try-outs. Each is off until you switch it on, pauses while the pen is down, and never touches your ink.</p>
+        <div class="lab-list" id="labList"></div>
       </div>
     </div>
   </section>
