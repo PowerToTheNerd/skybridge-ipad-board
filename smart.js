@@ -108,8 +108,9 @@
     }
     const changes = { readHash: hash, readAt: Date.now() };
     if (labels) {
-      Object.assign(changes, { title: labels.title, tags: labels.tags, text: labels.text });
-      if (!meta.named && labels.title && labels.title !== "Untitled page") changes.name = labels.title;
+      const title = AI.shortTitle(labels.title) || "Untitled page";
+      Object.assign(changes, { title, tags: labels.tags, text: labels.text });
+      if (!meta.named && title !== "Untitled page") changes.name = title;
     }
     await bridge.saveMeta(meta.id, changes);
     return changes.name || "";
@@ -141,7 +142,9 @@
 
   async function dueNotebooks() {
     const books = await Notebooks.list();
-    const unread = books.filter((book) => book.count >= MIN_STROKES && book.hash && book.hash !== book.readHash);
+    // Names made before titles were kept short are read again, once, to get a short one.
+    const longName = (book) => !book.named && (book.title || "").length > AI.shortTitle(book.title).length;
+    const unread = books.filter((book) => book.count >= MIN_STROKES && book.hash && (book.hash !== book.readHash || longName(book)));
     waiting = unread.length;
     return unread;
   }

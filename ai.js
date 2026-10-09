@@ -27,8 +27,9 @@
 
   const INDEX_PROMPT = `You are labelling one page of a student's handwritten math notebook. The image is that page.
 Answer with JSON only: {"title": "...", "tags": ["..."], "text": "..."}
-- title: at most 60 characters, naming what the page is about, like "HW4 3a: U and V by row reduction".
-  Use the problem number if one is written. If the page is empty or unreadable, use "Untitled page".
+- title: a short, general name of the topic: 2 to 4 words and at most 24 characters, like "Matrix addition" or
+  "LU decomposition" or "HW4 row reduction". Name the topic, not the details: no equations, no full sentences.
+  If the page is empty or unreadable, use "Untitled page".
 - tags: 2 to 5 short lowercase topic tags, like "row reduction" or "elementary matrices".
 - text: a plain-text transcription of everything written, one line per line, matrices as rows
   ("1, 2; 3, 4"), under 3000 characters. Copy what is written; do not solve, correct or comment.`;
@@ -162,13 +163,22 @@ Answer with JSON only.`;
     throw last || new AiError("No model answered.", "empty");
   }
 
+  // A notebook name that fits a list: cut at a word boundary, never mid-word.
+  const MAX_TITLE = 28;
+  function shortTitle(raw) {
+    const words = String(raw ?? "").split(/\s+/).filter(Boolean).join(" ");
+    if (words.length <= MAX_TITLE) return words;
+    const head = words.slice(0, MAX_TITLE);
+    return (head.includes(" ") ? head.slice(0, head.lastIndexOf(" ")) : head).replace(/[ ,;:-]+$/, "");
+  }
+
   function cleanIndex(data) {
     const tags = [];
     for (const raw of Array.isArray(data.tags) ? data.tags : []) {
       const tag = String(raw).toLowerCase().split(/\s+/).filter(Boolean).join(" ").slice(0, 30);
       if (tag && !tags.includes(tag)) tags.push(tag);
     }
-    const title = String(data.title ?? "").split(/\s+/).filter(Boolean).join(" ").slice(0, 80) || "Untitled page";
+    const title = shortTitle(data.title) || "Untitled page";
     const text = Array.isArray(data.text) ? data.text.join("\n") : String(data.text ?? "");
     return { title, tags: tags.slice(0, 6), text: text.trim().slice(0, 4000) };
   }
@@ -201,5 +211,5 @@ Answer with JSON only.`;
     return error?.message || "Reading the page failed.";
   }
 
-  window.SkybridgeAI = { hasKey, getKey, setKey, indexPage, transcribe, readWork, explain, cleanIndex, parseJson };
+  window.SkybridgeAI = { hasKey, getKey, setKey, indexPage, transcribe, readWork, explain, cleanIndex, shortTitle, parseJson };
 })();
