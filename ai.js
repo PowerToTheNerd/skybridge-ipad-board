@@ -333,9 +333,9 @@ Answer with JSON only.`;
 
   // The local model, when it is set up for this kind of request. Requests to it go one at a time.
   let localTail = Promise.resolve();
-  async function viaLocal(image, prompt, schema, extra) {
+  async function viaLocal(image, prompt, schema, extra = {}) {
     const Local = window.SkybridgeLocal;
-    const run = localTail.then(async () => ({ model: Local.label(), text: await Local.chat({ prompt, image: typeof image === "string" ? image : null, schema, temperature: extra.temperature }) }));
+    const run = localTail.then(async () => ({ model: Local.label(), text: await Local.chat({ prompt, image: typeof image === "string" ? image : null, mime: extra.mime, schema, temperature: extra.temperature }) }));
     localTail = run.catch(() => {});
     return run;
   }
@@ -450,6 +450,14 @@ Say each number as it is written, say "equals", "plus", "minus" and "times" for 
     return { model, data: parseJson(text) };
   }
 
+  // One picture (a PDF page) read by the local model, never by Gemini: it is how a PDF is read without Gemini.
+  async function askPage(base64, prompt, schema, mime = "image/jpeg") {
+    const Local = window.SkybridgeLocal;
+    if (!Local?.usable({ image: true })) throw new AiError("The local model isn't set up to read pictures.", "local");
+    const { model, text } = await viaLocal(base64, prompt, schema, { mime, temperature: 0 });
+    return { model, data: parseJson(text) };
+  }
+
   async function readWork(image, { problem = "", mode = "practice" } = {}) {
     const { model, text } = await generate(image, readPrompt(problem, mode), READING_SCHEMA);
     return { model, reading: parseJson(text) };
@@ -479,5 +487,5 @@ Say each number as it is written, say "equals", "plus", "minus" and "times" for 
     return error?.message || "Reading the page failed.";
   }
 
-  window.SkybridgeAI = { hasKey, hasGeminiKey, modelState: () => MODELS.map((name) => ({ model: name, rest: restWhy.get(name) || "", missing: missing.has(name) })), getKey, setKey, usage, liveStatus, onUsage: (fn) => { usageListeners.add(fn); window.SkybridgeLive?.onUsage(fn); }, LIMITS, indexPage, transcribe, ask, askPdf, readWork, explain, busy, cleanIndex, shortTitle, parseJson, timing, MODELS };
+  window.SkybridgeAI = { hasKey, hasGeminiKey, modelState: () => MODELS.map((name) => ({ model: name, rest: restWhy.get(name) || "", missing: missing.has(name) })), getKey, setKey, usage, liveStatus, onUsage: (fn) => { usageListeners.add(fn); window.SkybridgeLive?.onUsage(fn); }, LIMITS, indexPage, transcribe, ask, askPdf, askPage, readWork, explain, busy, cleanIndex, shortTitle, parseJson, timing, MODELS };
 })();

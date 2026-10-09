@@ -4,7 +4,10 @@
  * read again. A problem goes on a page like a practice problem and never shows an answer, even if the
  * PDF has them.
  *
- * window.SkybridgeHomework = { importPdf(file) -> { ok, set, cached | error }, list(), get(id), remove(id), restore(set), onChange(fn), problemOf(set, index) }
+ * With a picture-reading local model switched on, the PDF is instead turned into page pictures on the iPad (pdf.js)
+ * and the local model reads them one page at a time, so no Gemini key or internet is needed.
+ *
+ * window.SkybridgeHomework = { importPdf(file, { onProgress }) -> { ok, set, cached | error }, list(), get(id), remove(id), restore(set), onChange(fn), problemOf(set, index) }
  */
 (() => {
   const AI = window.SkybridgeAI;
@@ -31,6 +34,71 @@ Answer with JSON only: {"title": "...", "problems": [{"label": "...", "text": ".
 - lines: the given matrices, equations and expressions, each as LaTeX on its own line. Write a matrix like "A = \\begin{bmatrix} 2 & 1 \\\\ 4 & 3 \\end{bmatrix}" (rows separated by \\\\, entries by &). Leave it empty if there is nothing to show.
 Never solve anything. NEVER include an answer, a solution, steps or a hint, even if the PDF prints them (leave those out). Skip headers, instructions to the whole class, and anything that is not a problem.
 If a problem needs a picture or graph you cannot write down, say "(see the figure in the PDF)" in text.`;
+
+  // ---- The local model path: pdf.js renders each page, the local model reads it ----
+  const MAX_PAGES = 40;
+  const PAGE_WIDTH = 1500; // pixels: sharp enough for small print, small enough for a local model
+  const PAGE_PROMPT = (n, total, text, first) => `This picture is page ${n} of ${total} of a student's homework PDF. Extract EVERY problem that appears on this page as its own item, in order.
+Answer with JSON only: {"title": "...", "problems": [{"label": "...", "text": "...", "lines": ["..."]}]}
+- title: ${first ? 'the assignment name, at most 40 characters (for example "Homework 4"); empty if none is printed' : 'leave empty'}.
+- label: the problem number as printed, joined with its part letter: "1A", "1B", "2", "3.4 12". At most 12 characters. Every lettered or numbered part (a), (b)... is its own item.
+- text: the task in one to three sentences, copied faithfully. If a part relies on a shared setup above it (like "Let A be the matrix below"), repeat what it needs so the item stands alone.
+- lines: the given matrices, equations and expressions, each as LaTeX on its own line. Write a matrix like "A = \\begin{bmatrix} 2 & 1 \\\\ 4 & 3 \\end{bmatrix}" (rows separated by \\\\, entries by &). Copy every number and sign exactly; never guess a digit you can't see. Leave empty if there is nothing to show.
+Never solve anything. NEVER include an answer, a solution, steps or a hint, even if the page prints them. Skip headers, class-wide instructions and anything that is not a problem. If a page has no problems, answer {"title": "", "problems": []}.
+If a problem needs a figure you can't write down, say "(see the figure in the PDF)" in text.${text ? `\nThe PDF's own text for this page, which may be in an odd order, for checking numbers only:\n${text}` : ""}`;
+
+  let pdfjsLoading = null;
+  function loadPdfJs() {
+    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+    pdfjsLoading = pdfjsLoading || new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "vendor/pdfjs/pdf.min.js";
+      script.onload = () => {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdfjs/pdf.worker.min.js";
+        resolve(window.pdfjsLib);
+      };
+      script.onerror = () => { pdfjsLoading = null; reject(new Error("Couldn't load the PDF reader. Open the board once with a connection so it is saved on this iPad.")); };
+      document.head.append(script);
+    });
+    return pdfjsLoading;
+  }
+
+  async function importLocal(buffer, onProgress) {
+    const pdfjs = await loadPdfJs();
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer.slice(0)) }).promise;
+    const total = Math.min(doc.numPages, MAX_PAGES);
+    const found = [];
+    const skipped = [];
+    let title = "";
+    for (let n = 1; n <= total; n++) {
+      onProgress?.(`Reading page ${n} of ${total}…`);
+      const page = await doc.getPage(n);
+      const base = page.getViewport({ scale: 1 });
+      const viewport = page.getViewport({ scale: Math.min(3, PAGE_WIDTH / base.width) });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(viewport.width);
+      canvas.height = Math.round(viewport.height);
+      const context = canvas.getContext("2d");
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: context, viewport }).promise;
+      let text = "";
+      try { text = (await page.getTextContent()).items.map((item) => item.str).join(" ").replace(/\s+/g, " ").trim().slice(0, 2500); } catch {}
+      const image = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
+      let data = null;
+      for (let attempt = 0; attempt < 2 && !data; attempt++) {
+        try { data = (await AI.askPage(image, PAGE_PROMPT(n, total, text, n === 1), null, "image/jpeg")).data; }
+        catch (error) {
+          // A server that can't be reached, or refuses, won't do better on the next page.
+          if (error?.kind === "local" && /reach|accept|Pair|blocked|CORS|connected/i.test(error.message)) throw error;
+        }
+      }
+      if (!data) { skipped.push(n); continue; }
+      if (!title && data.title) title = clean(data.title, 40);
+      found.push(...(Array.isArray(data.problems) ? data.problems : []));
+    }
+    return { title, problems: cleanProblems(found), skipped, pages: doc.numPages > total ? total : 0 };
+  }
 
   const memory = new Map();
   let dbPromise = null;
@@ -118,7 +186,7 @@ If a problem needs a picture or graph you cannot write down, say "(see the figur
     return out;
   }
 
-  async function importPdf(file) {
+  async function importPdf(file, { onProgress } = {}) {
     if (!file) return { ok: false, error: "No file picked." };
     if (file.size > MAX_BYTES) return { ok: false, error: "That PDF is over 18 MB. Try a smaller scan or split it." };
     const buffer = await file.arrayBuffer();
@@ -126,17 +194,34 @@ If a problem needs a picture or graph you cannot write down, say "(see the figur
     const id = await fingerprint(buffer);
     const have = await get(id);
     if (have) return { ok: true, set: have, cached: true };
-    if (!AI?.hasGeminiKey()) return { ok: false, error: "Reading a PDF needs your free Gemini key. Add it under Notebooks, then Smart features." };
-    if (navigator.onLine === false) return { ok: false, error: "No connection. Reading a new PDF needs the internet (once)." };
-    try {
-      const { data } = await AI.askPdf(toBase64(buffer), PROMPT, SCHEMA);
-      const problems = cleanProblems(data.problems);
-      if (!problems.length) return { ok: false, error: "Couldn't find any problems in that PDF. If it is a photo, try a clearer scan." };
-      const name = clean(file.name.replace(/\.pdf$/i, ""), 40) || "Homework";
-      const set = { id, name: clean(data.title, 40) || name, file: name, added: Date.now(), problems };
+    const Local = window.SkybridgeLocal;
+    const local = Boolean(Local?.usable({ image: true }));
+    const name = clean(file.name.replace(/\.pdf$/i, ""), 40) || "Homework";
+    const save = async (data, how) => {
+      if (!data.problems.length) return { ok: false, error: "Couldn't find any problems in that PDF. If it is a photo, try a clearer scan." };
+      const set = { id, name: clean(data.title, 40) || name, file: name, added: Date.now(), problems: data.problems, by: how };
       await put(set);
       changed();
-      return { ok: true, set, cached: false };
+      const notes = [];
+      if (data.skipped?.length) notes.push(`page ${data.skipped.join(", ")} couldn't be read`);
+      if (data.pages) notes.push(`only the first ${data.pages} pages were read`);
+      return { ok: true, set, cached: false, note: notes.join("; ") };
+    };
+    let localError = "";
+    if (local) {
+      try {
+        return await save(await importLocal(buffer, onProgress), "local");
+      } catch (error) {
+        localError = error?.message || "The local model couldn't read the PDF.";
+        if (Local.config().mode === "only" || !AI?.hasGeminiKey()) return { ok: false, error: localError };
+        onProgress?.("The local model couldn't, asking Gemini…");
+      }
+    }
+    if (!AI?.hasGeminiKey()) return { ok: false, error: "Reading a PDF needs your free Gemini key, or a local model that reads pictures. Add one under Notebooks, then Smart features." };
+    if (navigator.onLine === false) return { ok: false, error: "No connection. Reading a new PDF with Gemini needs the internet (once)." };
+    try {
+      const { data } = await AI.askPdf(toBase64(buffer), PROMPT, SCHEMA);
+      return await save({ title: data.title, problems: cleanProblems(data.problems) }, "gemini");
     } catch (error) {
       return { ok: false, error: AI.explain(error) };
     }

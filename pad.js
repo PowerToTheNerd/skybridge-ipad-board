@@ -3224,10 +3224,10 @@
       hw.importBtn.textContent = "Reading the PDF…";
       toast("Reading the PDF. This takes a little while, and only happens once.");
       try {
-        const made = await Homework.importPdf(file);
+        const made = await Homework.importPdf(file, { onProgress: (text) => { hw.importBtn.textContent = text; } });
         if (!made.ok) { toast(made.error, !window.SkybridgeAI.hasKey() ? { label: "Open", run: () => { openSmartTab(); } } : undefined); return; }
         await renderHomework(made.set.id);
-        toast(made.cached ? `Already saved: ${made.set.name}, ${made.set.problems.length} problems (no call needed)` : `Found ${made.set.problems.length} problems in ${made.set.name}`);
+        toast(made.cached ? `Already saved: ${made.set.name}, ${made.set.problems.length} problems (no call needed)` : `Found ${made.set.problems.length} problems in ${made.set.name}${made.note ? `, but ${made.note}` : ""}`);
       } finally {
         hw.importBtn.disabled = false;
         hw.importBtn.textContent = "Import a PDF";

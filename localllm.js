@@ -102,12 +102,12 @@
     return !image || cfg.vision;
   }
 
-  function bodyFor(cfg, { prompt, image, schema, temperature }, json) {
+  function bodyFor(cfg, { prompt, image, mime, schema, temperature }, json) {
     const instruction = schema
       ? `${prompt}\n\nReply with ONE JSON object only, no commentary, matching this schema: ${JSON.stringify(schema)}`
       : prompt;
     const content = image
-      ? [{ type: "text", text: instruction }, { type: "image_url", image_url: { url: `data:image/png;base64,${image}` } }]
+      ? [{ type: "text", text: instruction }, { type: "image_url", image_url: { url: `data:${mime || "image/png"};base64,${image}` } }]
       : instruction;
     return {
       model: cfg.model || "local",

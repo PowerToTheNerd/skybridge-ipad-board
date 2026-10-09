@@ -327,7 +327,7 @@
     if (!AI.hasKey()) {
       return { ok: false, error: "To check without your PC, add your Gemini key under Notebooks, then Smart features." };
     }
-    if (navigator.onLine === false) return { ok: false, error: "No connection. Checking needs the internet or your PC." };
+    if (navigator.onLine === false && !window.SkybridgeLocal?.usable({ image: true })) return { ok: false, error: "No connection. Checking needs the internet or your PC." };
     let image;
     let page;
     try {
