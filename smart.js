@@ -1,0 +1,229 @@
+/*
+ * Smart notebooks: each page gets a title and topic tags, and your handwriting becomes searchable
+ * text. Pages are read by Skybridge on the PC when it is on (its local vision model, if you use
+ * one), otherwise by Gemini with your own key when the iPad is online. A page written offline waits.
+ * Also: Check my work without the PC (Gemini reads the page, mathcheck.js checks the numbers exactly).
+ *
+ * It only labels and verifies. It never solves your problems.
+ *
+ * window.SkybridgeSmart = { init(bridge), touched(), pump(), onRelay(message), search(query), check(), status(), onStatus(fn), pending() }
+ */
+(() => {
+  const Notebooks = window.SkybridgeNotebooks;
+  const AI = window.SkybridgeAI;
+  const MathCheck = window.SkybridgeMath;
+  const MIN_STROKES = 3; // a page with less than this isn't worth reading
+  const timing = { idleMs: 25000, retryMs: 60000 }; // read a page after a pause in writing; wait before retrying a failure
+  const PC_WAIT_MS = 70000;
+  const MAX_SIDE = 1600;
+
+  let bridge = null;
+  let running = false;
+  let again = false;
+  let timer = 0;
+  let message = "";
+  let waiting = 0;
+  const listeners = new Set();
+  const tried = new Map();
+  const asked = new Map(); // read requests sent to the PC, waiting for an answer
+
+  const status = () => message;
+  function setStatus(text) {
+    message = text;
+    listeners.forEach((fn) => fn(text));
+  }
+
+  const reader = () => (bridge?.pcReady() ? "pc" : AI?.hasKey() && navigator.onLine !== false ? "gemini" : null);
+
+  // ---- a picture of a page ---------------------------------------------------------------------
+  function shrink(canvas) {
+    const scale = Math.min(1, MAX_SIDE / Math.max(canvas.width, canvas.height));
+    const out = document.createElement("canvas");
+    out.width = Math.max(1, Math.round(canvas.width * scale));
+    out.height = Math.max(1, Math.round(canvas.height * scale));
+    out.getContext("2d").drawImage(canvas, 0, 0, out.width, out.height);
+    return out.toDataURL("image/png").split(",")[1];
+  }
+
+  async function pictureOf(strokes) {
+    const { canvas } = await window.SkybridgeExport.renderBoard({ strokes, withCard: false });
+    return shrink(canvas);
+  }
+
+  // ---- reading pages (labels) ------------------------------------------------------------------
+  function readViaPc(image) {
+    return new Promise((resolve, reject) => {
+      const id = `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      const timeout = setTimeout(() => { asked.delete(id); reject(Object.assign(new Error("No answer from the PC."), { kind: "pc" })); }, PC_WAIT_MS);
+      asked.set(id, { resolve, reject, timeout });
+      bridge.relaySend({ t: "read", id, image, mime: "image/png" });
+    });
+  }
+
+  function onRelay(result) {
+    const wait = asked.get(result.id);
+    if (!wait) return;
+    asked.delete(result.id);
+    clearTimeout(wait.timeout);
+    if (result.ok) wait.resolve({ model: "Skybridge", title: result.title, tags: result.tags || [], text: result.text || "" });
+    else wait.reject(Object.assign(new Error(result.error || "The PC couldn't read the page."), { kind: "pc" }));
+  }
+
+  async function readNotebook(meta, how) {
+    const found = await Notebooks.load(meta.id);
+    if (!found) return;
+    const hash = Notebooks.hashOf(found.strokes);
+    let image = null;
+    try { image = await pictureOf(found.strokes); } catch { /* nothing drawn: nothing to read */ }
+    let labels = null;
+    if (image) {
+      if (how === "pc") {
+        try {
+          labels = await readViaPc(image);
+        } catch (error) {
+          if (!AI.hasKey() || navigator.onLine === false) throw error;
+        }
+      }
+      if (!labels) labels = await AI.indexPage(image);
+    }
+    const changes = { readHash: hash, readAt: Date.now() };
+    if (labels) {
+      Object.assign(changes, { title: labels.title, tags: labels.tags, text: labels.text });
+      if (!meta.named && labels.title && labels.title !== "Untitled page") changes.name = labels.title;
+    }
+    await bridge.saveMeta(meta.id, changes);
+  }
+
+  async function dueNotebooks() {
+    const books = await Notebooks.list();
+    const unread = books.filter((book) => book.count >= MIN_STROKES && book.hash && book.hash !== book.readHash);
+    waiting = unread.length;
+    return unread;
+  }
+
+  async function pump() {
+    if (!bridge) return;
+    if (running) { again = true; return; } // asked while busy: look again when this round ends
+    running = true;
+    again = false;
+    try {
+      for (;;) {
+        const unread = await dueNotebooks();
+        const how = reader();
+        if (!unread.length) { setStatus(""); break; }
+        if (!how) {
+          setStatus(`${unread.length} ${unread.length === 1 ? "page is" : "pages are"} waiting to be read`);
+          break;
+        }
+        const ready = unread.filter((book) => Date.now() - (tried.get(book.id) || 0) > timing.retryMs);
+        if (!ready.length) break;
+        const next = ready[0];
+        // The page you are writing on waits until you pause.
+        if (bridge.openId() === next.id && Date.now() - bridge.lastChange() < timing.idleMs) {
+          clearTimeout(timer);
+          timer = setTimeout(pump, timing.idleMs - (Date.now() - bridge.lastChange()) + 500);
+          break;
+        }
+        tried.set(next.id, Date.now());
+        setStatus(`Reading “${next.name}”…`);
+        try {
+          await readNotebook(next, how);
+        } catch (error) {
+          setStatus(error.kind === "pc" ? error.message : AI.explain(error));
+          // A connection or key problem stops the loop; try again later (and when the iPad is back online).
+          if (error.kind === "key" || error.kind === "network") {
+            clearTimeout(timer);
+            timer = setTimeout(pump, timing.retryMs + 500);
+            break;
+          }
+          continue;
+        }
+      }
+    } finally {
+      running = false;
+      bridge?.refresh();
+      if (again) { clearTimeout(timer); timer = setTimeout(pump, 300); }
+    }
+  }
+
+  function touched() {
+    clearTimeout(timer);
+    timer = setTimeout(pump, timing.idleMs);
+  }
+
+  // ---- search -----------------------------------------------------------------------------------
+  const plain = (text) => String(text || "").toLowerCase()
+    .replace(/matrices/g, "matrix").replace(/vertices/g, "vertex")
+    .replace(/[^a-z0-9/.\-+ ]+/g, " ")
+    .split(/\s+/).filter(Boolean).map((word) => (word.length > 3 ? word.replace(/s$/, "") : word)).join(" ");
+
+  function snippet(text, tokens) {
+    const lines = String(text || "").split(/\n+/);
+    const line = lines.find((l) => tokens.every((t) => plain(l).includes(t))) || lines.find((l) => tokens.some((t) => plain(l).includes(t)));
+    return line ? line.trim().slice(0, 110) : "";
+  }
+
+  async function search(query) {
+    const tokens = plain(query).split(" ").filter(Boolean);
+    const books = await Notebooks.list();
+    if (!tokens.length) return books.map((meta) => ({ meta, snippet: "" }));
+    const found = [];
+    for (const meta of books) {
+      const name = plain(`${meta.name} ${meta.title || ""}`);
+      const tags = plain((meta.tags || []).join(" "));
+      const body = plain(meta.text);
+      const everything = `${name} ${tags} ${body}`;
+      if (!tokens.every((token) => everything.includes(token))) continue;
+      const score = tokens.reduce((sum, token) => sum + (name.includes(token) ? 3 : 0) + (tags.includes(token) ? 2 : 0) + (body.includes(token) ? 1 : 0), 0);
+      found.push({ meta, score, snippet: snippet(meta.text, tokens) });
+    }
+    return found.sort((a, b) => b.score - a.score || b.meta.updated - a.meta.updated);
+  }
+
+  // ---- Check my work with no PC ----------------------------------------------------------------
+  const HEADS = { correct: "Correct", wrong: "Mistake found", incomplete: "Right so far", unreadable: "Couldn't read the page", unsure: "Numbers check out" };
+
+  function summary(result, model) {
+    const parts = [`Work check: ${HEADS[result.verdict] || result.verdict}.`];
+    if (result.steps_checked) parts.push(`${result.steps_right}/${result.steps_checked} calculations right.`);
+    if (result.where) parts.push(result.where);
+    let line = `${parts.join(" ")} (${model}, numbers checked exactly)`;
+    if (result.feedback) line += `\n${result.feedback}`;
+    if (result.matrices) line += `\nRead from your work:\n${result.matrices}`;
+    return line;
+  }
+
+  async function check() {
+    if (!AI.hasKey()) {
+      return { ok: false, error: "To check without your PC, add your Gemini key under Notebooks, then Smart features." };
+    }
+    if (navigator.onLine === false) return { ok: false, error: "No connection. Checking needs the internet or your PC." };
+    let image;
+    try {
+      const { canvas } = await window.SkybridgeExport.renderBoard();
+      image = shrink(canvas);
+    } catch (error) {
+      return { ok: false, error: error.message || "There is nothing on the page yet." };
+    }
+    try {
+      const { model, reading } = await AI.readWork(image, { mode: "practice" });
+      const rows = MathCheck.runChecks(reading.checks);
+      const result = MathCheck.verdict(reading, rows, "practice");
+      return { ok: true, text: summary(result, model), verdict: result.verdict };
+    } catch (error) {
+      return { ok: false, error: AI.explain(error) };
+    }
+  }
+
+  function init(given) {
+    bridge = given;
+    window.addEventListener("online", pump);
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") pump(); });
+    setTimeout(pump, 4000);
+  }
+
+  window.SkybridgeSmart = {
+    init, touched, pump, onRelay, search, check, status, timing, pending: () => waiting,
+    onStatus: (fn) => listeners.add(fn),
+  };
+})();

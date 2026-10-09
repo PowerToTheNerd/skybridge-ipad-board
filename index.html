@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="skybridge-hosted" content="1">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Skybridge Board">
+  <meta name="theme-color" content="#020405">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icon.png">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <title>Skybridge Board</title>
+  <link rel="stylesheet" href="./vendor/katex/katex.min.css">
+  <link rel="stylesheet" href="./whiteboard.css">
+  <link rel="stylesheet" href="./pad.css">
+</head>
+<body>
+  <header class="bar" role="toolbar" aria-label="Drawing tools">
+    <button type="button" class="status" id="status" role="status" aria-live="polite">
+      <i class="status-dot" aria-hidden="true"></i><span id="statusText">Connecting</span>
+    </button>
+    <button type="button" class="tool notebook-btn" id="notebookBtn" aria-expanded="false" aria-controls="notebookSheet" title="Notebooks">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h11a1.5 1.5 0 011.5 1.5v14a1.5 1.5 0 01-1.5 1.5H6zM6 3.5v17M9.5 8h5M9.5 11.5h5" /></svg>
+      <span id="notebookName">Notebook</span>
+    </button>
+
+    <div class="layouts" role="radiogroup" aria-label="Which board to show">
+      <button type="button" role="radio" data-layout="mine">Mine</button>
+      <button type="button" role="radio" data-layout="both">Both</button>
+      <button type="button" role="radio" data-layout="gemini">Gemini<i class="badge" id="geminiBadge" hidden></i></button>
+    </div>
+
+    <div class="tools">
+      <button type="button" class="tool" id="clearBtn" disabled>Clear</button>
+      <button type="button" class="tool" id="settingsBtn" aria-expanded="false" aria-controls="settings">Pen<span class="long"> &amp; paper</span></button>
+      <button type="button" class="tool" id="exportBtn" aria-expanded="false" aria-controls="exportSheet">Export</button>
+    </div>
+
+    <button type="button" class="tool check" id="checkBtn" disabled>Check<span class="long"> my work</span></button>
+    <button type="button" class="send" id="sendBtn" disabled>Send<span class="long"> to Gemini</span></button>
+  </header>
+
+  <!-- Pens, eraser, lasso and undo: a rail down the left edge of the board. -->
+  <nav class="rail" id="rail" aria-label="Pens and editing">
+    <button type="button" class="tool icon rail-toggle" id="railToggle" aria-expanded="true" aria-label="Hide the tool rail" title="Hide the tool rail">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6l-6 6 6 6" /></svg>
+    </button>
+    <button type="button" class="tool swatch" data-pen="ink" aria-pressed="true" aria-label="Pen" title="Pen"><i class="dot ink"></i></button>
+    <button type="button" class="tool swatch" id="colorBtn" aria-pressed="false" aria-expanded="false" aria-controls="colorSheet" aria-label="Pen colours" title="Pen colours"><i class="dot" id="colorDot"></i></button>
+    <button type="button" class="tool icon" data-tool="marker" aria-pressed="false" aria-label="Highlighter" title="Highlighter">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h7M14.5 4.5l5 5-8 8-5-5z" /><path d="M6.5 12.5l5 5" /></svg>
+    </button>
+    <button type="button" class="tool icon" data-pen="eraser" aria-pressed="false" aria-label="Eraser" title="Eraser. Scribbling over ink also erases it.">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 19h11M4.5 14.5l8-9 6 5.5-6.5 7.5H8.5z" /><path d="M9 9.5l6 5.5" /></svg>
+    </button>
+    <button type="button" class="tool icon" data-tool="lasso" aria-pressed="false" aria-label="Lasso select" title="Lasso: circle ink to move, resize, recolour or delete it">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path class="dash" d="M12 4.5c-4.7 0-8 2.2-8 5 0 2.6 3.3 4.7 7.3 4.9M12 4.5c4.7 0 8 2.2 8 5 0 2.4-2.6 4.4-6.2 4.9" /><path d="M11.3 14.4c-.5 1.8-1.7 3-1.7 4.6 0 1 .8 1.7 1.8 1.5" /></svg>
+    </button>
+    <span class="sep" aria-hidden="true"></span>
+    <button type="button" class="tool icon" id="undoBtn" disabled aria-label="Undo" title="Undo (three-finger tap)">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7L4.5 11.5 9 16M5 11.5h9.5a5 5 0 010 10H12" /></svg>
+    </button>
+    <button type="button" class="tool icon" id="redoBtn" disabled aria-label="Redo" title="Redo (two-finger double tap)">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7l4.5 4.5L15 16M19 11.5H9.5a5 5 0 000 10H12" /></svg>
+    </button>
+  </nav>
+
+  <!-- Gemini's board, drawn by the PC's whiteboard.js from the steps the PC relays. -->
+  <aside class="gemini whiteboard-card" id="whiteboardCard" aria-label="Gemini's board">
+    <p class="gemini-head">Gemini's board <span id="whiteboardCount">0 steps</span></p>
+    <div id="whiteboardBoard" class="whiteboard-board" role="log" aria-live="polite" aria-label="Gemini's whiteboard drawings">
+      <div id="whiteboardEmpty" class="whiteboard-empty">
+        <p class="placeholder-title">Nothing drawn yet</p>
+        <p class="placeholder-hint">When Gemini draws on its board on your PC, it shows up here too.</p>
+      </div>
+    </div>
+    <button type="button" id="whiteboardClearBtn" hidden>Clear</button>
+  </aside>
+
+  <main class="stage" id="stage" data-problem-stage>
+    <canvas id="canvas" aria-label="Your board. Write with Apple Pencil; it appears on My board on your PC."></canvas>
+    <!-- Lasso selection: drag the box to move, a corner to resize. -->
+    <div class="lasso-box" id="lassoBox" hidden>
+      <i class="lasso-handle" data-corner="nw"></i><i class="lasso-handle" data-corner="ne"></i>
+      <i class="lasso-handle" data-corner="sw"></i><i class="lasso-handle" data-corner="se"></i>
+      <div class="lasso-bar" id="lassoBar">
+        <button type="button" class="tool" id="lassoColor">Colour</button>
+        <button type="button" class="tool" id="lassoDelete">Delete</button>
+        <button type="button" class="tool" id="lassoDone">Done</button>
+      </div>
+    </div>
+  </main>
+
+  <section class="settings" id="settings" role="dialog" aria-label="Pen and paper settings" hidden>
+    <label class="setting">
+      <span class="setting-head">Thickness <output id="widthOut"></output></span>
+      <input type="range" id="widthInput" min="1" max="10" step="0.2">
+    </label>
+    <label class="setting">
+      <span class="setting-head">Pressure <output id="pressureOut"></output></span>
+      <input type="range" id="pressureInput" min="0" max="200" step="10">
+      <span class="setting-hint">How much pressing harder thickens the line. 0% draws an even line.</span>
+    </label>
+    <label class="setting">
+      <span class="setting-head">Smoothing <output id="smoothOut"></output></span>
+      <input type="range" id="smoothInput" min="0" max="100" step="5">
+      <span class="setting-ends"><span>Exact</span><span>Silky</span></span>
+      <span class="setting-hint">Evens out wobble as you write. The sample below is a shaky line, so you can see what it does.</span>
+    </label>
+    <button type="button" class="tool wide" id="tidyBtn" aria-pressed="false">Tidy each stroke when I lift</button>
+    <label class="setting">
+      <span class="setting-head">Eraser size <output id="eraserOut"></output></span>
+      <input type="range" id="eraserInput" min="10" max="70" step="2">
+    </label>
+    <canvas class="preview" id="preview" aria-hidden="true"></canvas>
+    <div class="setting">
+      <span class="setting-head">Paper</span>
+      <div class="papers" role="radiogroup" aria-label="Paper colour" id="papers"></div>
+      <div class="toggles">
+        <button type="button" class="tool" id="gridBtn" aria-pressed="true">Dot grid</button>
+        <button type="button" class="tool" id="grainBtn" aria-pressed="true">Paper grain</button>
+      </div>
+    </div>
+    <div class="setting">
+      <span class="setting-head">Finger</span>
+      <div class="segmented" role="radiogroup" aria-label="What your finger does">
+        <button type="button" role="radio" data-finger="move">Moves the board</button>
+        <button type="button" role="radio" data-finger="draw">Draws</button>
+      </div>
+    </div>
+    <button type="button" class="tool wide" id="recenterBtn">Back to the start, at 100%</button>
+  </section>
+
+  <!-- Notebooks live on this iPad, so they work without the PC. -->
+  <section class="settings notebook-sheet" id="notebookSheet" role="dialog" aria-label="Notebooks" hidden>
+    <div class="nb-head"><strong>Notebooks</strong><button type="button" class="tool" id="notebookNew">New notebook</button></div>
+    <input type="search" class="nb-search" id="notebookSearch" placeholder="Search names, tags and your handwriting" aria-label="Search notebooks" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <ul class="nb-list" id="notebookList"></ul>
+    <div class="setting nb-smart">
+      <span class="setting-head">Smart features <output id="smartOut"></output></span>
+      <span class="setting-hint" id="smartNote"></span>
+      <label class="nb-address">
+        <span>Gemini API key</span>
+        <input type="password" id="geminiKey" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Paste your key">
+      </label>
+      <button type="button" class="tool wide" id="geminiKeyRemove" hidden>Remove the key from this iPad</button>
+    </div>
+    <div class="setting nb-sync">
+      <span class="setting-head">Sync with Skybridge <output id="syncOut"></output></span>
+      <span class="setting-hint" id="syncNote"></span>
+      <label class="nb-address">
+        <span>PC address</span>
+        <input type="text" id="syncHost" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="192.168.1.20:8011">
+      </label>
+      <label class="nb-address" id="syncCodeRow" hidden>
+        <span>Pairing code</span>
+        <input type="text" id="syncCode" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="shown in Skybridge">
+      </label>
+      <button type="button" class="tool wide" id="syncRetry">Sync now</button>
+    </div>
+    <p class="setting-hint" id="installNote" hidden>To keep this as an app that works without your PC: tap Share, then Add to Home Screen.</p>
+  </section>
+
+  <section class="settings color-sheet" id="colorSheet" role="dialog" aria-label="Pen colours" hidden>
+    <div class="color-grid" id="colorGrid" role="radiogroup" aria-label="Pen colour"></div>
+    <!-- Any colour: an in-page picker (the browser's own colour popover misbehaves on iPad). -->
+    <div class="hsv" id="hsv" aria-label="Any colour">
+      <div class="hsv-sv" id="hsvSV" role="slider" aria-label="Shade and brightness"><i id="hsvSVKnob"></i></div>
+      <div class="hsv-hue" id="hsvHue" role="slider" aria-label="Hue"><i id="hsvHueKnob"></i></div>
+      <div class="hsv-row"><span class="hsv-chip" id="hsvChip"></span><output id="hsvHex">#2b6fd6</output><span class="hsv-note">Any colour</span></div>
+      <div class="hsv-recent" id="hsvRecent" aria-label="Recent colours"></div>
+    </div>
+  </section>
+
+  <section class="settings export-sheet" id="exportSheet" role="dialog" aria-label="Export the board" hidden>
+    <div class="setting">
+      <span class="setting-head">Export the whole board</span>
+      <span class="setting-hint" id="exportNote"></span>
+    </div>
+    <button type="button" class="tool wide" id="exportPngBtn">Save image (PNG)</button>
+    <button type="button" class="tool wide" id="exportPdfBtn">Save as PDF</button>
+    <p class="setting-hint">The image goes to the share sheet: Save Image, Files, Messages. The PDF opens a print page with your board and Gemini's steps. Choose Print, then pinch the preview to save it.</p>
+  </section>
+
+  <section class="offline" id="offline" role="alert" hidden>
+    <p><strong>Working offline.</strong> Your notebook is saved on this iPad and catches up with Skybridge when your PC (<span id="offlineHost"></span>) is on and on the same Wi-Fi. A VPN on the iPad can block it.</p>
+    <button type="button" class="tool" id="retryBtn">Retry now</button>
+    <button type="button" class="tool" id="offlineHide">Hide</button>
+  </section>
+
+  <!-- Gemini's verdict from Check my work, and the mic controls while a Live session runs. -->
+  <section class="verdict" id="verdict" role="status" aria-live="polite" hidden>
+    <div class="verdict-head"><strong id="verdictTitle">Check my work</strong><button type="button" class="tool" id="verdictClose" aria-label="Close">Close</button></div>
+    <p id="verdictText"></p>
+  </section>
+
+  <div class="live-controls" id="liveControls" hidden>
+    <button type="button" class="tool" id="muteBtn" aria-pressed="false">Mute</button>
+    <button type="button" class="tool" id="doneBtn">Done speaking</button>
+  </div>
+
+  <button type="button" class="zoom-pill" id="zoomPill" hidden aria-label="Back to the start at 100%"></button>
+
+  <p class="toast" id="toast" role="status" aria-live="polite" hidden></p>
+
+  <section class="gate" id="gate" hidden>
+    <h1 id="gateTitle">Pair with your PC</h1>
+    <p id="gateText">On your PC, open Skybridge, press iPad under My board and scan the code with the iPad camera.</p>
+    <button type="button" class="tool" id="gateClose">Keep working without the PC</button>
+  </section>
+
+  <script src="./vendor/rough.js"></script>
+  <script src="./vendor/katex/katex.min.js"></script>
+  <script src="./whiteboard.js"></script>
+  <script src="./perfect-freehand.js"></script>
+  <script src="./inkstroke.js"></script>
+  <script src="./notebooks.js"></script>
+  <script src="./mathcheck.js"></script>
+  <script src="./ai.js"></script>
+  <script src="./smart.js"></script>
+  <script src="./pad.js"></script>
+  <script src="./export.js"></script>
+</body>
+</html>

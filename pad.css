@@ -1,0 +1,806 @@
+/* Skybridge iPad board. Colors follow the default (green) Skybridge theme. */
+:root {
+  --bg: #020405;
+  --paper: #0d1613;
+  --grid: rgba(180, 220, 200, 0.24);
+  /* Paper grain: fine tooth plus a faint long fibre, blended over the paper colour. */
+  --grain-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E"), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='480'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012 0.06' numOctaves='2' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23f)'/%3E%3C/svg%3E");
+  --grain-opacity: 0.32;
+  --line: rgba(180, 220, 200, 0.16);
+  --line-strong: rgba(180, 220, 200, 0.3);
+  --text: #e3ece6;
+  --muted: #8ca398;
+  --ink: #e3ece6;
+  --mark-1: #a9d9c2;
+  --mark-2: #d8d89a;
+  --mark-3: #e38f8f;
+  --accent: #a9d9c2;
+  --ok: #8ce7bb;
+  --bad: #e38f8f;
+  --bar-h: 60px;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+.bar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: calc(var(--bar-h) + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  z-index: 2;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 0;
+  color: var(--muted);
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.status[data-state="live"] .status-dot { background: var(--ok); }
+.status[data-state="waiting"] .status-dot { background: var(--mark-2); }
+.status[data-state="down"] .status-dot { background: var(--bad); }
+
+.tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+.tool {
+  min-width: 44px;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+}
+.tool[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.tool:disabled { opacity: 0.4; cursor: default; }
+
+.swatch { padding: 0; display: grid; place-items: center; }
+.dot { width: 18px; height: 18px; border-radius: 50%; }
+.dot.ink { background: var(--ink); }
+.dot.mark-1 { background: var(--mark-1); }
+.dot.mark-2 { background: var(--mark-2); }
+.dot.mark-3 { background: var(--mark-3); }
+
+.sep { width: 1px; height: 26px; margin: 0 4px; background: var(--line); }
+
+.send {
+  flex: none;
+  height: 44px;
+  margin-left: auto;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #04110c;
+  font-weight: 600;
+}
+.send:disabled { opacity: 0.4; cursor: default; }
+
+.stage {
+  position: fixed;
+  inset: calc(var(--bar-h) + env(safe-area-inset-top)) 0 0 0;
+  background-color: var(--paper);
+  background-image: radial-gradient(circle, var(--grid) 1px, transparent 1.3px);
+  background-size: 24px 24px;
+}
+
+/* Grain and a soft edge falloff sit under the ink, so lines stay crisp. */
+.stage::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: var(--grain-image), radial-gradient(ellipse at 50% 40%, transparent 55%, rgba(0, 0, 0, 0.18));
+  background-size: 240px 240px, 480px 480px, 100% 100%;
+  mix-blend-mode: overlay;
+  opacity: var(--grain-opacity);
+}
+:root[data-grain="off"] .stage::before { display: none; }
+:root[data-grid="off"] .stage { background-image: none; }
+
+canvas {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 10px 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--bg);
+  font-size: 15px;
+  z-index: 3;
+}
+
+.gate {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 4px;
+  padding: 24px;
+  text-align: center;
+  background: var(--bg);
+  z-index: 4;
+}
+.gate h1 { margin: 0; font-size: 24px; font-weight: 600; }
+.gate p { margin: 0 auto; max-width: 30em; color: var(--muted); }
+
+/* Paper colours, kept muted so a page is easy on the eyes. Light papers are
+   off-white rather than screen white, and flip the ink to dark so white ink doesn't vanish. */
+:root[data-paper="black"] { --paper: #141618; --grid: rgba(255, 255, 255, 0.19); }
+:root[data-paper="slate"] { --paper: #1c2330; --grid: rgba(200, 215, 240, 0.22); }
+:root[data-paper="chalk"] { --paper: #213830; --grid: rgba(220, 240, 225, 0.22); --grain-opacity: 0.45; }
+:root[data-paper="white"],
+:root[data-paper="cream"] {
+  --grid: rgba(60, 55, 45, 0.26);
+  --ink: #2a2d2b;
+  --mark-1: #2b6f55;
+  --mark-2: #94690f;
+  --mark-3: #b23a30;
+  --grain-opacity: 0.4;
+}
+:root[data-paper="white"] { --paper: #e6e3dc; }
+:root[data-paper="cream"] { --paper: #ddd2bb; }
+
+.color-sheet { width: min(300px, calc(100vw - 24px)); gap: 14px; }
+.color-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; justify-items: center; }
+.color-swatch {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+.color-swatch[aria-checked="true"] { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text); }
+.hsv { display: grid; gap: 10px; color: var(--muted); font-size: 14px; }
+.hsv-sv, .hsv-hue { position: relative; touch-action: none; border-radius: 10px; border: 1px solid var(--line-strong); }
+.hsv-sv { height: 150px; }
+.hsv-hue { height: 22px; background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
+.hsv i { position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.45), 0 1px 4px rgba(0,0,0,.4); pointer-events: none; }
+.hsv-hue i { top: 50%; }
+.hsv-row { display: flex; align-items: center; gap: 10px; }
+.hsv-row output { font-variant-numeric: tabular-nums; color: var(--text, inherit); }
+.hsv-note { margin-left: auto; }
+.hsv-chip { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line-strong); }
+.hsv-recent { display: flex; flex-wrap: wrap; gap: 8px; }
+.hsv-recent:empty { display: none; }
+.setting-ends { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin-top: -8px; }
+.rail[data-collapsed="true"] > :not(.rail-toggle) { display: none !important; }
+.rail[data-collapsed="true"] { padding: 6px; }
+.rail[data-collapsed="true"] .rail-toggle svg { transform: rotate(180deg); }
+.rail-toggle svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.zoom-pill { position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 30; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--panel, rgba(30,30,34,.92)); color: inherit; font-size: 14px; backdrop-filter: blur(10px); }
+
+.settings {
+  position: fixed;
+  top: calc(var(--bar-h) + env(safe-area-inset-top) + 8px);
+  right: max(12px, env(safe-area-inset-right));
+  width: min(340px, calc(100vw - 24px));
+  max-height: calc(100vh - var(--bar-h) - 32px);
+  overflow: auto;
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--bg);
+  z-index: 3;
+}
+
+.setting { display: grid; gap: 8px; }
+.setting-head { display: flex; justify-content: space-between; font-size: 15px; }
+.setting-head output { color: var(--muted); font-variant-numeric: tabular-nums; }
+.setting-hint { color: var(--muted); font-size: 13px; }
+
+input[type="range"] {
+  width: 100%;
+  height: 32px;
+  margin: 0;
+  accent-color: var(--accent);
+  touch-action: manipulation;
+}
+
+.preview {
+  width: 100%;
+  height: 56px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+}
+
+.papers { display: flex; flex-wrap: wrap; gap: 10px; }
+.paper {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+}
+.paper[aria-checked="true"] { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+.segmented { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.segmented button {
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+}
+.segmented button[aria-checked="true"] { background: var(--line-strong); color: var(--text); }
+
+.tool.wide { width: 100%; }
+.toggles { display: flex; gap: 8px; }
+.toggles .tool { flex: 1; }
+
+/* Which board is on screen: Mine, Both side by side, or Gemini's. */
+.layouts {
+  display: flex;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.layouts button {
+  position: relative;
+  height: 42px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+}
+.layouts button[aria-checked="true"] { background: var(--line-strong); color: var(--text); }
+.badge {
+  position: absolute;
+  top: 7px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mark-2);
+}
+
+/* A problem Gemini puts on this board shows in its top-left corner (whiteboard.js
+   and whiteboard.css, as on the PC's My board); these map its theme onto the paper. */
+.stage {
+  --wb-ink: var(--ink);
+  --wb-faint: var(--muted);
+  --wb-mark-1: var(--mark-1);
+  --wb-mark-2: var(--mark-2);
+  --wb-mark-3: var(--mark-3);
+  --wb-hand: "Virgil", "Segoe Print", "Comic Sans MS", cursive;
+  --text-muted: var(--muted);
+  --surface: var(--paper);
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+}
+.stage .my-board-problem-hide { padding: 6px 12px; font-size: 14px; }
+
+:root[data-layout="both"] .stage { left: 50%; border-left: 1px solid var(--line-strong); }
+:root[data-layout="gemini"] .stage { visibility: hidden; }
+:root[data-layout="mine"] .gemini { display: none; }
+
+/* Gemini's board reuses the PC's whiteboard.css; these map its theme onto the paper. */
+.gemini.whiteboard-card {
+  --text-muted: var(--muted);
+  --bg-main: var(--paper);
+  --surface: transparent;
+  --warning: var(--mark-2);
+  --danger: var(--mark-3);
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --radius-lg: 0;
+  --text-sm: 13px;
+  --font-ui: inherit;
+  --wb-mark-1: var(--mark-1);
+  --wb-mark-2: var(--mark-2);
+  --wb-mark-3: var(--mark-3);
+  position: fixed;
+  top: calc(var(--bar-h) + env(safe-area-inset-top));
+  left: 0;
+  bottom: 0;
+  width: 50%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--paper);
+  -webkit-user-select: text;
+  user-select: text;
+}
+:root[data-layout="gemini"] .gemini { width: 100%; }
+.gemini::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: var(--grain-image);
+  background-size: 240px 240px, 480px 480px;
+  mix-blend-mode: overlay;
+  opacity: var(--grain-opacity);
+}
+:root[data-grain="off"] .gemini::before { display: none; }
+.gemini-head {
+  position: relative;
+  margin: 0;
+  padding: 10px max(16px, env(safe-area-inset-left)) 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+.gemini-head span { margin-left: 6px; opacity: 0.8; }
+.gemini .whiteboard-board {
+  flex: 1;
+  height: auto;
+  margin: 0;
+  padding: 8px max(20px, env(safe-area-inset-left)) 24px;
+  border: 0;
+  border-radius: 0;
+  background-color: transparent;
+  background-image: radial-gradient(circle, var(--grid) 1px, transparent 1.3px);
+  background-size: 24px 24px;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+:root[data-grid="off"] .gemini .whiteboard-board { background-image: none; }
+/* The pen always writes on Gemini's board here; a finger scrolls it (pad.js). */
+.gemini { overflow: hidden; }
+.gemini .whiteboard-board { scrollbar-width: none; }
+.gemini .whiteboard-board::-webkit-scrollbar { display: none; }
+.gemini .wb-gemini-ink {
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.gemini .placeholder-title { margin: 0 0 4px; color: var(--ink); font-size: 17px; }
+.gemini .placeholder-hint { margin: 0; color: var(--muted); font-size: 14px; }
+
+/* Narrower screens (portrait iPad): shorter button labels so the bar fits. */
+@media (max-width: 1000px) {
+  .long { display: none; }
+}
+
+/* Narrow (portrait iPad mini, phones): drop the status text, keep the dot. */
+@media (max-width: 760px) {
+  .status span { display: none; }
+  .status { flex: none; }
+  .tool { padding: 0 9px; min-width: 40px; }
+}
+@media (max-width: 560px) {
+  .send { padding: 0 12px; font-size: 14px; }
+  .bar .sep { display: none; }
+}
+
+/* ===========================================================================
+   Finish: depth and touch feedback, in step with the PC themes.
+   Raised, accent-tinted controls with a top sheen; a pressed control sinks;
+   the active tool and Send glow. All motion stops under reduced motion.
+=========================================================================== */
+:root {
+  --surface: #0b1411;
+  --surface-raised: #13211c;
+  --sheen: linear-gradient(180deg, rgba(169, 217, 194, 0.09), transparent 55%);
+  --edge: #1f3a30;
+  --edge-hi: #3c6b58;
+  --inner-hi: inset 0 1px 0 rgba(227, 236, 230, 0.07);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.45), 0 8px 24px -12px rgba(0, 0, 0, 0.7);
+  --shadow-2: 0 2px 4px rgba(0, 0, 0, 0.4), 0 24px 48px -18px rgba(0, 0, 0, 0.8);
+  --glow: rgba(140, 231, 187, 0.45);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.bar {
+  background:
+    linear-gradient(180deg, rgba(169, 217, 194, 0.06), transparent 70%),
+    rgba(5, 10, 9, 0.88);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  backdrop-filter: blur(16px) saturate(1.3);
+  border-bottom: 1px solid var(--edge);
+  box-shadow: 0 1px 0 rgba(169, 217, 194, 0.05), 0 10px 30px -18px rgba(0, 0, 0, 0.9);
+}
+
+/* Status: a pill you can tap to retry when offline. */
+.status {
+  flex: 0 1 auto;
+  height: 36px;
+  padding: 0 14px 0 12px;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  background: var(--sheen), var(--surface);
+  box-shadow: var(--inner-hi);
+  font: inherit;
+  font-size: 14px;
+  color: var(--muted);
+  margin-right: auto;
+  cursor: default;
+}
+.status[data-state="live"] { color: var(--text); border-color: var(--edge-hi); }
+.status[data-state="down"] { color: #f0b4b4; border-color: rgba(227, 143, 143, 0.4); cursor: pointer; }
+.status[data-state="live"] .status-dot { box-shadow: 0 0 0 3px rgba(140, 231, 187, 0.16), 0 0 10px var(--glow); animation: live 2.8s ease-in-out infinite; }
+.status[data-state="waiting"] .status-dot { box-shadow: 0 0 8px rgba(216, 216, 154, 0.6); }
+.status[data-state="down"] .status-dot { box-shadow: 0 0 8px rgba(227, 143, 143, 0.7); animation: blink 1.2s ease-in-out infinite; }
+@keyframes live { 50% { box-shadow: 0 0 0 5px rgba(140, 231, 187, 0.06), 0 0 14px var(--glow); } }
+@keyframes blink { 50% { opacity: 0.35; } }
+
+/* Raised controls that sink when pressed. */
+.tool,
+.layouts {
+  border-color: var(--edge);
+  background: var(--sheen), var(--surface);
+  box-shadow: var(--inner-hi), var(--shadow-1);
+}
+.tool {
+  border-radius: 12px;
+  color: #b9cbc2;
+  transition: transform 140ms var(--ease), border-color 160ms, box-shadow 160ms, background-color 160ms, color 160ms;
+}
+.tool:active:not(:disabled),
+.layouts button:active,
+.segmented button:active,
+.paper:active {
+  transform: scale(0.94);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+.tool[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--text);
+  background: linear-gradient(180deg, rgba(169, 217, 194, 0.16), rgba(169, 217, 194, 0.04)), var(--surface-raised);
+  box-shadow: var(--inner-hi), 0 0 0 1px rgba(169, 217, 194, 0.25), 0 0 18px -4px var(--glow);
+}
+.tool:disabled { opacity: 0.38; box-shadow: none; }
+
+/* Pen colours: the dot carries its own glow when picked. */
+.dot { width: 20px; height: 20px; box-shadow: inset 0 -2px 3px rgba(0, 0, 0, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.35); transition: transform 160ms var(--ease); }
+.swatch[aria-pressed="true"] .dot { transform: scale(1.12); }
+.swatch[aria-pressed="true"]:has(.ink) { box-shadow: var(--inner-hi), 0 0 0 1px var(--ink), 0 0 16px -3px var(--ink); border-color: var(--ink); }
+.swatch[aria-pressed="true"]:has(.mark-1) { box-shadow: var(--inner-hi), 0 0 0 1px var(--mark-1), 0 0 16px -3px var(--mark-1); border-color: var(--mark-1); }
+.swatch[aria-pressed="true"]:has(.mark-2) { box-shadow: var(--inner-hi), 0 0 0 1px var(--mark-2), 0 0 16px -3px var(--mark-2); border-color: var(--mark-2); }
+.swatch[aria-pressed="true"]:has(.mark-3) { box-shadow: var(--inner-hi), 0 0 0 1px var(--mark-3), 0 0 16px -3px var(--mark-3); border-color: var(--mark-3); }
+
+/* Mine / Both / Gemini */
+.layouts { border-radius: 12px; padding: 3px; gap: 2px; }
+.layouts button {
+  height: 38px;
+  border-radius: 9px;
+  color: #9fb5ab;
+  transition: background-color 180ms var(--ease), color 180ms, box-shadow 180ms, transform 140ms var(--ease);
+}
+.layouts button[aria-checked="true"] {
+  background: linear-gradient(180deg, rgba(169, 217, 194, 0.22), rgba(169, 217, 194, 0.08));
+  color: var(--text);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 14px -4px var(--glow);
+}
+.badge { box-shadow: 0 0 8px var(--mark-2); animation: blink 1.6s ease-in-out infinite; }
+
+.sep { background: var(--edge); }
+
+/* Send to Gemini: the one bright control. */
+.send {
+  border-radius: 12px;
+  background: linear-gradient(180deg, #c3ecd8, #8fd0b2);
+  color: #052016;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 6px 18px -8px rgba(140, 231, 187, 0.7), 0 0 0 1px rgba(140, 231, 187, 0.4);
+  transition: transform 140ms var(--ease), box-shadow 200ms, opacity 200ms;
+}
+.send:active:not(:disabled) { transform: scale(0.95); box-shadow: inset 0 2px 6px rgba(0, 40, 25, 0.4); }
+.send:disabled { opacity: 1; background: var(--surface); color: #5d756b; box-shadow: var(--inner-hi); border: 1px solid var(--edge); }
+
+/* The board sits under a soft inner shadow from the toolbar. */
+.stage { box-shadow: inset 0 14px 24px -18px rgba(0, 0, 0, 0.7); }
+
+/* Panels */
+.settings {
+  border-color: var(--edge-hi);
+  border-radius: 18px;
+  background: var(--sheen), rgba(9, 16, 14, 0.94);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  backdrop-filter: blur(18px) saturate(1.3);
+  box-shadow: var(--inner-hi), var(--shadow-2);
+  animation: rise 200ms var(--ease);
+}
+@keyframes rise { from { opacity: 0; transform: translateY(-6px) scale(0.98); } }
+.setting-head { font-weight: 500; }
+.preview { border-color: var(--edge); box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35); border-radius: 12px; }
+.paper { border-color: rgba(255, 255, 255, 0.18); box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.15), 0 2px 6px -2px rgba(0, 0, 0, 0.6); transition: transform 140ms var(--ease); }
+.paper[aria-checked="true"] { outline-color: var(--accent); box-shadow: 0 0 16px -4px var(--glow); }
+.segmented { border-color: var(--edge); background: var(--surface); box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35); border-radius: 12px; padding: 3px; gap: 3px; }
+.segmented button { border-radius: 9px; transition: background-color 180ms, color 180ms, transform 140ms var(--ease); }
+.segmented button[aria-checked="true"] { background: linear-gradient(180deg, rgba(169, 217, 194, 0.22), rgba(169, 217, 194, 0.08)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08); }
+
+.toast {
+  border-color: var(--edge-hi);
+  border-radius: 999px;
+  padding: 10px 18px;
+  background: rgba(9, 16, 14, 0.9);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-2), 0 0 20px -8px var(--glow);
+  animation: rise 200ms var(--ease);
+}
+
+/* Offline help, under the toolbar. */
+.offline {
+  position: fixed;
+  top: calc(var(--bar-h) + env(safe-area-inset-top) + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(620px, calc(100vw - 24px));
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 12px 12px 16px;
+  border: 1px solid rgba(227, 143, 143, 0.45);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(227, 143, 143, 0.1), transparent), rgba(16, 10, 10, 0.94);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-2);
+  z-index: 3;
+  animation: rise 220ms var(--ease);
+}
+.offline p { margin: 0; flex: 1; font-size: 14px; line-height: 1.4; color: #e9d2d2; }
+.offline strong { color: #fff; font-weight: 600; }
+.offline .tool { flex: none; color: var(--text); }
+
+.gate {
+  background:
+    radial-gradient(60% 50% at 30% 20%, rgba(169, 217, 194, 0.14), transparent 70%),
+    radial-gradient(50% 40% at 80% 90%, rgba(154, 190, 216, 0.1), transparent 70%),
+    var(--bg);
+}
+.gate h1 { font-size: 28px; letter-spacing: -0.01em; }
+
+/* Gemini's board header */
+.gemini-head { font-weight: 500; letter-spacing: 0.01em; }
+
+@media (max-width: 1000px) {
+  .status { width: 36px; padding: 0; justify-content: center; flex: none; }
+  .status span { display: none; }
+  .bar { gap: 8px; }
+  .tools { gap: 5px; }
+  .swatch { min-width: 34px; }
+  .layouts button { padding: 0 8px; }
+  .tool { padding: 0 8px; }
+  .send { padding: 0 14px; }
+  .bar .sep { display: none; }
+}
+@media (max-width: 760px) {
+  .tool { padding: 0 9px; min-width: 40px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* ===========================================================================
+   Tool rail (pens, eraser, lasso, undo) and lasso selection.
+=========================================================================== */
+.rail {
+  position: fixed;
+  top: calc(var(--bar-h) + env(safe-area-inset-top) + 14px);
+  left: max(10px, env(safe-area-inset-left));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--edge);
+  border-radius: 18px;
+  background: rgba(9, 16, 14, 0.82);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  backdrop-filter: blur(14px) saturate(1.3);
+  box-shadow: var(--inner-hi), var(--shadow-2);
+  z-index: 2;
+}
+:root[data-layout="both"] .rail { left: calc(50% + 10px); }
+.rail .tool { width: 44px; min-width: 44px; height: 44px; padding: 0; display: grid; place-items: center; }
+.rail .sep { width: 26px; height: 1px; margin: 2px auto; }
+.tool.icon svg {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tool.icon svg .dash { stroke-dasharray: 2.4 2.6; }
+
+/* The pen colour and eraser sheets open beside the rail. */
+.settings.color-sheet { left: calc(max(10px, env(safe-area-inset-left)) + 66px); right: auto; top: calc(var(--bar-h) + env(safe-area-inset-top) + 14px); }
+:root[data-layout="both"] .settings.color-sheet { left: calc(50% + 76px); }
+
+.stage { overflow: hidden; }
+.lasso-box {
+  position: absolute;
+  border: 1.5px dashed var(--accent);
+  border-radius: 6px;
+  background: rgba(169, 217, 194, 0.07);
+  touch-action: none;
+  cursor: move;
+  z-index: 1;
+}
+.lasso-handle {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: var(--bg);
+  touch-action: none;
+}
+.lasso-handle::after { content: ""; position: absolute; inset: -14px; }
+.lasso-handle[data-corner="nw"] { left: -10px; top: -10px; cursor: nwse-resize; }
+.lasso-handle[data-corner="ne"] { right: -10px; top: -10px; cursor: nesw-resize; }
+.lasso-handle[data-corner="sw"] { left: -10px; bottom: -10px; cursor: nesw-resize; }
+.lasso-handle[data-corner="se"] { right: -10px; bottom: -10px; cursor: nwse-resize; }
+.lasso-bar {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 12px);
+  display: flex;
+  gap: 6px;
+  cursor: default;
+}
+.lasso-bar.below { bottom: auto; top: calc(100% + 12px); }
+.lasso-bar .tool { height: 40px; padding: 0 14px; background: var(--surface); }
+.toast button {
+  margin-left: 10px;
+  padding: 4px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+}
+.toast { pointer-events: auto; }
+
+/* Check my work: next to Send, and its verdict as a card. */
+.tool.check { flex: none; }
+.verdict {
+  position: fixed;
+  left: 50%;
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(560px, calc(100vw - 24px));
+  max-height: 46vh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  padding: 14px 14px 14px 18px;
+  border: 1px solid var(--edge-hi);
+  border-radius: 18px;
+  background: var(--sheen), rgba(9, 16, 14, 0.95);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  box-shadow: var(--inner-hi), var(--shadow-2);
+  z-index: 3;
+  animation: rise 200ms var(--ease);
+}
+.verdict[data-state="error"] { border-color: rgba(227, 143, 143, 0.5); }
+.verdict-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.verdict-head .tool { height: 36px; padding: 0 12px; font-size: 14px; }
+.verdict p { margin: 0; overflow: auto; white-space: pre-wrap; font-size: 16px; line-height: 1.45; -webkit-user-select: text; user-select: text; }
+
+/* Mic controls while Skybridge runs a Live session. */
+.live-controls {
+  position: fixed;
+  left: 50%;
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid var(--edge);
+  border-radius: 18px;
+  background: rgba(9, 16, 14, 0.85);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--inner-hi), var(--shadow-2);
+  z-index: 2;
+}
+.live-controls .tool { padding: 0 18px; }
+:root[data-live="on"] .toast { bottom: calc(86px + env(safe-area-inset-bottom)); }
+:root[data-live="on"] .verdict { bottom: calc(136px + env(safe-area-inset-bottom)); }
+
+/* Gemini's problem card starts to the right of the tool rail, so the rail doesn't cover its first letters. */
+.stage .my-board-problem { left: calc(max(10px, env(safe-area-inset-left)) + 66px); }
+
+/* ===========================================================================
+   Notebooks (saved on the iPad) and the offline banner.
+=========================================================================== */
+.notebook-btn { display: flex; align-items: center; gap: 8px; max-width: 220px; min-width: 0; }
+.notebook-btn svg { flex: none; width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.notebook-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings.notebook-sheet { left: max(12px, env(safe-area-inset-left)); right: auto; width: min(380px, calc(100vw - 24px)); }
+.nb-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.nb-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 44vh; overflow: auto; }
+.nb-item { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; border: 1px solid var(--line); border-radius: 12px; }
+.nb-item[aria-current="true"] { border-color: var(--accent); background: rgba(169, 217, 194, 0.08); }
+.nb-open { flex: 1; min-width: 0; padding: 6px 0; text-align: left; background: none; border: 0; color: inherit; font: inherit; }
+.nb-open b { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nb-open small { color: var(--muted); font-size: 12px; }
+.nb-item input { flex: 1; min-width: 0; height: 40px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--accent); background: transparent; color: inherit; font: inherit; }
+.nb-item .tool { flex: none; height: 36px; padding: 0 10px; font-size: 13px; }
+.nb-sync { gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.nb-address { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.nb-address input { height: 40px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--line-strong); background: transparent; color: var(--text); font: inherit; }
+.offline { border-color: var(--line-strong); background: rgba(8, 14, 12, 0.94); }
+.offline p { color: var(--muted); }
+.offline strong { color: var(--text); }
+@media (max-width: 760px) { .notebook-btn span { display: none; } .notebook-btn { min-width: 40px; } }
+.notebook-btn { flex: none; }
+.status { min-width: 0; }
+.status #statusText { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status[data-state="idle"] .status-dot { background: var(--muted); }
+.status[data-state="idle"] { color: var(--muted); cursor: default; }
+
+/* Smart notebooks: search, tags, the key. */
+.nb-search { height: 40px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line-strong); background: transparent; color: var(--text); font: inherit; width: 100%; }
+.nb-none { padding: 10px 4px; color: var(--muted); font-size: 14px; }
+.nb-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.nb-tags i { font-style: normal; font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.nb-snippet { display: block; margin-top: 4px; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nb-smart { gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+#verdictText { white-space: pre-wrap; }
