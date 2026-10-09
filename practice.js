@@ -105,7 +105,7 @@ Variety: ${Math.floor(Math.random() * 1e6)}.${avoid?.length ? ` Do not repeat th
     });
     return dbPromise;
   }
-  async function allRecords() {
+  async function rawRecords() {
     const db = await openDb();
     if (!db) return [...memory.values()];
     return new Promise((resolve) => {
@@ -114,6 +114,30 @@ Variety: ${Math.floor(Math.random() * 1e6)}.${avoid?.length ? ` Do not repeat th
       request.onerror = () => resolve([...memory.values()]);
     });
   }
+  // The built-in bank (problems.json, made by backend/make_problems.py) is added once and again whenever
+  // new problems ship. Seen marks are never touched. Built-ins sort ahead of Gemini's (small "at").
+  // The answers in that file are for a checker only; they are dropped here and never shown.
+  const seeded = (async () => {
+    try {
+      const response = await fetch("problems.json");
+      if (!response.ok) return;
+      const list = (await response.json()).problems || [];
+      const have = new Set((await rawRecords()).map((r) => r.id));
+      const db = await openDb();
+      list.forEach((item, index) => {
+        const id = `built:${item.id}`;
+        if (have.has(id)) return;
+        const record = {
+          id, topic: item.topic, builtin: true, seen: false, at: index,
+          problem: { topic: item.topic, title: item.title, text: item.text, lines: item.lines },
+        };
+        memory.set(id, record);
+        if (db) db.transaction(STORE, "readwrite").objectStore(STORE).put(record);
+      });
+    } catch { /* offline before the first load: Gemini problems still work */ }
+  })();
+  const allRecords = async () => { await seeded; return rawRecords(); };
+
   async function putRecord(record) {
     memory.set(record.id, record);
     const db = await openDb();
@@ -153,7 +177,7 @@ Variety: ${Math.floor(Math.random() * 1e6)}.${avoid?.length ? ` Do not repeat th
   function refill(topic, { background = false } = {}) {
     if (filling.has(topic.id)) return filling.get(topic.id);
     const job = (async () => {
-      if (!AI?.hasKey()) return { ok: false, error: "To make practice problems, add your free Gemini key under Notebooks, then Smart features." };
+      if (!AI?.hasKey()) return { ok: false, error: "That's every built-in problem for this topic. For more, add your free Gemini key under Notebooks, then Smart features." };
       if (navigator.onLine === false) return { ok: false, error: "No connection. New problems need the internet." };
       const records = await allRecords();
       const known = new Set(records.map((r) => r.id));
@@ -192,8 +216,9 @@ Variety: ${Math.floor(Math.random() * 1e6)}.${avoid?.length ? ` Do not repeat th
   // Keep the bank from running dry: quietly, only online, only when Google isn't pushing back.
   async function topUp(topic) {
     if (Date.now() < coolUntil || !AI?.hasKey() || navigator.onLine === false || AI.busy?.()) return;
-    const left = (await counts())[topic.id] || 0;
-    if (left >= LOW) return;
+    const records = (await allRecords()).filter((r) => r.topic === topic.id && !r.seen);
+    // Gemini only tops up once the built-in problems for this topic are used up.
+    if (records.some((r) => r.builtin) || records.length >= LOW) return;
     const result = await refill(topic, { background: true });
     if (!result.ok) coolUntil = Date.now() + 5 * 60000;
   }
