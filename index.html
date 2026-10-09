@@ -267,6 +267,13 @@
         </div>
       </div>
       <div class="page" data-page="smart" role="tabpanel">
+        <section class="engine-card" id="engineCard" aria-label="Which engine to use">
+          <div class="nb-section-head"><h3>What to use</h3></div>
+          <div class="engine-seg" id="engineSeg" role="radiogroup" aria-label="Engine"></div>
+          <p class="nb-fine" id="engineHint"></p>
+          <div class="engine-table" id="engineTable" role="table" aria-label="Which engine each feature uses"></div>
+          <p class="nb-fine">"Will use" is the order it tries, and "Last time" is what answered and why it moved on. When your PC is on, Skybridge reads pages itself.</p>
+        </section>
         <div class="nb-folds nb-folds-top">
         <details class="nb-fold" id="geminiFold">
           <summary><span>Gemini</span><output id="smartOut"></output></summary>
@@ -286,9 +293,9 @@
           <details class="nb-fold" id="liveFold">
             <summary><span>Gemini Live (experimental)</span><output id="liveOut"></output></summary>
             <div class="nb-fold-body">
-              <p class="nb-hint">The Live models have no daily request limit on the free key. With this on, naming pages and To text try a short Live session first (one picture in, the spoken answer read back as text) and use the usual Flash models only if that fails.</p>
+              <p class="nb-hint">The Live models have no daily request limit on the free key. Choose what is used at the top of this page. In Hybrid, with this on, naming pages and To text try a short Live session first (one picture in, the spoken answer read back as text) and use the usual Flash models only if that fails.</p>
               <label class="nb-address">
-                <span>Try Live first</span>
+                <span>Use Live in Hybrid</span>
                 <select id="liveOn">
                   <option value="off">Off</option>
                   <option value="on">On</option>
@@ -333,14 +340,6 @@
                 <select id="localVision">
                   <option value="no">No, words only</option>
                   <option value="yes">Yes (a vision model)</option>
-                </select>
-              </label>
-              <label class="nb-address">
-                <span>Use it</span>
-                <select id="localMode">
-                  <option value="first">Before Gemini</option>
-                  <option value="only">Instead of Gemini</option>
-                  <option value="off">Off</option>
                 </select>
               </label>
               <label class="nb-address">
@@ -450,6 +449,7 @@
   <script src="./inkstroke.js"></script>
   <script src="./notebooks.js"></script>
   <script src="./mathcheck.js"></script>
+  <script src="./engine.js"></script>
   <script src="./localllm.js"></script>
   <script src="./live.js"></script>
   <script src="./ai.js"></script>

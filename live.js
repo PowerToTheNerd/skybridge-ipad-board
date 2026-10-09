@@ -50,7 +50,7 @@
   }
 
   const keyOf = () => { try { return localStorage.getItem("skybridge.geminiKey") || ""; } catch { return ""; } };
-  const usable = () => config().on && Boolean(keyOf()) && typeof WebSocket === "function" && navigator.onLine !== false;
+  const usable = () => (window.SkybridgeEngine?.choice() === "live" || (window.SkybridgeEngine?.live() !== false && config().on)) && Boolean(keyOf()) && typeof WebSocket === "function" && navigator.onLine !== false;
 
   // Pictures go as JPEG: much smaller than the PNG the board makes, and Live takes either.
   async function toJpeg(base64Png) {

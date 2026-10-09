@@ -1089,3 +1089,16 @@ input[type="range"] {
 #liveResult[data-state="off"], #liveOut[data-state="off"] { color: var(--muted); }
 #liveOut[data-state="on"] { color: var(--ok); }
 .usage-row.live i { background: transparent; }
+
+/* The master switch and the table of which engine each feature uses */
+.engine-card { display: grid; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid var(--line); margin-bottom: 2px; }
+.engine-seg { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.engine-seg button { min-height: 44px; border-radius: 12px; border: 1px solid var(--line); background: rgba(var(--wash-rgb), 0.04); color: var(--text); font: inherit; font-size: 15px; font-weight: 500; }
+.engine-seg button[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.engine-table { display: grid; gap: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.engine-row { display: grid; gap: 2px; padding: 9px 12px; font-size: 13px; }
+.engine-row + .engine-row { border-top: 1px solid var(--line); }
+.engine-row b { font-size: 14px; font-weight: 600; }
+.engine-row .will { color: var(--text); }
+.engine-row .last { color: var(--muted); }
+.engine-row .last[data-state="bad"] { color: var(--bad); }

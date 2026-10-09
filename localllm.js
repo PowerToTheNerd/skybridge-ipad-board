@@ -98,7 +98,7 @@
   // Is it set up for a request of this kind?
   function usable({ image = false, pdf = false } = {}) {
     const cfg = config();
-    if (!endpoint(cfg.url) || cfg.mode === "off" || pdf) return false;
+    if (!endpoint(cfg.url) || window.SkybridgeEngine?.local() === false || pdf) return false;
     return !image || cfg.vision;
   }
 

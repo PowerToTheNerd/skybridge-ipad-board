@@ -210,10 +210,12 @@ If a problem needs a figure you can't write down, say "(see the figure in the PD
     let localError = "";
     if (local) {
       try {
-        return await save(await importLocal(buffer, onProgress), "local");
+        const made = await save(await importLocal(buffer, onProgress), "local");
+        if (made.ok) window.SkybridgeEngine?.record("homework", { ok: true, engine: "local", model: Local.label() });
+        return made;
       } catch (error) {
         localError = error?.message || "The local model couldn't read the PDF.";
-        if (Local.config().mode === "only" || !AI?.hasGeminiKey()) return { ok: false, error: localError };
+        if (window.SkybridgeEngine?.choice() === "local" || !AI?.hasGeminiKey()) { window.SkybridgeEngine?.record("homework", { ok: false, error: localError.slice(0, 90) }); return { ok: false, error: localError }; }
         onProgress?.("The local model couldn't, asking Gemini…");
       }
     }
@@ -221,6 +223,8 @@ If a problem needs a figure you can't write down, say "(see the figure in the PD
     if (navigator.onLine === false) return { ok: false, error: "No connection. Reading a new PDF with Gemini needs the internet (once)." };
     try {
       const { data } = await AI.askPdf(toBase64(buffer), PROMPT, SCHEMA);
+      const Engine = window.SkybridgeEngine;
+      if (localError && Engine?.last("homework")?.ok) Engine.record("homework", { ...Engine.last("homework"), trail: [{ engine: "local", why: localError.slice(0, 90) }] });
       return await save({ title: data.title, problems: cleanProblems(data.problems) }, "gemini");
     } catch (error) {
       return { ok: false, error: AI.explain(error) };

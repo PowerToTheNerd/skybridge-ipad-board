@@ -343,37 +343,64 @@ Answer with JSON only.`;
   // Gemini Live (no daily limit) for a picture task, when it is switched on. `live` says how to ask it and how to
   // turn its spoken answer into the JSON text the rest of this file reads. Any failure falls through to Flash.
   let liveRest = 0;
-  async function viaLive(image, live) {
+  async function viaLive(image, live, trail) {
     const Live = window.SkybridgeLive;
-    if (!live || typeof image !== "string" || !Live?.usable() || Date.now() < liveRest) return null;
+    if (!live || typeof image !== "string" || !Live?.usable()) return null;
+    if (Date.now() < liveRest) { trail?.push({ engine: "live", why: "resting after an error" }); return null; }
     try {
       const { model, text } = await Live.ask({ image, prompt: live.prompt });
       return { model, text: live.toJson(text) };
     } catch (error) {
       lastLiveError = error.message;
+      trail?.push({ engine: "live", why: brief(error.message) });
       if (error.kind === "key" || error.kind === "network") liveRest = Date.now() + 5 * 60000; // don't retry at once
       return null;
     }
   }
   let lastLiveError = "";
+  const brief = (text) => {
+    const one = String(text || "").replace(/\s+/g, " ").trim();
+    const firstSentence = one.split(/(?<=[.!?])\s/)[0];
+    return (firstSentence.length <= 110 ? firstSentence : `${firstSentence.slice(0, 107)}...`).replace(/\.$/, "");
+  };
 
-  async function generate(image, prompt, schema, extra = {}, { background = false, live = null } = {}) {
+  // Which engine answers, in the order the master switch (engine.js) says. `feature` names what is being done, so
+  // the Smart features page can say which engine answered last time and what was bypassed on the way.
+  async function generate(image, prompt, schema, extra = {}, { background = false, live = null, feature = "" } = {}) {
     const Local = window.SkybridgeLocal;
+    const Engine = window.SkybridgeEngine;
     const pdf = Boolean(image && typeof image === "object");
-    if (Local?.usable({ image: Boolean(image), pdf })) {
-      try {
-        return await viaLocal(image, prompt, schema, extra);
-      } catch (error) {
-        // "Instead of Gemini" never falls back; otherwise Gemini takes over when there is a key.
-        if (Local.config().mode === "only" || !hasGeminiKey()) throw error;
+    const trail = [];
+    const done = (result, engine) => { if (feature) Engine?.record(feature, { ok: true, engine, model: result.model, trail }); return result; };
+    const fail = (error) => { if (feature) Engine?.record(feature, { ok: false, error: brief(explain(error)), trail }); throw error; };
+    const onlyLocal = Engine?.choice() === "local";
+    const localSet = Boolean(Local && Local.endpoint(Local.config().url));
+    if ((!Engine || Engine.local()) && localSet) {
+      if (Local.usable({ image: Boolean(image), pdf })) {
+        try {
+          return done(await viaLocal(image, prompt, schema, extra), "local");
+        } catch (error) {
+          trail.push({ engine: "local", why: brief(error.message) });
+          // "Local model" only never falls back; otherwise the next engine takes over when there is one.
+          if (onlyLocal || !hasGeminiKey()) fail(error);
+        }
+      } else if (onlyLocal) {
+        fail(new AiError(pdf ? "Local model only can't read a PDF file directly. Import it from Homework, which reads it page by page." : "Local model only is on, but this needs a model that reads pictures. Switch on Can it read pictures, or choose Hybrid.", "local"));
+      } else if (image) {
+        trail.push({ engine: "local", why: pdf ? "can't read PDF files" : "can't read pictures" });
       }
-    } else if (Local && Local.config().mode === "only" && Local.endpoint(Local.config().url) && !pdf) {
-      throw new AiError("Local only is on, but this needs a model that reads pictures. Switch on Can read pictures, or choose Before Gemini.", "local");
+    } else if (onlyLocal) {
+      fail(new AiError("Local model only is on, but no local model address is set (Notebooks > Smart features > Local model).", "local"));
     }
-    if (!hasGeminiKey()) throw new AiError("Add your Gemini key first.", "key");
-    const spoken = await viaLive(image, live);
-    if (spoken) return spoken;
-    return schedule(() => attempt(image, prompt, schema, extra, background), background);
+    if (onlyLocal) fail(new AiError("The local model didn't answer.", "local"));
+    if (!hasGeminiKey()) fail(new AiError("Add your Gemini key first.", "key"));
+    const spoken = !Engine || Engine.live() ? await viaLive(image, live, trail) : null;
+    if (spoken) return done(spoken, "live");
+    try {
+      return done(await schedule(() => attempt(image, prompt, schema, extra, background), background), "gemini");
+    } catch (error) {
+      fail(error);
+    }
   }
 
   // A notebook name that fits a list: cut at a word boundary, never mid-word.
@@ -411,7 +438,7 @@ Say the words Title, Tags and Text before each part, and nothing else.`;
   }
 
   async function indexPage(image, options = {}) {
-    const { model, text } = await generate(image, INDEX_PROMPT, null, {}, { background: options.background !== false, live: { prompt: INDEX_LIVE, toJson: spokenIndex } });
+    const { model, text } = await generate(image, INDEX_PROMPT, null, {}, { background: options.background !== false, feature: "naming", live: { prompt: INDEX_LIVE, toJson: spokenIndex } });
     return { model, ...cleanIndex(parseJson(text)) };
   }
 
@@ -432,7 +459,7 @@ Say each number as it is written, say "equals", "plus", "minus" and "times" for 
   }
 
   async function transcribe(image) {
-    const { model, text } = await generate(image, TRANSCRIBE_PROMPT, null, {}, { live: { prompt: TRANSCRIBE_LIVE, toJson: spokenText } });
+    const { model, text } = await generate(image, TRANSCRIBE_PROMPT, null, {}, { feature: "totext", live: { prompt: TRANSCRIBE_LIVE, toJson: spokenText } });
     const data = parseJson(text);
     const out = Array.isArray(data.text) ? data.text.join("\n") : String(data.text ?? "");
     return { model, text: out.trim().slice(0, 6000) };
@@ -440,13 +467,13 @@ Say each number as it is written, say "equals", "plus", "minus" and "times" for 
 
   // Words only (no picture): a practice problem. `prompt` is built by practice.js.
   async function ask(prompt, schema, { background = false } = {}) {
-    const { model, text } = await generate(null, prompt, schema, { temperature: 0.9 }, { background });
+    const { model, text } = await generate(null, prompt, schema, { temperature: 0.9 }, { background, feature: "practice" });
     return { model, data: parseJson(text) };
   }
 
   // A PDF (base64) with a prompt: what you asked for, so it goes ahead of background reading.
   async function askPdf(base64, prompt, schema) {
-    const { model, text } = await generate({ mime: "application/pdf", data: base64 }, prompt, schema, { maxOutputTokens: 32000 });
+    const { model, text } = await generate({ mime: "application/pdf", data: base64 }, prompt, schema, { maxOutputTokens: 32000 }, { feature: "homework" });
     return { model, data: parseJson(text) };
   }
 
@@ -459,7 +486,7 @@ Say each number as it is written, say "equals", "plus", "minus" and "times" for 
   }
 
   async function readWork(image, { problem = "", mode = "practice" } = {}) {
-    const { model, text } = await generate(image, readPrompt(problem, mode), READING_SCHEMA);
+    const { model, text } = await generate(image, readPrompt(problem, mode), READING_SCHEMA, {}, { feature: "check" });
     return { model, reading: parseJson(text) };
   }
 

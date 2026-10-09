@@ -112,6 +112,9 @@
     usageList: document.getElementById("usageList"),
     usageNote: document.getElementById("usageNote"),
     liveOut: document.getElementById("liveOut"),
+    engineSeg: document.getElementById("engineSeg"),
+    engineHint: document.getElementById("engineHint"),
+    engineTable: document.getElementById("engineTable"),
     liveOn: document.getElementById("liveOn"),
     liveModel: document.getElementById("liveModel"),
     liveCheck: document.getElementById("liveCheck"),
@@ -122,7 +125,6 @@
     localKey: document.getElementById("localKey"),
     localModel: document.getElementById("localModel"),
     localVision: document.getElementById("localVision"),
-    localMode: document.getElementById("localMode"),
     localVia: document.getElementById("localVia"),
     localRoute: document.getElementById("localRoute"),
     localTest: document.getElementById("localTest"),
@@ -3466,6 +3468,7 @@
 
   // ---- Smart features: today's free Gemini requests, and the local model ----------------------------
   const Local = window.SkybridgeLocal;
+  const Engine = window.SkybridgeEngine;
   // Gemini Live has no daily cap, so it only shows a count.
   function liveRow() {
     const status = window.SkybridgeAI.liveStatus();
@@ -3487,8 +3490,10 @@
     el.liveOn.value = cfg.on ? "on" : "off";
     el.liveModel.value = cfg.model;
     el.liveCheck.value = cfg.check ? "on" : "off";
-    el.liveOut.textContent = cfg.on ? (window.SkybridgeAI.hasGeminiKey() ? "On" : "Needs a key") : "Off";
-    el.liveOut.dataset.state = cfg.on && window.SkybridgeAI.hasGeminiKey() ? "on" : "off";
+    const wanted = Engine ? (Engine.choice() === "live" || (Engine.live() && cfg.on)) : cfg.on;
+    el.liveOut.textContent = !wanted ? (Engine && !Engine.live() ? "Not used (see What to use)" : "Off") : (window.SkybridgeAI.hasGeminiKey() ? "On" : "Needs a key");
+    el.liveOut.dataset.state = wanted && window.SkybridgeAI.hasGeminiKey() ? "on" : "off";
+    renderEngine();
   }
   if (Live) {
     for (const model of Live.MODELS) el.liveModel.append(Object.assign(document.createElement("option"), { value: model.id, textContent: model.label }));
@@ -3538,6 +3543,44 @@
   window.SkybridgeAI?.onUsage(renderUsage);
   renderUsage();
 
+  // ---- The master switch and the "which engine does what" table ----
+  function renderEngine() {
+    if (!Engine) return;
+    if (!el.engineSeg.children.length) {
+      for (const choice of Engine.CHOICES) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.setAttribute("role", "radio");
+        button.dataset.engine = choice.id;
+        button.textContent = choice.id === "live" ? "Gemini Live" : choice.label;
+        button.addEventListener("click", () => Engine.set(choice.id));
+        el.engineSeg.append(button);
+      }
+    }
+    for (const button of el.engineSeg.children) button.setAttribute("aria-checked", String(button.dataset.engine === Engine.choice()));
+    el.engineHint.textContent = Engine.CHOICES.find((c) => c.id === Engine.choice()).hint;
+    el.engineTable.replaceChildren(...Engine.FEATURES.map((feature) => {
+      const row = document.createElement("div");
+      row.className = "engine-row";
+      row.setAttribute("role", "row");
+      const name = document.createElement("b");
+      name.textContent = feature.label;
+      const will = document.createElement("span");
+      will.className = "will";
+      will.textContent = `Will use: ${Engine.planText(feature.id)}`;
+      const last = document.createElement("span");
+      last.className = "last";
+      last.textContent = `Last time: ${Engine.lastText(feature.id)}`;
+      if (Engine.last(feature.id)?.ok === false) last.dataset.state = "bad";
+      row.append(name, will, last);
+      return row;
+    }));
+  }
+  if (Engine) {
+    Engine.onChange(() => { renderEngine(); if (Local) renderLocal(); renderLive(); renderSmartUi(); });
+    renderEngine();
+  }
+
   function renderLocal() {
     if (!Local) return;
     const cfg = Local.config();
@@ -3546,14 +3589,16 @@
     el.localKey.placeholder = cfg.key ? "Saved. Paste a new key to replace it" : "Optional";
     set(el.localModel, cfg.model);
     el.localVision.value = cfg.vision ? "yes" : "no";
-    el.localMode.value = cfg.mode;
     el.localVia.value = cfg.via;
     el.localRoute.textContent = Local.explainRoute();
-    const on = Local.endpoint(cfg.url) && cfg.mode !== "off";
-    el.localOut.textContent = !Local.endpoint(cfg.url) ? "Not set" : cfg.mode === "off" ? "Off" : cfg.mode === "only" ? "Instead of Gemini" : "Before Gemini";
+    const hasUrl = Boolean(Local.endpoint(cfg.url));
+    const used = hasUrl && Engine.local();
+    const on = used;
+    el.localOut.textContent = !hasUrl ? "Not set" : used ? (Engine.choice() === "local" ? "Only this" : "Used first") : "Not used (see What to use)";
     el.localOut.dataset.state = on ? "on" : "off";
     el.localRemove.hidden = !cfg.url && !cfg.key;
     el.localPair.hidden = !Local.needsPair();
+    renderEngine();
   }
   if (Local) {
     renderLocal();
@@ -3567,7 +3612,6 @@
       if (value) { saveLocal({ key: value }); toast("Local key saved on this iPad"); }
     });
     el.localVision.addEventListener("change", () => saveLocal({ vision: el.localVision.value === "yes" }));
-    el.localMode.addEventListener("change", () => saveLocal({ mode: el.localMode.value }));
     el.localVia.addEventListener("change", () => { saveLocal({ via: el.localVia.value }); el.localResult.hidden = true; });
     el.localPair.addEventListener("click", () => {
       el.syncFold.open = true;
@@ -3605,6 +3649,7 @@
       + "Pages are read by Skybridge when your PC is on, otherwise by your local model or Gemini with your own free key.";
     el.geminiKey.placeholder = keyed ? "Saved. Paste a new key to replace it" : "Paste your key";
     el.geminiKeyRemove.hidden = !keyed;
+    renderEngine();
   }
 
   el.notebookSearch.addEventListener("input", renderNotebookList);

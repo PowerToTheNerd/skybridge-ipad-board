@@ -351,6 +351,7 @@
       if (["rate", "busy", "timeout", "missing"].includes(error?.kind) && Live?.usable() && Live.config().check) {
         try {
           const spoken = await Live.ask({ image, prompt: LIVE_CHECK(bridge.problemText?.() || "") });
+          window.SkybridgeEngine?.record("check", { ok: true, engine: "live", model: spoken.model, trail: [{ engine: "gemini", why: AI.explain(error).slice(0, 90) }] });
           return { ok: true, verdict: "unverified", box: null, text: `Live's opinion (${spoken.model}). It read your page like a tutor would; the numbers were NOT checked exactly, so it can be wrong.\n${spoken.text}` };
         } catch (liveError) {
           return { ok: false, error: `${AI.explain(error)}\nLive couldn't help either: ${liveError.message}` };
