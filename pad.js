@@ -21,7 +21,12 @@
     white: "Soft white",
     cream: "Cream",
   };
-  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], palette: [], rail: true, paper: "night", finger: "move", grid: "dots", gridSize: 24, grain: true, layout: "mine" };
+  // App colour. "auto" takes a complementary hue from the paper; the rest are fixed hues
+  // (null saturates nothing: graphite), so the chrome is never locked to the paper.
+  const THEMES = { auto: "Auto", green: 156, blue: 215, violet: 265, amber: 38, rose: 340, graphite: null };
+  const THEME_NAMES = { auto: "Auto (complements the paper)", green: "Green", blue: "Blue", violet: "Violet", amber: "Amber", rose: "Rose", graphite: "Graphite" };
+  const PAPER_HUES = { night: 156, black: 205, slate: 218, chalk: 156, white: 215, cream: 40 };
+  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], palette: [], rail: true, paper: "night", theme: "auto", finger: "move", grid: "dots", gridSize: 24, grain: true, layout: "mine" };
   const LAYOUTS = ["mine", "both", "gemini"];
 
   const el = {
@@ -57,6 +62,7 @@
     tidy: document.getElementById("tidyBtn"),
     preview: document.getElementById("preview"),
     papers: document.getElementById("papers"),
+    themes: document.getElementById("themes"),
     fingerModes: [...document.querySelectorAll("[data-finger]")],
     recenter: document.getElementById("recenterBtn"),
     gridStyles: [...document.querySelectorAll("#gridStyles [data-grid]")],
@@ -153,6 +159,7 @@
   const settings = { ...DEFAULTS };
   try { Object.assign(settings, JSON.parse(storage("get", SETTINGS_KEY) || "{}")); } catch {}
   if (!(settings.paper in PAPERS)) settings.paper = DEFAULTS.paper;
+  if (!(settings.theme in THEMES)) settings.theme = DEFAULTS.theme;
   // The pattern used to be on or off; now it is blank, dots, a square grid or lined.
   const GRIDS = ["none", "dots", "square", "lined"];
   if (settings.grid === true) settings.grid = "dots";
@@ -1579,6 +1586,40 @@
 
   // The paper and its dots are set with resolved colours rather than left to CSS
   // variables inside a gradient, which iPad Safari doesn't always repaint.
+  function hsl(h, s, l) {
+    s /= 100; l /= 100;
+    const a = s * Math.min(l, 1 - l);
+    const f = (n) => { const k = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); };
+    return [f(0), f(8), f(4)].map((v) => Math.round(v * 255));
+  }
+  const hex = (rgb) => `#${rgb.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+
+  function themeHue() {
+    if (settings.theme === "auto") return (PAPER_HUES[settings.paper] + 180) % 360;
+    return THEMES[settings.theme] ?? 200;
+  }
+
+  // Sets the chrome (bar, rail, panels, borders, accent) from one hue. The ink and the
+  // paper keep their own colours, so only the app around the page changes.
+  function applyTheme() {
+    const h = themeHue();
+    const k = settings.theme === "graphite" ? 0.12 : 1;
+    const c = (s, l) => hsl(h, s * k, l);
+    const root = document.documentElement.style;
+    const set = (name, rgb) => root.setProperty(`--${name}`, hex(rgb));
+    const setRgb = (name, rgb) => root.setProperty(`--${name}`, rgb.join(", "));
+    set("bg", c(40, 2)); set("surface", c(30, 7)); set("surface-raised", c(26, 11));
+    set("edge", c(28, 17)); set("edge-hi", c(24, 32));
+    set("text", c(16, 91)); set("text-2", c(14, 77)); set("muted", c(10, 62));
+    set("accent", c(38, 76)); set("accent-hi", c(55, 85)); set("accent-lo", c(42, 66)); set("on-accent", c(45, 8));
+    setRgb("acc-rgb", c(38, 76)); setRgb("line-rgb", c(30, 76)); setRgb("glow-rgb", c(60, 68));
+    setRgb("bar-rgb", c(35, 3)); setRgb("text-rgb", c(16, 91));
+    // Lasso lines sit on the paper, so they use the accent nudged to read on this paper.
+    const accent = hex(c(38, 76));
+    root.setProperty("--pen-accent", window.SkybridgeInk?.colorOn ? window.SkybridgeInk.colorOn(accent, cssColor("paper")) : accent);
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", hex(c(40, 2)));
+  }
+
   function paintPaper() {
     const line = cssColor("grid");
     const pattern = {
@@ -1602,6 +1643,7 @@
 
   function renderSettings() {
     document.documentElement.dataset.paper = settings.paper;
+    applyTheme();
     document.documentElement.dataset.grid = settings.grid === "none" ? "off" : "on";
     document.documentElement.dataset.grain = settings.grain ? "on" : "off";
     paintPaper();
@@ -1627,6 +1669,9 @@
     el.papers.querySelectorAll("[data-paper]").forEach((button) => {
       button.setAttribute("aria-checked", String(button.dataset.paper === settings.paper));
     });
+    el.themes.querySelectorAll("[data-theme]").forEach((button) => {
+      button.setAttribute("aria-checked", String(button.dataset.theme === settings.theme));
+    });
     el.fingerModes.forEach((button) => button.setAttribute("aria-checked", String(button.dataset.finger === settings.finger)));
     if (!el.settings.hidden) renderPreview();
   }
@@ -1651,6 +1696,27 @@
       paint();
     });
     el.papers.append(button);
+  });
+
+  Object.keys(THEMES).forEach((key) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "paper theme-dot";
+    button.dataset.theme = key;
+    button.setAttribute("role", "radio");
+    button.setAttribute("aria-label", THEME_NAMES[key]);
+    button.title = THEME_NAMES[key];
+    const hue = THEMES[key];
+    button.style.background = key === "auto"
+      ? "linear-gradient(135deg, hsl(156 45% 70%) 50%, hsl(336 45% 70%) 50%)"
+      : hue === null ? "hsl(0 0% 62%)" : `hsl(${hue} 45% 70%)`;
+    button.addEventListener("click", () => {
+      settings.theme = key;
+      saveSettings();
+      renderSettings();
+      paint();
+    });
+    el.themes.append(button);
   });
 
   el.grain.addEventListener("click", () => {
