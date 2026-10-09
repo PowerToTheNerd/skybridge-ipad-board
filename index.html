@@ -136,32 +136,45 @@
 
   <!-- Notebooks live on this iPad, so they work without the PC. -->
   <section class="settings notebook-sheet" id="notebookSheet" role="dialog" aria-label="Notebooks" hidden>
-    <div class="nb-head"><strong>Notebooks</strong><button type="button" class="tool" id="notebookNew">New notebook</button></div>
-    <input type="search" class="nb-search" id="notebookSearch" placeholder="Search names, tags and your handwriting" aria-label="Search notebooks" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <header class="nb-head">
+      <h2>Notebooks</h2>
+      <button type="button" class="nb-new" id="notebookNew"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4.5v11M4.5 10h11"/></svg>New</button>
+    </header>
+    <label class="nb-searchbox">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.6" cy="8.6" r="5.2"/><path d="m12.6 12.6 4 4"/></svg>
+      <input type="search" class="nb-search" id="notebookSearch" placeholder="Search notebooks" aria-label="Search names, tags and handwriting" autocapitalize="off" autocorrect="off" spellcheck="false">
+    </label>
     <ul class="nb-list" id="notebookList"></ul>
-    <div class="setting nb-smart">
-      <span class="setting-head">Smart features <output id="smartOut"></output></span>
-      <span class="setting-hint" id="smartNote"></span>
-      <label class="nb-address">
-        <span>Gemini API key</span>
-        <input type="password" id="geminiKey" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Paste your key">
-      </label>
-      <button type="button" class="tool wide" id="geminiKeyRemove" hidden>Remove the key from this iPad</button>
+    <div class="nb-folds">
+      <details class="nb-fold" id="smartFold">
+        <summary><span>Smart features</span><output id="smartOut"></output></summary>
+        <div class="nb-fold-body">
+          <p class="nb-hint" id="smartNote"></p>
+          <label class="nb-address">
+            <span>Gemini API key</span>
+            <input type="password" id="geminiKey" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Paste your key">
+          </label>
+          <button type="button" class="nb-link" id="geminiKeyRemove" hidden>Remove the key from this iPad</button>
+          <p class="nb-fine">Your key stays on this iPad. Page pictures go to Google when Gemini reads them.</p>
+        </div>
+      </details>
+      <details class="nb-fold" id="syncFold">
+        <summary><span>Sync with Skybridge</span><output id="syncOut"></output></summary>
+        <div class="nb-fold-body">
+          <p class="nb-hint" id="syncNote"></p>
+          <label class="nb-address">
+            <span>PC address</span>
+            <input type="text" id="syncHost" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="192.168.1.20:8011">
+          </label>
+          <label class="nb-address" id="syncCodeRow" hidden>
+            <span>Pairing code</span>
+            <input type="text" id="syncCode" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="shown in Skybridge">
+          </label>
+          <button type="button" class="nb-btn" id="syncRetry">Sync now</button>
+        </div>
+      </details>
     </div>
-    <div class="setting nb-sync">
-      <span class="setting-head">Sync with Skybridge <output id="syncOut"></output></span>
-      <span class="setting-hint" id="syncNote"></span>
-      <label class="nb-address">
-        <span>PC address</span>
-        <input type="text" id="syncHost" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="192.168.1.20:8011">
-      </label>
-      <label class="nb-address" id="syncCodeRow" hidden>
-        <span>Pairing code</span>
-        <input type="text" id="syncCode" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="shown in Skybridge">
-      </label>
-      <button type="button" class="tool wide" id="syncRetry">Sync now</button>
-    </div>
-    <p class="setting-hint" id="installNote" hidden>To keep this as an app that works without your PC: tap Share, then Add to Home Screen.</p>
+    <p class="nb-fine" id="installNote" hidden>To keep this as an app that works without your PC: tap Share, then Add to Home Screen.</p>
   </section>
 
   <section class="settings color-sheet" id="colorSheet" role="dialog" aria-label="Pen colours" hidden>

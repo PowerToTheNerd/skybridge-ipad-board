@@ -2033,6 +2033,15 @@
     return new Date(time).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   }
 
+  const ICON_PENCIL = '<path d="m12.5 4.5 3 3M4 16l.7-3.3L13.6 3.8a1.4 1.4 0 0 1 2 0l.6.6a1.4 1.4 0 0 1 0 2l-8.9 8.9z"/>';
+  const ICON_TRASH = '<path d="M4.5 6h11M8 6V4.2h4V6M6 6l.6 9.5h6.8L14 6"/>';
+  const ICON_CHECK = '<path d="m4.5 10.5 3.5 3.5 7.5-8"/>';
+  function iconButton(button, label, path) {
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.innerHTML = `<svg viewBox="0 0 20 20" aria-hidden="true">${path}</svg>`;
+  }
+
   async function renderNotebookList() {
     if (el.notebookSheet.hidden) return;
     const Smart = window.SkybridgeSmart;
@@ -2057,7 +2066,7 @@
       const title = document.createElement("b");
       title.textContent = book.name;
       const note = document.createElement("small");
-      note.textContent = `${book.count} ${book.count === 1 ? "stroke" : "strokes"} · ${ago(book.updated)}`;
+      note.textContent = `${ago(book.updated)} · ${book.count} ${book.count === 1 ? "stroke" : "strokes"}`;
       main.append(title, note);
       if (book.tags?.length) {
         const tags = document.createElement("span");
@@ -2078,15 +2087,18 @@
       main.addEventListener("click", async () => { await openNotebook(book.id); el.notebookSheet.hidden = true; el.notebookBtn.setAttribute("aria-expanded", "false"); });
       const rename = document.createElement("button");
       rename.type = "button";
-      rename.className = "tool";
-      rename.textContent = "Rename";
+      rename.className = "nb-act";
+      iconButton(rename, "Rename", ICON_PENCIL);
       rename.addEventListener("click", () => editName(row, main, rename, book));
       const remove = document.createElement("button");
       remove.type = "button";
-      remove.className = "tool";
-      remove.textContent = "Delete";
+      remove.className = "nb-act danger";
+      iconButton(remove, "Delete", ICON_TRASH);
       remove.addEventListener("click", () => deleteNotebook(book.id));
-      row.append(main, rename, remove);
+      const actions = document.createElement("span");
+      actions.className = "nb-acts";
+      actions.append(rename, remove);
+      row.append(main, actions);
       return row;
     });
     el.notebookList.replaceChildren(...rows);
@@ -2099,7 +2111,7 @@
     input.maxLength = 80;
     input.setAttribute("aria-label", "Notebook name");
     row.replaceChild(input, main);
-    rename.textContent = "Save";
+    iconButton(rename, "Save", ICON_CHECK);
     let finished = false;
     const finish = async (keep) => {
       if (finished) return;
@@ -2156,10 +2168,9 @@
     const keyed = AI.hasKey();
     const pending = Smart.pending();
     el.smartOut.textContent = Smart.status() || (keyed ? "Gemini key saved" : pcOpen && connected ? "Using your PC" : "Off");
-    el.smartNote.textContent = "Each page gets a title and tags and its handwriting becomes searchable, and Check my work works without your PC. "
-      + "Pages are read by Skybridge when your PC is on, or by Gemini with your own free key (kept only on this iPad) when online; "
-      + "the page picture goes to Google. Pages written offline wait."
-      + (pending ? ` ${pending} ${pending === 1 ? "page is" : "pages are"} waiting.` : "");
+    el.smartOut.dataset.state = keyed || (pcOpen && connected) ? "on" : "off";
+    el.smartNote.textContent = "Titles, tags and searchable handwriting for every page, and Check my work without your PC. "
+      + "Pages are read by Skybridge when your PC is on, otherwise by Gemini with your own free key.";
     el.geminiKey.placeholder = keyed ? "Saved. Paste a new key to replace it" : "Paste your key";
     el.geminiKeyRemove.hidden = !keyed;
   }
