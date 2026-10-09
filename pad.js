@@ -21,7 +21,7 @@
     white: "Soft white",
     cream: "Cream",
   };
-  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], saved: [], rail: true, paper: "night", finger: "move", grid: true, grain: true, layout: "mine" };
+  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], palette: [], rail: true, paper: "night", finger: "move", grid: true, grain: true, layout: "mine" };
   const LAYOUTS = ["mine", "both", "gemini"];
 
   const el = {
@@ -38,6 +38,7 @@
     lassoBrackets: document.getElementById("lassoBrackets"),
     lassoDuplicate: document.getElementById("lassoDuplicate"),
     lassoDone: document.getElementById("lassoDone"),
+    lassoEnds: [...document.querySelectorAll(".lasso-end")],
     tools: [...document.querySelectorAll("[data-tool]")],
     clear: document.getElementById("clearBtn"),
     settingsBtn: document.getElementById("settingsBtn"),
@@ -102,7 +103,8 @@
     hsvChip: document.getElementById("hsvChip"),
     hsvHex: document.getElementById("hsvHex"),
     hsvRecent: document.getElementById("hsvRecent"),
-    hsvSaved: document.getElementById("hsvSaved"),
+    palette: document.getElementById("palette"),
+    paletteNote: document.getElementById("paletteNote"),
     eraserInput: document.getElementById("eraserInput"),
     eraserOut: document.getElementById("eraserOut"),
     rail: document.getElementById("rail"),
@@ -142,7 +144,16 @@
   // Smoothing and tidy got stronger defaults; settings saved before that start over on them.
   if (settings.sv !== DEFAULTS.sv) Object.assign(settings, { smooth: DEFAULTS.smooth, tidy: DEFAULTS.tidy, sv: DEFAULTS.sv });
   if (!Array.isArray(settings.recent)) settings.recent = [];
-  if (!Array.isArray(settings.saved)) settings.saved = [];
+  // The palette at the bottom left holds the colours kept on purpose (it replaces the earlier "Saved" row).
+  const PALETTE_START = ["ink", "#e5484d", "#f5a524", "#3fb950", "#3b82f6", "#a371f7"];
+  const PALETTE_MIN = 2;
+  const PALETTE_MAX = 12;
+  if (!Array.isArray(settings.palette)) settings.palette = [];
+  if (!settings.palette.length) {
+    const kept = Array.isArray(settings.saved) ? settings.saved.filter((hex) => /^#[0-9a-f]{6}$/i.test(hex)) : [];
+    settings.palette = [...kept, ...PALETTE_START.filter((c) => !kept.includes(c))].slice(0, Math.max(6, kept.length)).slice(0, PALETTE_MAX);
+  }
+  delete settings.saved;
   function saveSettings() {
     storage("set", SETTINGS_KEY, JSON.stringify(settings));
   }
@@ -165,6 +176,7 @@
   // Undo and redo steps per board (see "Undo and redo" below).
   const hist = { mine: { undo: [], redo: [] }, gemini: { undo: [], redo: [] } };
   const lasso = { path: null, pointer: null, selected: [] };
+  let guides = []; // alignment lines shown while dragging: { x|y, from, to } in board coordinates
   let checking = false; // Check my work is running on the PC
   const base = document.createElement("canvas");
   const baseCtx = base.getContext("2d");
@@ -257,6 +269,19 @@
       ctx.strokeStyle = cssColor("accent");
       ctx.beginPath();
       lasso.path.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.stroke();
+      ctx.restore();
+    }
+    if (guides.length) {
+      ctx.save();
+      ctx.lineWidth = 1.4 / view.zoom;
+      ctx.setLineDash([5 / view.zoom, 4 / view.zoom]);
+      ctx.strokeStyle = "#ff4fa3";
+      ctx.beginPath();
+      for (const g of guides) {
+        if (g.x !== undefined) { ctx.moveTo(g.x, g.from); ctx.lineTo(g.x, g.to); }
+        else { ctx.moveTo(g.from, g.y); ctx.lineTo(g.to, g.y); }
+      }
       ctx.stroke();
       ctx.restore();
     }
@@ -1014,8 +1039,8 @@
   // set in Pen & paper). A resting palm is ignored while the Pencil writes.
   // ---------------------------------------------------------------------------
   let pen = "ink"; // pen colour (restored below once the palette exists)
-  let tool = "pen"; // pen, marker (highlighter), eraser, lasso or matrix (brackets)
-  let beforeMatrix = "pen";
+  let tool = "pen"; // pen, marker (highlighter), eraser, lasso or matrix (brackets; stays until another tool is picked)
+  let slot = -1; // the palette slot being edited: the one whose colour is the pen's
   let beforeEraser = "pen";
   let current = null;
   let pointerId = null;
@@ -1249,8 +1274,9 @@
   }, { passive: false });
 
   // The colour a pen picks up from the sheet; a pen swatch or the highlighter button changes the tool too.
-  function setPen(name, remember = true) {
+  function setPen(name, remember = true, fromSheet = false) {
     pen = name;
+    if (!fromSheet) slot = settings.palette.indexOf(name);
     if (tool === "eraser") tool = beforeEraser;
     renderTools();
     if (remember) { settings.pen = name; saveSettings(); }
@@ -1259,7 +1285,6 @@
   function setTool(name) {
     if (name === "marker" && pen === "ink") pen = "mark-2"; // white highlighter would show nothing
     if (name === "eraser" && tool !== "eraser") beforeEraser = tool;
-    if (name === "matrix" && tool !== "matrix") beforeMatrix = tool === "eraser" ? "pen" : tool;
     tool = name;
     if (name !== "lasso" && name !== "matrix") clearSelection();
     el.canvas.parentElement.dataset.tool = name;
@@ -1298,7 +1323,7 @@
     swatch.setAttribute("aria-label", label);
     swatch.title = label;
     swatch.addEventListener("click", () => {
-      setPen(name);
+      chooseColor(name);
       if (lasso.selected.length) recolorSelection(name);
       el.colorSheet.hidden = true;
       el.colorBtn.setAttribute("aria-expanded", "false");
@@ -1345,23 +1370,25 @@
       dot.addEventListener("click", () => {
         Object.assign(hsv, hexToHsv(hex));
         paintPicker();
-        setPen(hex);
+        chooseColor(hex);
         if (lasso.selected.length) recolorSelection(hex);
       });
       return dot;
     }));
   }
-  // Colours kept on purpose: tap one to use it, hold one to remove it, tap + to keep the colour in the picker.
-  const SAVED_MAX = 12;
-  function renderSaved() {
-    const current = hsvToHex(hsv);
-    const dots = settings.saved.map((hex) => {
+  // The palette: colours kept at the bottom left. Tap one to write with it. With one picked, whatever
+  // you choose in the colour sheet (a swatch, a recent colour or the wheel) takes its place, so
+  // tap the white, open the wheel, pick a colour, and the white slot is that colour now.
+  // Hold a slot to remove it; + adds a slot with the colour you have.
+  function renderPalette() {
+    const dots = settings.palette.map((value, index) => {
       const dot = document.createElement("button");
       dot.type = "button";
-      dot.className = "color-swatch saved";
-      dot.style.background = hex;
-      dot.setAttribute("aria-label", `Saved colour ${hex}`);
-      dot.setAttribute("aria-pressed", String(hex === current));
+      dot.className = "palette-slot";
+      dot.style.background = strokeColor(value);
+      dot.dataset.value = value;
+      dot.setAttribute("aria-label", `Palette colour ${index + 1}`);
+      dot.setAttribute("aria-pressed", String(index === slot));
       let timer = 0;
       let held = false;
       const cancel = () => clearTimeout(timer);
@@ -1369,38 +1396,56 @@
         held = false;
         timer = setTimeout(() => {
           held = true;
-          settings.saved = settings.saved.filter((c) => c !== hex);
+          if (settings.palette.length <= PALETTE_MIN) { toast("Keep at least two colours"); return; }
+          const before = [...settings.palette];
+          settings.palette.splice(index, 1);
+          slot = settings.palette.indexOf(pen);
           saveSettings();
-          renderSaved();
-          toast(`Removed ${hex}`, { label: "Undo", run: () => { settings.saved = [...settings.saved, hex].slice(0, SAVED_MAX); saveSettings(); renderSaved(); } });
+          renderPalette();
+          toast("Removed from the palette", { label: "Undo", run: () => { settings.palette = before; slot = before.indexOf(pen); saveSettings(); renderPalette(); } });
         }, 600);
       });
       for (const type of ["pointerup", "pointerleave", "pointercancel"]) dot.addEventListener(type, cancel);
       dot.addEventListener("contextmenu", (event) => event.preventDefault());
       dot.addEventListener("click", () => {
         if (held) return;
-        Object.assign(hsv, hexToHsv(hex));
+        const again = index === slot && tool !== "eraser";
+        if (tool === "eraser") setTool(beforeEraser);
+        if (/^#[0-9a-f]{6}$/i.test(value)) Object.assign(hsv, hexToHsv(value));
         paintPicker();
-        setPen(hex);
-        if (lasso.selected.length) recolorSelection(hex);
-        renderSaved();
+        setPen(value);
+        slot = index;
+        if (lasso.selected.length) recolorSelection(value);
+        renderPalette();
+        // A second tap on the colour already in hand opens the colour sheet to change it.
+        if (again && el.colorSheet.hidden) el.colorBtn.click();
       });
       return dot;
     });
     const add = document.createElement("button");
     add.type = "button";
-    add.className = "color-swatch saved-add";
-    add.setAttribute("aria-label", "Save this colour");
+    add.className = "palette-slot palette-add";
+    add.setAttribute("aria-label", "Add a palette colour");
     add.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4.5v11M4.5 10h11"/></svg>';
+    add.hidden = settings.palette.length >= PALETTE_MAX;
     add.addEventListener("click", () => {
-      if (settings.saved.includes(current)) { toast("Already saved"); return; }
-      if (settings.saved.length >= SAVED_MAX) { toast("Full: hold a colour to remove it"); return; }
-      settings.saved = [...settings.saved, current];
+      settings.palette = [...settings.palette, pen].slice(0, PALETTE_MAX);
+      slot = settings.palette.length - 1;
       saveSettings();
-      renderSaved();
+      renderPalette();
+      if (el.colorSheet.hidden) el.colorBtn.click();
     });
-    el.hsvSaved.replaceChildren(...dots, add);
-    el.hsvSaved.dataset.empty = settings.saved.length ? "false" : "true";
+    el.palette.replaceChildren(...dots, add);
+    if (el.paletteNote) el.paletteNote.textContent = slot >= 0 ? "The highlighted palette colour changes to whatever you pick here." : "Tap a palette colour first to swap it for another.";
+  }
+  // A colour chosen in the colour sheet: used for the pen, and kept in the palette slot being edited.
+  function chooseColor(value, remember = true) {
+    setPen(value, remember, true);
+    if (slot >= 0 && settings.palette[slot] !== value) {
+      settings.palette[slot] = value;
+      if (remember) saveSettings();
+    }
+    renderPalette();
   }
   function dragOn(node, onMove, onEnd) {
     let id = null;
@@ -1421,14 +1466,14 @@
   }
   // While dragging only the pen changes; the selection is recoloured and the colour
   // remembered once, when the finger lifts.
-  const pickerMove = () => setPen(paintPicker(), false);
+  const pickerMove = () => chooseColor(paintPicker(), false);
   const pickerDone = () => {
     const hex = paintPicker();
-    setPen(hex);
+    chooseColor(hex);
     settings.recent = [hex, ...settings.recent.filter((c) => c !== hex)].slice(0, 8);
     saveSettings();
     renderRecent();
-    renderSaved();
+    renderPalette();
     if (lasso.selected.length) recolorSelection(hex);
   };
   const frac = (event, node) => {
@@ -1446,16 +1491,15 @@
     pickerMove();
   }, pickerDone);
   if (/^#[0-9a-f]{6}$/i.test(pen === "ink" ? "" : pen)) Object.assign(hsv, hexToHsv(pen));
-  paintPicker();
-  renderRecent();
-  renderSaved();
   if (settings.pen && settings.pen !== "ink") {
     pen = settings.pen;
     if (/^#[0-9a-f]{6}$/i.test(pen)) Object.assign(hsv, hexToHsv(pen));
-    paintPicker();
-    renderSaved();
-    renderTools();
   }
+  slot = settings.palette.indexOf(pen);
+  paintPicker();
+  renderRecent();
+  renderPalette();
+  renderTools();
   el.colorBtn.addEventListener("click", () => {
     const open = el.colorSheet.hidden;
     if (open) {
@@ -1787,7 +1831,58 @@
     const top = (y0 - view.y) * view.zoom;
     Object.assign(el.lassoBox.style, { left: `${left}px`, top: `${top}px`, width: `${(x1 - x0) * view.zoom}px`, height: `${(y1 - y0) * view.zoom}px` });
     el.lassoBar.classList.toggle("below", top < 64);
+    // One straight line selected: its two ends become handles to pull, instead of the corners.
+    const ends = lasso.selected.length === 1 ? lineEnds(lasso.selected[0]) : null;
+    el.lassoBox.dataset.line = String(Boolean(ends));
+    if (ends) {
+      el.lassoEnds.forEach((node) => {
+        const point = ends[node.dataset.end === "a" ? 0 : 1];
+        node.style.left = `${(point[0] - x0) * view.zoom}px`;
+        node.style.top = `${(point[1] - y0) * view.zoom}px`;
+      });
+    }
     el.lassoBox.hidden = false;
+  }
+
+  // A stroke that is one straight line (a held-still line, or a drawn one that came out straight): its two ends.
+  function lineEnds(stroke) {
+    const pts = stroke.points;
+    if (stroke.eraser || pts.length < 2) return null;
+    const a = pts[0];
+    const b = pts[pts.length - 1];
+    const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (length < 16) return null;
+    for (const point of pts) {
+      const off = Math.abs((b[0] - a[0]) * (a[1] - point[1]) - (a[0] - point[0]) * (b[1] - a[1])) / length;
+      if (off > 1.2) return null;
+    }
+    return [a, b];
+  }
+
+  // Edges and centres of everything else on the page, for the pink guides that show when things line up.
+  function alignTargets(exclude) {
+    const xs = [];
+    const ys = [];
+    for (const stroke of strokes) {
+      if (stroke.eraser || exclude.has(stroke.id) || !stroke.points.length) continue;
+      const [x0, y0, x1, y1] = Ink().bounds(stroke.points);
+      for (const v of [x0, (x0 + x1) / 2, x1]) xs.push({ v, lo: y0, hi: y1 });
+      for (const v of [y0, (y0 + y1) / 2, y1]) ys.push({ v, lo: x0, hi: x1 });
+    }
+    return { xs, ys };
+  }
+
+  // The closest target to any of the values, within the snapping reach (a few screen pixels).
+  function nearestTarget(values, targets) {
+    const reach = 7 / view.zoom;
+    let best = null;
+    for (const value of values) {
+      for (const target of targets) {
+        const gap = Math.abs(target.v - value);
+        if (gap <= reach && (!best || gap < best.gap)) best = { gap, delta: target.v - value, target };
+      }
+    }
+    return best;
   }
 
   function clearSelection() {
@@ -1804,12 +1899,40 @@
     positionLasso();
   }
 
+  // The topmost ink within a fingertip of a board point (highlighter only if nothing else is there).
+  function strokeAt(point) {
+    const reach = 16 / view.zoom;
+    let found = null;
+    for (let i = strokes.length - 1; i >= 0; i -= 1) {
+      const stroke = strokes[i];
+      if (stroke.eraser || live.has(stroke.id) || stroke.points.length < 2) continue;
+      const near = reach + stroke.width / 2;
+      for (let k = 1; k < stroke.points.length; k += 1) {
+        const [ax, ay] = stroke.points[k - 1];
+        const [bx, by] = stroke.points[k];
+        const dx = bx - ax;
+        const dy = by - ay;
+        const t = dx || dy ? Math.max(0, Math.min(1, ((point[0] - ax) * dx + (point[1] - ay) * dy) / (dx * dx + dy * dy))) : 0;
+        if (Math.hypot(point[0] - (ax + t * dx), point[1] - (ay + t * dy)) <= near) {
+          if (!stroke.hl) return stroke;
+          found = found || stroke;
+          break;
+        }
+      }
+    }
+    return found;
+  }
+
   function finishLasso() {
     const path = lasso.path || [];
     lasso.path = null;
     lasso.pointer = null;
     const box = path.length > 3 ? Ink().bounds(path) : null;
-    if (box && Math.hypot(box[2] - box[0], box[3] - box[1]) * view.zoom > 30) {
+    if (tool === "lasso" && (!box || Math.hypot(box[2] - box[0], box[3] - box[1]) * view.zoom <= 12) && path.length) {
+      // A tap picks the stroke under the pen, so a line drawn earlier can be pulled by its ends.
+      const hit = strokeAt(path[0]);
+      if (hit) lasso.selected = [hit];
+    } else if (box && Math.hypot(box[2] - box[0], box[3] - box[1]) * view.zoom > 30) {
       lasso.selected = strokes.filter((stroke) => {
         if (stroke.eraser || live.has(stroke.id) || !stroke.points.length) return false;
         const step = Math.max(1, Math.floor(stroke.points.length / 30));
@@ -1824,10 +1947,10 @@
       if (!lasso.selected.length) toast("Nothing inside that loop");
     }
     if (tool === "matrix") {
-      // One gesture: the loop picks the numbers, the brackets go on, and the pen comes back.
+      // One gesture per matrix: the loop picks the numbers and the brackets go on. The tool stays on
+      // for the next matrix until another tool is picked.
       if (lasso.selected.length) addBrackets(false);
       clearSelection();
-      setTool(beforeMatrix);
     }
     positionLasso();
     schedulePaint();
@@ -1886,6 +2009,8 @@
       const w = Math.max(...ox) - Math.min(...ox);
       const oh = Math.max(...oy) - Math.min(...oy);
       if (oh < h * 0.7 || oh > h * 2.2 || w > oh * 0.45) continue; // tall and thin, like a bracket
+      // Beside these numbers, not beside another matrix above or below.
+      if (Math.min(Math.max(...oy), box[3]) - Math.max(Math.min(...oy), box[1]) < h * 0.6) continue;
       const cx = (Math.max(...ox) + Math.min(...ox)) / 2;
       const reach = Math.max(60, h * 0.5);
       if (Math.abs(cx - box[0]) < reach) near.left = true;
@@ -1940,8 +2065,11 @@
     lassoDrag = {
       pointer: event.pointerId,
       corner: event.target.dataset?.corner || "",
+      end: event.target.dataset?.end || "",
       from: [event.clientX, event.clientY],
       box: selectionBounds(),
+      raw: Ink().bounds(lasso.selected.flatMap((stroke) => stroke.points)),
+      targets: alignTargets(new Set(lasso.selected.map((stroke) => stroke.id))),
       before: lasso.selected.map((stroke) => itemOf(strokes, stroke)),
       origin: lasso.selected.map((stroke) => stroke.points.map((point) => [...point])),
       moved: false,
@@ -1956,6 +2084,23 @@
     lassoDrag.moved = true;
     const [x0, y0, x1, y1] = lassoDrag.box;
     let map = ([x, y]) => [x + dx, y + dy];
+    guides = [];
+    if (lassoDrag.end) {
+      pullEnd(dx, dy);
+      return;
+    }
+    if (!lassoDrag.corner) {
+      // Moving: edges and centre line up with other ink, and a pink guide shows what lined up.
+      const [rx0, ry0, rx1, ry1] = lassoDrag.raw;
+      const mx0 = rx0 + dx, mx1 = rx1 + dx, my0 = ry0 + dy, my1 = ry1 + dy;
+      const sx = nearestTarget([mx0, (mx0 + mx1) / 2, mx1], lassoDrag.targets.xs);
+      const sy = nearestTarget([my0, (my0 + my1) / 2, my1], lassoDrag.targets.ys);
+      const ox = sx ? sx.delta : 0;
+      const oy = sy ? sy.delta : 0;
+      map = ([x, y]) => [x + dx + ox, y + dy + oy];
+      if (sx) guides.push({ x: sx.target.v, from: Math.min(sx.target.lo, my0 + oy), to: Math.max(sx.target.hi, my1 + oy) });
+      if (sy) guides.push({ y: sy.target.v, from: Math.min(sy.target.lo, mx0 + ox), to: Math.max(sy.target.hi, mx1 + ox) });
+    }
     if (lassoDrag.corner) {
       const east = lassoDrag.corner.includes("e");
       const south = lassoDrag.corner.includes("s");
@@ -1977,10 +2122,57 @@
     positionLasso();
   });
 
+  // Pulling one end of a straight line: it stays straight, snaps level, upright or 45 degrees when
+  // close, and lines up with other ink (pink guides).
+  function pullEnd(dx, dy) {
+    const first = lassoDrag.end === "a";
+    const pts = lassoDrag.origin[0];
+    const fixed = first ? pts[pts.length - 1] : pts[0];
+    const moving = first ? pts[0] : pts[pts.length - 1];
+    let x = moving[0] + dx;
+    let y = moving[1] + dy;
+    const length = Math.hypot(x - fixed[0], y - fixed[1]);
+    const angle = Math.atan2(y - fixed[1], x - fixed[0]);
+    const step = Math.PI / 4;
+    const nearest = Math.round(angle / step) * step;
+    let pinX = false;
+    let pinY = false;
+    if (length > 0 && Math.abs(angle - nearest) < (5 * Math.PI) / 180) {
+      x = fixed[0] + Math.cos(nearest) * length;
+      y = fixed[1] + Math.sin(nearest) * length;
+      pinX = Math.abs(Math.cos(nearest)) < 1e-6;
+      pinY = Math.abs(Math.sin(nearest)) < 1e-6;
+    }
+    if (!pinX) {
+      const sx = nearestTarget([x], lassoDrag.targets.xs);
+      if (sx) { x += sx.delta; guides.push({ x: sx.target.v, from: Math.min(sx.target.lo, y, fixed[1]), to: Math.max(sx.target.hi, y, fixed[1]) }); }
+    }
+    if (!pinY) {
+      const sy = nearestTarget([y], lassoDrag.targets.ys);
+      if (sy) { y += sy.delta; guides.push({ y: sy.target.v, from: Math.min(sy.target.lo, x, fixed[0]), to: Math.max(sy.target.hi, x, fixed[0]) }); }
+    }
+    const span = Math.hypot(x - fixed[0], y - fixed[1]);
+    const count = Math.max(2, Math.ceil(span / 10) + 1);
+    const pressure = pts[0].length > 2 ? pts[0][2] : null;
+    const line = [];
+    for (let i = 0; i < count; i += 1) {
+      const t = i / (count - 1);
+      const px = Math.round((fixed[0] + (x - fixed[0]) * t) * 10) / 10;
+      const py = Math.round((fixed[1] + (y - fixed[1]) * t) * 10) / 10;
+      line.push(pressure === null ? [px, py] : [px, py, pressure]);
+    }
+    lasso.selected[0].points = first ? line.reverse() : line;
+    rebuildBase();
+    schedulePaint();
+    positionLasso();
+  }
+
   function endLassoDrag(event) {
     if (!lassoDrag || event.pointerId !== lassoDrag.pointer) return;
     const drag = lassoDrag;
     lassoDrag = null;
+    guides = [];
+    schedulePaint();
     if (!drag.moved) return;
     const after = lasso.selected.map((stroke) => itemOf(strokes, stroke));
     record("mine", drag.before, after);

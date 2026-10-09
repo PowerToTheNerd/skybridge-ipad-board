@@ -871,19 +871,65 @@ input[type="range"] {
 .nb-fold-body { max-height: 38vh; overflow-y: auto; }
 
 /* Saved colours at the top of the picker. */
-.hsv-saved-box { display: grid; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
-.hsv-saved-label { display: flex; justify-content: space-between; align-items: baseline; color: var(--text); font-size: 14px; font-weight: 500; }
-.hsv-saved-label small { color: var(--muted); font-size: 12px; font-weight: 400; }
-.hsv-saved { display: flex; flex-wrap: wrap; gap: 10px; }
-.hsv-saved .color-swatch { width: 32px; height: 32px; touch-action: manipulation; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
-.hsv-saved .color-swatch[aria-pressed="true"] { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text); }
-.hsv-saved .saved-add { display: grid; place-items: center; background: transparent; border: 1.5px dashed var(--line-strong); box-shadow: none; color: var(--muted); }
-.hsv-saved .saved-add svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
-.hsv-saved-hint { color: var(--muted); font-size: 12px; }
-.hsv-saved[data-empty="false"] ~ .hsv-saved-hint { display: none; }
-.hsv-saved-label small { display: none; }
-.hsv-saved-box:has(.saved:not(.saved-add)) .hsv-saved-label small { display: inline; }
+.palette-note { margin: 0; padding-bottom: 12px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 
 /* Pen & paper: a little tighter so most of it shows without scrolling. */
 #settings { gap: 12px; padding: 14px 16px; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 #settings .setting-hint { margin-top: -2px; }
+
+/* Palette: a small bar at the bottom left. Tap a colour to write with it; open the colour sheet
+   while one is highlighted and what you pick takes its place. */
+.palette {
+  position: fixed;
+  left: max(10px, env(safe-area-inset-left));
+  bottom: max(14px, env(safe-area-inset-bottom));
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 24px);
+  flex-wrap: wrap;
+  padding: 7px 9px;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  background: rgba(9, 16, 14, 0.82);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  backdrop-filter: blur(14px) saturate(1.3);
+  box-shadow: var(--inner-hi), var(--shadow-2);
+}
+:root[data-layout="both"] .palette { left: calc(50% + 10px); max-width: calc(50vw - 20px); }
+:root:has(#rail[data-collapsed="true"]) .palette { display: none; }
+.palette-slot {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+  position: relative;
+}
+.palette-slot::after { content: ""; position: absolute; inset: -6px; }
+.palette-slot[aria-pressed="true"] { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text); }
+.palette-add { display: grid; place-items: center; background: transparent; border: 1.5px dashed var(--line-strong); color: var(--muted); }
+.palette-add svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.palette-add[hidden] { display: none; }
+
+/* A selected straight line: pull its ends instead of resizing from the corners. */
+.lasso-end {
+  position: absolute;
+  display: none;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: var(--bg);
+  touch-action: none;
+  cursor: grab;
+}
+.lasso-end::after { content: ""; position: absolute; inset: -14px; }
+.lasso-box[data-line="true"] .lasso-end { display: block; }
+.lasso-box[data-line="true"] .lasso-handle { display: none; }
