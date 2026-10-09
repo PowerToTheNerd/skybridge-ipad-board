@@ -238,6 +238,7 @@ canvas {
   right: max(12px, env(safe-area-inset-right));
   width: min(340px, calc(100vw - 24px));
   max-height: calc(100vh - var(--bar-h) - 32px);
+  max-height: calc(100dvh - var(--bar-h) - env(safe-area-inset-top) - 24px); /* the visible page, not the page behind Safari's toolbars */
   overflow: auto;
   display: grid;
   gap: 16px;
@@ -882,3 +883,7 @@ input[type="range"] {
 .hsv-saved[data-empty="false"] ~ .hsv-saved-hint { display: none; }
 .hsv-saved-label small { display: none; }
 .hsv-saved-box:has(.saved:not(.saved-add)) .hsv-saved-label small { display: inline; }
+
+/* Pen & paper: a little tighter so most of it shows without scrolling. */
+#settings { gap: 12px; padding: 14px 16px; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+#settings .setting-hint { margin-top: -2px; }
