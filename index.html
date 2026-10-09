@@ -111,7 +111,8 @@
     <div class="page-tabs segmented" role="tablist" aria-label="Settings pages" id="settingsTabs">
       <button type="button" role="tab" data-page="pen" aria-selected="true">Pen</button>
       <button type="button" role="tab" data-page="paper" aria-selected="false">Paper</button>
-      <button type="button" role="tab" data-page="lab" aria-selected="false">Experimental</button>
+      <button type="button" role="tab" data-page="card" aria-selected="false">Card</button>
+      <button type="button" role="tab" data-page="lab" aria-selected="false">Effects</button>
     </div>
     <div class="pages" id="settingsPages">
       <div class="page" data-page="pen" role="tabpanel">
@@ -183,6 +184,14 @@
       </label>
     </div>
     <button type="button" class="tool wide" id="recenterBtn">Back to the start, at 100%</button>
+      </div>
+      <div class="page" data-page="card" role="tabpanel">
+        <p class="setting-hint">How a practice problem looks on your page, and where it sits. Drag the Move button on the card to a corner, or tap it to go to the next one.</p>
+        <div class="setting"><span class="setting-head">Font</span><div class="segmented four" role="radiogroup" id="cardFont"></div></div>
+        <div class="setting"><span class="setting-head">Size</span><div class="segmented four" role="radiogroup" id="cardSize"></div></div>
+        <div class="setting"><span class="setting-head">Title colour</span><div class="papers" role="radiogroup" id="cardTitle"></div></div>
+        <div class="setting"><span class="setting-head">Text colour</span><div class="papers" role="radiogroup" id="cardText"></div></div>
+        <div class="setting"><span class="setting-head">Position</span><div class="segmented two" role="radiogroup" id="cardAnchor"></div></div>
       </div>
       <div class="page" data-page="lab" role="tabpanel">
         <p class="setting-hint">Try-outs. Each is off until you switch it on, pauses while the pen is down, and never touches your ink.</p>

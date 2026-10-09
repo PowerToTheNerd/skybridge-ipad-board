@@ -26,7 +26,7 @@
   // the paper keep their own colours.
   const THEMES = { black: "Black", white: "White", green: "Green", purple: "Purple", custom: "Your colour" };
   const THEME_HUES = { black: 210, white: 215, green: 156, purple: 265 };
-  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], palette: [], rail: true, paper: "night", theme: "green", accent: "#7c5cd6", paperColor: "#2d3b57", fxs: {}, page: "pen", finger: "move", grid: "dots", gridSize: 24, grain: true, layout: "mine" };
+  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], palette: [], rail: true, paper: "night", theme: "green", accent: "#7c5cd6", paperColor: "#2d3b57", fxs: {}, card: {}, page: "pen", finger: "move", grid: "dots", gridSize: 24, grain: true, layout: "mine" };
   const LAYOUTS = ["mine", "both", "gemini"];
 
   const el = {
@@ -65,6 +65,11 @@
     themes: document.getElementById("themes"),
     labBtn: document.getElementById("labBtn"),
     labList: document.getElementById("labList"),
+    cardFont: document.getElementById("cardFont"),
+    cardSize: document.getElementById("cardSize"),
+    cardTitle: document.getElementById("cardTitle"),
+    cardText: document.getElementById("cardText"),
+    cardAnchor: document.getElementById("cardAnchor"),
     paperPicker: document.getElementById("paperPicker"),
     paperSV: document.getElementById("paperSV"),
     paperSVKnob: document.getElementById("paperSVKnob"),
@@ -177,12 +182,15 @@
   const settings = { ...DEFAULTS };
   try { Object.assign(settings, JSON.parse(storage("get", SETTINGS_KEY) || "{}")); } catch {}
   if (!(settings.paper in PAPERS)) settings.paper = DEFAULTS.paper;
-  const PAGES = ["pen", "paper", "lab"];
+  const PAGES = ["pen", "paper", "card", "lab"];
   if (!PAGES.includes(settings.page)) settings.page = "pen";
   if (!/^#[0-9a-f]{6}$/i.test(settings.paperColor)) settings.paperColor = DEFAULTS.paperColor;
   // Experimental effects, all off until switched on. (The first one used to be a single "fx" switch.)
   if (settings.fx === true && settings.fxs?.light === undefined) settings.fxs = { ...(settings.fxs || {}), light: true };
   settings.fxs = settings.fxs && typeof settings.fxs === "object" ? settings.fxs : {};
+  // How a problem card looks and where it sits (Pen & paper > Card).
+  const CARD_DEFAULTS = { font: "inter", size: "l", title: "auto", text: "auto", anchor: "tl" };
+  settings.card = { ...CARD_DEFAULTS, ...(settings.card && typeof settings.card === "object" ? settings.card : {}) };
   if (!(settings.theme in THEMES)) settings.theme = DEFAULTS.theme; // the older Auto and fixed colours come back as green
   if (!/^#[0-9a-f]{6}$/i.test(settings.accent)) settings.accent = DEFAULTS.accent;
   // The pattern used to be on or off; now it is blank, dots, a square grid or lined.
@@ -1682,6 +1690,147 @@
   }
   el.canvas.addEventListener("pointerdown", () => { document.documentElement.dataset.writing = "on"; }, true);
 
+  // ---- the problem card: font, size, colours and where it sits ----------------------------------------
+  const CARD_FONTS = [["hand", "Hand"], ["roboto", "Roboto"], ["inter", "Inter"], ["jetbrains", "Mono"]];
+  const CARD_SIZES = [["s", "S"], ["m", "M"], ["l", "L"], ["xl", "XL"]];
+  const CARD_COLORS = [["auto", "Auto"], ["#c0392b", "Red"], ["#d9822b", "Orange"], ["#2f8f4e", "Green"], ["#2f6fd6", "Blue"], ["#7c4fd0", "Purple"]];
+  const CARD_ANCHORS = [["tl", "Top left"], ["tc", "Top middle"], ["tr", "Top right"], ["br", "Bottom right"]];
+
+  function segmented(container, items, key, label) {
+    container.setAttribute("aria-label", label);
+    for (const [value, text] of items) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.setAttribute("role", "radio");
+      button.dataset.value = value;
+      button.textContent = text;
+      button.addEventListener("click", () => {
+        settings.card[key] = value;
+        saveSettings();
+        renderSettings();
+      });
+      container.append(button);
+    }
+  }
+  function swatches(container, key, label) {
+    container.setAttribute("aria-label", label);
+    for (const [value, text] of CARD_COLORS) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "paper card-dot";
+      button.setAttribute("role", "radio");
+      button.setAttribute("aria-label", text);
+      button.title = text;
+      button.dataset.value = value;
+      button.textContent = value === "auto" ? "A" : "";
+      if (value !== "auto") button.style.background = value;
+      button.addEventListener("click", () => {
+        settings.card[key] = value;
+        saveSettings();
+        renderSettings();
+      });
+      container.append(button);
+    }
+  }
+  segmented(el.cardFont, CARD_FONTS, "font", "Card font");
+  segmented(el.cardSize, CARD_SIZES, "size", "Card size");
+  segmented(el.cardAnchor, CARD_ANCHORS, "anchor", "Where the card sits");
+  swatches(el.cardTitle, "title", "Card title colour");
+  swatches(el.cardText, "text", "Card text colour");
+
+  // A chosen colour is nudged only as far as needed to read on this paper.
+  const cardColor = (value) => (value === "auto" ? null : (window.SkybridgeInk?.colorOn ? window.SkybridgeInk.colorOn(value, cssColor("paper")) : value));
+
+  function applyCardLook(card) {
+    const look = settings.card;
+    card.dataset.anchor = look.anchor;
+    card.dataset.cardFont = look.font;
+    card.dataset.cardSize = look.size;
+    const text = cardColor(look.text);
+    if (text) {
+      card.dataset.cardColor = "custom";
+      card.style.setProperty("--wb-ink", text);
+      card.style.setProperty("--wb-faint", text);
+    } else {
+      card.dataset.cardColor = "auto";
+      card.style.removeProperty("--wb-ink");
+      card.style.removeProperty("--wb-faint");
+    }
+    const title = cardColor(look.title);
+    if (title) card.style.setProperty("--card-title", title);
+    else card.style.removeProperty("--card-title");
+  }
+
+  function renderCardSettings() {
+    const look = settings.card;
+    for (const [container, key] of [[el.cardFont, "font"], [el.cardSize, "size"], [el.cardAnchor, "anchor"], [el.cardTitle, "title"], [el.cardText, "text"]]) {
+      container.querySelectorAll("[data-value]").forEach((button) => button.setAttribute("aria-checked", String(button.dataset.value === look[key])));
+    }
+    // The next problem drawn uses the same font and size.
+    window.SkybridgeWhiteboard?.setCardStyle?.({ font: look.font, size: look.size, color: "auto", weight: "medium" });
+    el.stage.querySelectorAll(".my-board-problem").forEach(applyCardLook);
+  }
+
+  // Buttons on the card: Move (tap to go to the next corner, or drag it to one), Next problem, Hide.
+  function decorateCard(card) {
+    if (!card) return;
+    if (card._tools) {
+      // Next problem is added after the card is drawn: gather it in, in the order Move, Next, Hide.
+      const tools = card.querySelector(".card-tools");
+      const next = card.querySelector(":scope > .practice-next");
+      const hide = tools.querySelector(".my-board-problem-hide:not(.card-move):not(.practice-next)");
+      if (next) { tools.append(next); if (hide) tools.append(hide); }
+      applyCardLook(card);
+      return;
+    }
+    card._tools = true;
+    const tools = document.createElement("div");
+    tools.className = "card-tools";
+    const move = document.createElement("button");
+    move.type = "button";
+    move.className = "my-board-problem-hide card-move";
+    move.textContent = "Move";
+    move.title = "Drag me to a corner, or tap to go to the next one";
+    tools.append(move);
+    card.querySelectorAll(".practice-next, .my-board-problem-hide").forEach((button) => { if (button !== move) tools.append(button); });
+    card.append(tools);
+    let start = null;
+    move.addEventListener("pointerdown", (event) => {
+      move.setPointerCapture(event.pointerId);
+      start = { x: event.clientX, y: event.clientY, moved: false };
+      event.preventDefault();
+    });
+    move.addEventListener("pointermove", (event) => {
+      if (!start) return;
+      const dx = event.clientX - start.x, dy = event.clientY - start.y;
+      if (Math.hypot(dx, dy) > 6) start.moved = true;
+      if (start.moved) card.style.translate = `${dx}px ${dy}px`;
+    });
+    const drop = (event) => {
+      if (!start) return;
+      const { moved } = start;
+      start = null;
+      let anchor;
+      if (moved) {
+        const box = card.getBoundingClientRect();
+        const stage = el.stage.getBoundingClientRect();
+        const cx = (box.left + box.width / 2 - stage.left) / stage.width;
+        const cy = (box.top + box.height / 2 - stage.top) / stage.height;
+        anchor = cy > 0.5 ? "br" : cx < 0.33 ? "tl" : cx < 0.66 ? "tc" : "tr";
+      } else {
+        anchor = CARD_ANCHORS[(CARD_ANCHORS.findIndex(([value]) => value === settings.card.anchor) + 1) % CARD_ANCHORS.length][0];
+      }
+      card.style.translate = "";
+      settings.card.anchor = anchor;
+      saveSettings();
+      renderSettings();
+    };
+    move.addEventListener("pointerup", drop);
+    move.addEventListener("pointercancel", drop);
+    applyCardLook(card);
+  }
+  new MutationObserver(() => el.stage.querySelectorAll(".my-board-problem").forEach(decorateCard)).observe(el.stage, { childList: true });
+
   // ---- your own paper: a colour picker; ink, marks and grid follow so they stay readable ----------
   const luma = (rgb) => (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
   const hexRgb = (value) => [1, 3, 5].map((i) => parseInt(value.slice(i, i + 2), 16));
@@ -1852,6 +2001,7 @@
       effect.button?.setAttribute("aria-pressed", String(Boolean(settings.fxs[effect.id])));
     }
     gridPosition();
+    renderCardSettings();
     el.paperPicker.hidden = settings.paper !== "custom";
     paintPaperPicker();
     document.documentElement.dataset.grid = settings.grid === "none" ? "off" : "on";
@@ -2810,6 +2960,7 @@
         next.addEventListener("click", nextPractice);
         fresh.append(next);
       }
+      decorateCard(fresh);
     }
   }
 

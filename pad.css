@@ -972,7 +972,7 @@ input[type="range"] {
 
 /* Pen and paper are two swipeable pages, so the panel stays short. */
 #settings { display: flex; flex-direction: column; overflow: hidden; width: min(400px, calc(100vw - 24px)); }
-.page-tabs { flex: none; grid-template-columns: repeat(3, 1fr); }
+.page-tabs { flex: none; grid-template-columns: repeat(4, 1fr); }
 .pages { display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; margin: 0 -16px; min-height: 0; }
 .pages::-webkit-scrollbar { display: none; }
 .page { flex: 0 0 100%; scroll-snap-align: start; scroll-snap-stop: always; display: grid; gap: 12px; align-content: start; padding: 0 16px; overflow-y: auto; max-height: calc(100dvh - var(--bar-h) - env(safe-area-inset-top) - 130px); overscroll-behavior: contain; }
@@ -1028,3 +1028,29 @@ input[type="range"] {
 .wet-layer { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0; }
 :root[data-fxwet="off"] .wet-layer { display: none; }
 @media (prefers-reduced-motion: reduce) { :root[data-fxliving="on"] .stage::after { animation: none; --lp-x: 30%; } }
+
+/* The problem card: clear buttons that follow the theme, a title that follows the accent, and four places to sit. */
+.stage .my-board-problem { padding-top: 46px; }
+.card-tools { position: absolute; top: 6px; right: 8px; display: flex; gap: 6px; pointer-events: auto; }
+.stage .card-tools .my-board-problem-hide {
+  position: static;
+  padding: 7px 14px;
+  min-height: 34px;
+  border: 1px solid var(--edge-hi);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: var(--shadow-1);
+  white-space: nowrap;
+}
+.stage .card-tools .my-board-problem-hide:active { transform: scale(0.96); }
+.stage .card-tools .card-move { touch-action: none; cursor: grab; }
+.my-board-problem .wb-title { color: var(--card-title, var(--pen-accent, var(--wb-mark-1))); }
+.stage .my-board-problem[data-anchor="tc"] { left: 50%; transform: translateX(-50%) scale(var(--problem-scale, 1)); transform-origin: 50% 0; }
+.stage .my-board-problem[data-anchor="tr"] { left: auto; right: 12px; transform-origin: 100% 0; }
+.stage .my-board-problem[data-anchor="br"] { top: auto; left: auto; right: 12px; bottom: 64px; transform-origin: 100% 100%; }
+.segmented.four { grid-template-columns: repeat(4, 1fr); }
+.segmented.two { grid-template-columns: 1fr 1fr; }
+.card-dot { display: grid; place-items: center; font-size: 13px; font-weight: 600; color: var(--text); }
