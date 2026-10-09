@@ -976,3 +976,23 @@ input[type="range"] {
 
 /* "Next problem" sits beside Hide on a practice problem's card. */
 .my-board-problem-hide.practice-next { right: 62px; }
+
+/* Theme effects: a slow drift of soft light across the toolbar and rail. The paper stays still, it is
+   off unless switched on, it stops while a pen is down, and it respects reduced motion. */
+@property --fx-x { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
+:root[data-fx="on"] :is(.bar, .rail)::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at var(--fx-x) 0%, rgba(var(--glow-rgb), 0.16), transparent 55%),
+    radial-gradient(circle at calc(100% - var(--fx-x)) 100%, rgba(var(--acc-rgb), 0.1), transparent 50%);
+  animation: fx-drift 26s ease-in-out infinite alternate;
+}
+@keyframes fx-drift { from { --fx-x: 0%; } to { --fx-x: 100%; } }
+:root[data-writing="on"] :is(.bar, .rail)::after { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  :root[data-fx="on"] :is(.bar, .rail)::after { animation: none; --fx-x: 30%; }
+}

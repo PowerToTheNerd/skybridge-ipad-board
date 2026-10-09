@@ -26,7 +26,7 @@
   const THEMES = { auto: "Auto", green: 156, blue: 215, violet: 265, amber: 38, rose: 340, graphite: null };
   const THEME_NAMES = { auto: "Auto (complements the paper)", green: "Green", blue: "Blue", violet: "Violet", amber: "Amber", rose: "Rose", graphite: "Graphite" };
   const PAPER_HUES = { night: 156, black: 205, slate: 218, chalk: 156, white: 215, cream: 40 };
-  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], palette: [], rail: true, paper: "night", theme: "auto", finger: "move", grid: "dots", gridSize: 24, grain: true, layout: "mine" };
+  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], palette: [], rail: true, paper: "night", theme: "auto", fx: false, finger: "move", grid: "dots", gridSize: 24, grain: true, layout: "mine" };
   const LAYOUTS = ["mine", "both", "gemini"];
 
   const el = {
@@ -63,6 +63,7 @@
     preview: document.getElementById("preview"),
     papers: document.getElementById("papers"),
     themes: document.getElementById("themes"),
+    fx: document.getElementById("fxBtn"),
     fingerModes: [...document.querySelectorAll("[data-finger]")],
     recenter: document.getElementById("recenterBtn"),
     gridStyles: [...document.querySelectorAll("#gridStyles [data-grid]")],
@@ -1620,6 +1621,12 @@
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", hex(c(40, 2)));
   }
 
+  // Optional slow light drift on the chrome (never the paper). It stops while a pen is down.
+  for (const type of ["pointerup", "pointercancel"]) {
+    el.canvas.addEventListener(type, () => { delete document.documentElement.dataset.writing; });
+  }
+  el.canvas.addEventListener("pointerdown", () => { document.documentElement.dataset.writing = "on"; }, true);
+
   function paintPaper() {
     const line = cssColor("grid");
     const pattern = {
@@ -1644,6 +1651,8 @@
   function renderSettings() {
     document.documentElement.dataset.paper = settings.paper;
     applyTheme();
+    document.documentElement.dataset.fx = settings.fx ? "on" : "off";
+    el.fx.setAttribute("aria-pressed", String(Boolean(settings.fx)));
     document.documentElement.dataset.grid = settings.grid === "none" ? "off" : "on";
     document.documentElement.dataset.grain = settings.grain ? "on" : "off";
     paintPaper();
@@ -1719,6 +1728,11 @@
     el.themes.append(button);
   });
 
+  el.fx.addEventListener("click", () => {
+    settings.fx = !settings.fx;
+    saveSettings();
+    renderSettings();
+  });
   el.grain.addEventListener("click", () => {
     settings.grain = !settings.grain;
     saveSettings();
