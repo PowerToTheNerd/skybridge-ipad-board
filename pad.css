@@ -1085,3 +1085,7 @@ input[type="range"] {
 .usage-row i::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--used); background: var(--accent); border-radius: inherit; }
 .usage-row[data-full="true"] i::after { background: var(--bad); }
 .usage-row b { font-weight: 500; font-variant-numeric: tabular-nums; color: var(--text-2); font-size: 13px; }
+#liveResult[data-state="on"] { color: var(--ok); }
+#liveResult[data-state="off"], #liveOut[data-state="off"] { color: var(--muted); }
+#liveOut[data-state="on"] { color: var(--ok); }
+.usage-row.live i { background: transparent; }

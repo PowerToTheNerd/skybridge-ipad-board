@@ -111,6 +111,11 @@
     nbTabs: document.querySelectorAll("#nbTabs [data-page]"),
     usageList: document.getElementById("usageList"),
     usageNote: document.getElementById("usageNote"),
+    liveOut: document.getElementById("liveOut"),
+    liveOn: document.getElementById("liveOn"),
+    liveModel: document.getElementById("liveModel"),
+    liveTest: document.getElementById("liveTest"),
+    liveResult: document.getElementById("liveResult"),
     localOut: document.getElementById("localOut"),
     localUrl: document.getElementById("localUrl"),
     localKey: document.getElementById("localKey"),
@@ -3456,6 +3461,54 @@
 
   // ---- Smart features: today's free Gemini requests, and the local model ----------------------------
   const Local = window.SkybridgeLocal;
+  // Gemini Live has no daily cap, so it only shows a count.
+  function liveRow() {
+    const status = window.SkybridgeAI.liveStatus();
+    const line = document.createElement("div");
+    line.className = "usage-row live";
+    const name = document.createElement("span");
+    name.textContent = "Live (unlimited)";
+    const bar = document.createElement("i");
+    bar.style.setProperty("--used", "0%");
+    const count = document.createElement("b");
+    count.textContent = `${status.used} today`;
+    line.append(name, bar, count);
+    return line;
+  }
+  const Live = window.SkybridgeLive;
+  function renderLive() {
+    if (!Live) return;
+    const cfg = Live.config();
+    el.liveOn.value = cfg.on ? "on" : "off";
+    el.liveModel.value = cfg.model;
+    el.liveOut.textContent = cfg.on ? (window.SkybridgeAI.hasGeminiKey() ? "On" : "Needs a key") : "Off";
+    el.liveOut.dataset.state = cfg.on && window.SkybridgeAI.hasGeminiKey() ? "on" : "off";
+  }
+  if (Live) {
+    for (const model of Live.MODELS) el.liveModel.append(Object.assign(document.createElement("option"), { value: model.id, textContent: model.label }));
+    renderLive();
+    el.liveOn.addEventListener("change", () => { Live.save({ on: el.liveOn.value === "on" }); renderLive(); });
+    el.liveModel.addEventListener("change", () => { Live.save({ model: el.liveModel.value }); renderLive(); });
+    el.liveTest.addEventListener("click", async () => {
+      if (!window.SkybridgeAI.hasGeminiKey()) { toast("Add your Gemini key first"); return; }
+      el.liveTest.disabled = true;
+      el.liveTest.textContent = "Trying…";
+      el.liveResult.hidden = true;
+      try {
+        const result = await Live.test();
+        el.liveResult.hidden = false;
+        el.liveResult.dataset.state = result.ok ? "on" : "off";
+        el.liveResult.textContent = result.ok
+          ? `It read the test picture in ${(result.ms / 1000).toFixed(1)} s and said: "${result.text}".`
+          : `Live didn't work: ${result.error} Flash will be used instead.`;
+      } finally {
+        el.liveTest.disabled = false;
+        el.liveTest.textContent = "Test it";
+        renderUsage();
+      }
+    });
+  }
+
   function renderUsage() {
     const AI = window.SkybridgeAI;
     if (!AI?.usage) return;
@@ -3471,8 +3524,9 @@
       count.textContent = `${row.used} of ${row.rpd}`;
       line.append(name, bar, count);
       return line;
-    }));
-    el.usageNote.textContent = "Free requests used today, counted on this iPad. The free key allows about 5 a minute and 20 a day per model, and the day starts again around midnight Pacific (3 AM Eastern). Anything else using the key isn't counted here.";
+    }), liveRow());
+    const liveWhy = window.SkybridgeAI.liveStatus();
+    el.usageNote.textContent = (liveWhy.on && liveWhy.error ? `Live last said: ${liveWhy.error} ` : "") + "Free requests used today, counted on this iPad. The free key allows about 5 a minute and 20 a day per model, and the day starts again around midnight Pacific (3 AM Eastern). Anything else using the key isn't counted here.";
   }
   window.SkybridgeAI?.onUsage(renderUsage);
   renderUsage();
@@ -3563,7 +3617,7 @@
     setSettingsOpen(false);
     el.notebookSheet.hidden = !open;
     el.notebookBtn.setAttribute("aria-expanded", String(open));
-    if (open) { renderNotebookUi(); renderUsage(); renderLocal(); showNbPage(nbPage, false); }
+    if (open) { renderNotebookUi(); renderUsage(); renderLocal(); renderLive(); showNbPage(nbPage, false); }
   });
   el.notebookNew.addEventListener("click", async () => { await newNotebook(); renderNotebookList(); });
   el.syncRetry.addEventListener("click", () => { retryNow(); toast("Looking for your PC"); });

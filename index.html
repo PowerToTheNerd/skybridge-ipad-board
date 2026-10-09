@@ -281,6 +281,26 @@
           <p class="nb-fine">Your key stays on this iPad. Page pictures go to Google when Gemini reads them.</p>
         </section>
         <div class="nb-folds">
+          <details class="nb-fold" id="liveFold">
+            <summary><span>Gemini Live (experimental)</span><output id="liveOut"></output></summary>
+            <div class="nb-fold-body">
+              <p class="nb-hint">The Live models have no daily request limit on the free key. With this on, naming pages and To text try a short Live session first (one picture in, the spoken answer read back as text) and use the usual Flash models only if that fails.</p>
+              <label class="nb-address">
+                <span>Try Live first</span>
+                <select id="liveOn">
+                  <option value="off">Off</option>
+                  <option value="on">On</option>
+                </select>
+              </label>
+              <label class="nb-address">
+                <span>Live model</span>
+                <select id="liveModel"></select>
+              </label>
+              <button type="button" class="nb-btn" id="liveTest">Test it</button>
+              <p class="nb-hint" id="liveResult" hidden></p>
+              <p class="nb-fine">Your key goes straight from this iPad to Google, as with Flash. Check my work and homework PDFs still use Flash, because they need exact structured answers that a voice model can't give reliably.</p>
+            </div>
+          </details>
           <details class="nb-fold" id="localFold">
             <summary><span>Local model</span><output id="localOut"></output></summary>
             <div class="nb-fold-body">
@@ -411,6 +431,7 @@
   <script src="./notebooks.js"></script>
   <script src="./mathcheck.js"></script>
   <script src="./localllm.js"></script>
+  <script src="./live.js"></script>
   <script src="./ai.js"></script>
   <script src="./smart.js"></script>
   <script src="./marks.js"></script>

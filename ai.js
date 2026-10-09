@@ -41,6 +41,7 @@
     usageListeners.forEach((fn) => fn());
   }
   const usedToday = (model) => readUsage().counts[model] || 0;
+  const liveStatus = () => ({ used: window.SkybridgeLive?.used() || 0, on: Boolean(window.SkybridgeLive?.usable()), error: lastLiveError });
   function usage() {
     const counts = readUsage().counts;
     return MODELS.map((name) => ({ model: name, label: LIMITS[name]?.label || name, used: counts[name] || 0, rpd: LIMITS[name]?.rpd || 0, rpm: LIMITS[name]?.rpm || 0 }));
@@ -301,7 +302,24 @@ Answer with JSON only.`;
     return run;
   }
 
-  async function generate(image, prompt, schema, extra = {}, { background = false } = {}) {
+  // Gemini Live (no daily limit) for a picture task, when it is switched on. `live` says how to ask it and how to
+  // turn its spoken answer into the JSON text the rest of this file reads. Any failure falls through to Flash.
+  let liveRest = 0;
+  async function viaLive(image, live) {
+    const Live = window.SkybridgeLive;
+    if (!live || typeof image !== "string" || !Live?.usable() || Date.now() < liveRest) return null;
+    try {
+      const { model, text } = await Live.ask({ image, prompt: live.prompt });
+      return { model, text: live.toJson(text) };
+    } catch (error) {
+      lastLiveError = error.message;
+      if (error.kind === "key" || error.kind === "network") liveRest = Date.now() + 5 * 60000; // don't retry at once
+      return null;
+    }
+  }
+  let lastLiveError = "";
+
+  async function generate(image, prompt, schema, extra = {}, { background = false, live = null } = {}) {
     const Local = window.SkybridgeLocal;
     const pdf = Boolean(image && typeof image === "object");
     if (Local?.usable({ image: Boolean(image), pdf })) {
@@ -315,6 +333,8 @@ Answer with JSON only.`;
       throw new AiError("Local only is on, but this needs a model that reads pictures. Switch on Can read pictures, or choose Before Gemini.", "local");
     }
     if (!hasGeminiKey()) throw new AiError("Add your Gemini key first.", "key");
+    const spoken = await viaLive(image, live);
+    if (spoken) return spoken;
     return schedule(() => attempt(image, prompt, schema, extra, background), background);
   }
 
@@ -338,13 +358,43 @@ Answer with JSON only.`;
     return { title, tags: tags.slice(0, 6), text: text.trim().slice(0, 4000) };
   }
 
+  // Live answers by voice, so it is asked for three spoken parts and they are read back out of the transcript.
+  const INDEX_LIVE = `This picture is one page of a student's handwritten math notebook. Answer out loud in exactly this form, in plain words:
+"Title." then a short general name of the topic, 2 to 4 words, no equations (say "Untitled page" if it is empty).
+"Tags." then 2 to 5 short topic tags separated by commas.
+"Text." then what is written, line by line, in plain words, copying it without solving or correcting.
+Say the words Title, Tags and Text before each part, and nothing else.`;
+  function spokenIndex(said) {
+    const parts = String(said).split(/\b(title|tags|text)\b[\s.:,-]*/i);
+    const found = {};
+    for (let i = 1; i + 1 < parts.length; i += 2) found[parts[i].toLowerCase()] ||= parts[i + 1].trim();
+    if (!found.title) throw new Error("Live's answer had no title");
+    return JSON.stringify({ title: (found.title || "").replace(/[.\s]+$/, ""), tags: (found.tags || "").split(/[,;]| and /).map((tag) => tag.replace(/[.\s]+$/, "").trim()).filter(Boolean), text: found.text || "" });
+  }
+
   async function indexPage(image, options = {}) {
-    const { model, text } = await generate(image, INDEX_PROMPT, null, {}, { background: options.background !== false });
+    const { model, text } = await generate(image, INDEX_PROMPT, null, {}, { background: options.background !== false, live: { prompt: INDEX_LIVE, toJson: spokenIndex } });
     return { model, ...cleanIndex(parseJson(text)) };
   }
 
+  const TRANSCRIBE_LIVE = `The picture is a piece of a student's handwriting. Say out loud exactly what is written, line by line, in plain words, and nothing else.
+Say each number as it is written, say "equals", "plus", "minus" and "times" for those symbols, and say "row" before each row of a matrix. Copy what is there even if it is wrong. Do not solve, correct or comment. If nothing is written, say "nothing".`;
+  // "row 1 2 row 3 4" is a matrix: rows with commas between entries and semicolons between rows.
+  function spokenText(said) {
+    const lines = String(said).split(/\n+/).map((line) => line.trim()).filter(Boolean).map((line) => {
+      const rows = line.split(/\brow\b[\s:,.-]*/i).map((row) => row.trim().replace(/[.,\s]+$/, "")).filter(Boolean);
+      if (!/\brow\b/i.test(line) || !rows.length) return line;
+      return rows.map((row) => row.split(/[\s,]+/).filter(Boolean).join(", ")).join("; ");
+    });
+    // Said aloud, symbols come back as words.
+    const out = lines.join("\n")
+      .replace(/\bequals\b/gi, "=").replace(/\bplus\b/gi, "+").replace(/\bminus\b/gi, "-")
+      .replace(/\btimes\b/gi, "*").replace(/\bdivided by\b/gi, "/").replace(/\bsquared\b/gi, "^2");
+    return JSON.stringify({ text: /^nothing\.?$/i.test(out) ? "" : out });
+  }
+
   async function transcribe(image) {
-    const { model, text } = await generate(image, TRANSCRIBE_PROMPT, null);
+    const { model, text } = await generate(image, TRANSCRIBE_PROMPT, null, {}, { live: { prompt: TRANSCRIBE_LIVE, toJson: spokenText } });
     const data = parseJson(text);
     const out = Array.isArray(data.text) ? data.text.join("\n") : String(data.text ?? "");
     return { model, text: out.trim().slice(0, 6000) };
@@ -390,5 +440,5 @@ Answer with JSON only.`;
     return error?.message || "Reading the page failed.";
   }
 
-  window.SkybridgeAI = { hasKey, hasGeminiKey, getKey, setKey, usage, onUsage: (fn) => usageListeners.add(fn), LIMITS, indexPage, transcribe, ask, askPdf, readWork, explain, busy, cleanIndex, shortTitle, parseJson, timing, MODELS };
+  window.SkybridgeAI = { hasKey, hasGeminiKey, getKey, setKey, usage, liveStatus, onUsage: (fn) => { usageListeners.add(fn); window.SkybridgeLive?.onUsage(fn); }, LIMITS, indexPage, transcribe, ask, askPdf, readWork, explain, busy, cleanIndex, shortTitle, parseJson, timing, MODELS };
 })();
