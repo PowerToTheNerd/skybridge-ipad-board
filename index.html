@@ -59,6 +59,9 @@
     <button type="button" class="tool icon" data-tool="lasso" aria-pressed="false" aria-label="Lasso select" title="Lasso: circle ink to move, resize, recolour or delete it">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path class="dash" d="M12 4.5c-4.7 0-8 2.2-8 5 0 2.6 3.3 4.7 7.3 4.9M12 4.5c4.7 0 8 2.2 8 5 0 2.4-2.6 4.4-6.2 4.9" /><path d="M11.3 14.4c-.5 1.8-1.7 3-1.7 4.6 0 1 .8 1.7 1.8 1.5" /></svg>
     </button>
+    <button type="button" class="tool icon" data-tool="matrix" aria-pressed="false" aria-label="Matrix brackets" title="Matrix brackets: circle the numbers and the brackets are drawn around them">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 4.5h-3v15h3M15.5 4.5h3v15h-3" /><path d="M10 9.5h.01M14 9.5h.01M10 14.5h.01M14 14.5h.01" /></svg>
+    </button>
     <span class="sep" aria-hidden="true"></span>
     <button type="button" class="tool icon" id="undoBtn" disabled aria-label="Undo" title="Undo (three-finger tap)">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7L4.5 11.5 9 16M5 11.5h9.5a5 5 0 010 10H12" /></svg>
@@ -88,6 +91,8 @@
       <i class="lasso-handle" data-corner="sw"></i><i class="lasso-handle" data-corner="se"></i>
       <div class="lasso-bar" id="lassoBar">
         <button type="button" class="tool" id="lassoColor">Colour</button>
+        <button type="button" class="tool" id="lassoBrackets">Brackets</button>
+        <button type="button" class="tool" id="lassoDuplicate">Duplicate</button>
         <button type="button" class="tool" id="lassoDelete">Delete</button>
         <button type="button" class="tool" id="lassoDone">Done</button>
       </div>

@@ -129,5 +129,27 @@
     return { strokes: [{ color: BAD, width: 3.4, points: pressured(points, 0.6) }] };
   }
 
-  window.SkybridgeMarks = { correct, circle, TEXT };
+  // Square brackets standing just outside a box [x0, y0, x1, y1]: a matrix's own lines.
+  // { left, right } say which sides to draw (one may already be there).
+  function brackets(box, sides = {}) {
+    const [x0, y0, x1, y1] = box;
+    const h = y1 - y0;
+    const gap = Math.max(14, Math.min(34, h * 0.14));
+    const lift = Math.max(8, Math.min(22, h * 0.07));
+    const arm = Math.max(10, Math.min(26, h * 0.13));
+    const top = y0 - lift;
+    const bottom = y1 + lift;
+    const lines = [];
+    if (sides.left !== false) {
+      const x = x0 - gap;
+      lines.push([[x + arm, top], [x, top], [x, bottom], [x + arm, bottom]]);
+    }
+    if (sides.right !== false) {
+      const x = x1 + gap;
+      lines.push([[x - arm, top], [x, top], [x, bottom], [x - arm, bottom]]);
+    }
+    return { strokes: lines.map((line) => ({ points: pressured(smooth(line, 6), 0.6) })), gap };
+  }
+
+  window.SkybridgeMarks = { correct, circle, brackets, TEXT };
 })();

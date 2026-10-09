@@ -35,6 +35,8 @@
     lassoBar: document.getElementById("lassoBar"),
     lassoColor: document.getElementById("lassoColor"),
     lassoDelete: document.getElementById("lassoDelete"),
+    lassoBrackets: document.getElementById("lassoBrackets"),
+    lassoDuplicate: document.getElementById("lassoDuplicate"),
     lassoDone: document.getElementById("lassoDone"),
     tools: [...document.querySelectorAll("[data-tool]")],
     clear: document.getElementById("clearBtn"),
@@ -1012,7 +1014,8 @@
   // set in Pen & paper). A resting palm is ignored while the Pencil writes.
   // ---------------------------------------------------------------------------
   let pen = "ink"; // pen colour (restored below once the palette exists)
-  let tool = "pen"; // pen, marker (highlighter), eraser or lasso
+  let tool = "pen"; // pen, marker (highlighter), eraser, lasso or matrix (brackets)
+  let beforeMatrix = "pen";
   let beforeEraser = "pen";
   let current = null;
   let pointerId = null;
@@ -1151,7 +1154,7 @@
     if (current || lasso.path) return;
     event.preventDefault();
     try { el.canvas.setPointerCapture(event.pointerId); } catch {}
-    if (tool === "lasso") {
+    if (tool === "lasso" || tool === "matrix") {
       clearSelection();
       lasso.pointer = event.pointerId;
       lasso.path = [pointFrom(event).slice(0, 2)];
@@ -1256,8 +1259,9 @@
   function setTool(name) {
     if (name === "marker" && pen === "ink") pen = "mark-2"; // white highlighter would show nothing
     if (name === "eraser" && tool !== "eraser") beforeEraser = tool;
+    if (name === "matrix" && tool !== "matrix") beforeMatrix = tool === "eraser" ? "pen" : tool;
     tool = name;
-    if (name !== "lasso") clearSelection();
+    if (name !== "lasso" && name !== "matrix") clearSelection();
     el.canvas.parentElement.dataset.tool = name;
     renderTools();
   }
@@ -1465,7 +1469,7 @@
 
   function toggleEraser() {
     setTool(tool === "eraser" ? beforeEraser : "eraser");
-    toast(tool === "eraser" ? "Eraser" : { pen: "Pen", marker: "Highlighter", lasso: "Lasso" }[tool]);
+    toast(tool === "eraser" ? "Eraser" : { pen: "Pen", marker: "Highlighter", lasso: "Lasso", matrix: "Matrix brackets" }[tool]);
   }
 
   el.pens.forEach((button) => {
@@ -1819,9 +1823,112 @@
       });
       if (!lasso.selected.length) toast("Nothing inside that loop");
     }
+    if (tool === "matrix") {
+      // One gesture: the loop picks the numbers, the brackets go on, and the pen comes back.
+      if (lasso.selected.length) addBrackets(false);
+      clearSelection();
+      setTool(beforeMatrix);
+    }
     positionLasso();
     schedulePaint();
   }
+
+  // Put new ink on My board as one undoable step; returns the strokes added.
+  function addInk(lines, color, width) {
+    const added = [];
+    const items = [];
+    for (const line of lines) {
+      const stroke = { id: newId(), color, eraser: false, hl: false, width, sim: false, clean: true, points: line.points };
+      const item = { s: stroke, i: strokes.length };
+      boards.mine.put([item]);
+      items.push(item);
+      added.push(strokes.find((other) => other.id === stroke.id));
+    }
+    record("mine", [], items);
+    lastBoard = "mine";
+    return added.filter(Boolean);
+  }
+
+  // Square brackets around the selected numbers, skipping a side that already has one.
+  function addBrackets(keepSelected) {
+    const Marks = window.SkybridgeMarks;
+    const picked = lasso.selected;
+    if (!Marks || !picked.length) return;
+    const spanOf = (stroke) => {
+      const xs = stroke.points.map((p) => p[0]);
+      const ys = stroke.points.map((p) => p[1]);
+      return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    };
+    const all = picked.map(spanOf);
+    const union = [Math.min(...all.map((b) => b[0])), Math.min(...all.map((b) => b[1])), Math.max(...all.map((b) => b[2])), Math.max(...all.map((b) => b[3]))];
+    const near = { left: false, right: false };
+    // Brackets already in the selection (it was circled with them) count as present and aren't wrapped again.
+    const core = picked.filter((stroke, i) => {
+      const [bx0, by0, bx1, by1] = all[i];
+      const uh = union[3] - union[1];
+      const uw = union[2] - union[0];
+      if (picked.length < 3 || by1 - by0 < uh * 0.9 || bx1 - bx0 > (by1 - by0) * 0.45) return false;
+      const cx = (bx0 + bx1) / 2;
+      if (cx < union[0] + uw * 0.2) near.left = true;
+      else if (cx > union[2] - uw * 0.2) near.right = true;
+      else return false;
+      return true;
+    });
+    const rest = picked.filter((stroke) => !core.includes(stroke));
+    const body = rest.length ? rest : picked;
+    const spans = body.map(spanOf);
+    const box = [Math.min(...spans.map((b) => b[0])), Math.min(...spans.map((b) => b[1])), Math.max(...spans.map((b) => b[2])), Math.max(...spans.map((b) => b[3]))];
+    const h = Math.max(1, box[3] - box[1]);
+    for (const other of strokes) {
+      if (picked.includes(other) || other.eraser || other.hl || !other.points.length) continue;
+      const ox = other.points.map((p) => p[0]);
+      const oy = other.points.map((p) => p[1]);
+      const w = Math.max(...ox) - Math.min(...ox);
+      const oh = Math.max(...oy) - Math.min(...oy);
+      if (oh < h * 0.7 || oh > h * 2.2 || w > oh * 0.45) continue; // tall and thin, like a bracket
+      const cx = (Math.max(...ox) + Math.min(...ox)) / 2;
+      const reach = Math.max(60, h * 0.5);
+      if (Math.abs(cx - box[0]) < reach) near.left = true;
+      if (Math.abs(cx - box[2]) < reach) near.right = true;
+    }
+    if (near.left && near.right) { toast("Already has brackets"); return; }
+    const made = Marks.brackets(box, { left: !near.left, right: !near.right });
+    const color = tool === "matrix" || tool === "lasso" ? (picked[0]?.color || pen) : pen;
+    const added = addInk(made.strokes, color, picked[0]?.width || settings.width);
+    if (keepSelected) {
+      lasso.selected = [...picked, ...added];
+      positionLasso();
+    }
+    toast("Brackets added", { label: "Undo", run: undoAction });
+  }
+
+  el.lassoBrackets.addEventListener("click", () => addBrackets(true));
+
+  // A copy of the selection beside it (or below it when there is no room), picked so it can be dragged.
+  el.lassoDuplicate.addEventListener("click", () => {
+    const picked = lasso.selected;
+    if (!picked.length) return;
+    const [x0, y0, x1, y1] = selectionBounds();
+    const rect = el.canvas.getBoundingClientRect();
+    const right = view.x + rect.width / view.zoom;
+    const sideways = x1 + 36 + (x1 - x0) < right - 16;
+    const dx = sideways ? x1 - x0 + 36 : 0;
+    const dy = sideways ? 0 : y1 - y0 + 36;
+    const items = [];
+    for (const stroke of picked) {
+      const copy = copyStroke(stroke);
+      copy.id = newId();
+      copy.points = copy.points.map(([x, y, ...rest]) => [Math.round((x + dx) * 10) / 10, Math.round((y + dy) * 10) / 10, ...rest]);
+      const item = { s: copy, i: strokes.length };
+      boards.mine.put([item]);
+      items.push(item);
+    }
+    record("mine", [], items);
+    const ids = new Set(items.map(({ s }) => s.id));
+    lasso.selected = strokes.filter((stroke) => ids.has(stroke.id));
+    positionLasso();
+    toast(`Duplicated ${picked.length} ${picked.length === 1 ? "stroke" : "strokes"}`, { label: "Undo", run: undoAction });
+  });
 
   // Dragging the box moves the selection; a corner scales it around the opposite corner.
   let lassoDrag = null;
