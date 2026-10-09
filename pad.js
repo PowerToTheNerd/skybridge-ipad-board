@@ -37,6 +37,11 @@
     lassoDelete: document.getElementById("lassoDelete"),
     lassoBrackets: document.getElementById("lassoBrackets"),
     lassoDuplicate: document.getElementById("lassoDuplicate"),
+    lassoText: document.getElementById("lassoText"),
+    textSheet: document.getElementById("textSheet"),
+    textOut: document.getElementById("textOut"),
+    textCopy: document.getElementById("textCopy"),
+    textClose: document.getElementById("textClose"),
     lassoDone: document.getElementById("lassoDone"),
     lassoEnds: [...document.querySelectorAll(".lasso-end")],
     tools: [...document.querySelectorAll("[data-tool]")],
@@ -2029,6 +2034,38 @@
   }
 
   el.lassoBrackets.addEventListener("click", () => addBrackets(true));
+  // To text: the selected writing is read (by the PC or by Gemini) and shown to copy.
+  el.lassoText.addEventListener("click", async () => {
+    const picked = [...lasso.selected];
+    if (!picked.length || !window.SkybridgeSmart) return;
+    el.lassoText.disabled = true;
+    el.lassoText.textContent = "Reading…";
+    try {
+      const result = await window.SkybridgeSmart.convert(picked);
+      if (!result.ok) { toast(result.error); return; }
+      if (!result.text) { toast("Couldn't find any writing to read there."); return; }
+      el.textOut.value = result.text;
+      el.textSheet.hidden = false;
+      el.textOut.focus();
+      el.textOut.setSelectionRange(0, 0);
+    } finally {
+      el.lassoText.disabled = false;
+      el.lassoText.textContent = "To text";
+    }
+  });
+  el.textClose.addEventListener("click", () => { el.textSheet.hidden = true; });
+  el.textCopy.addEventListener("click", async () => {
+    const text = el.textOut.value;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("Copied");
+    } catch {
+      // Clipboard blocked: select it so Copy from the keyboard menu works.
+      el.textOut.focus();
+      el.textOut.select();
+      toast("Select all, then Copy");
+    }
+  });
 
   // A copy of the selection beside it (or below it when there is no room), picked so it can be dragged.
   el.lassoDuplicate.addEventListener("click", () => {

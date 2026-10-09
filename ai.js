@@ -33,6 +33,13 @@ Answer with JSON only: {"title": "...", "tags": ["..."], "text": "..."}
 - text: a plain-text transcription of everything written, one line per line, matrices as rows
   ("1, 2; 3, 4"), under 3000 characters. Copy what is written; do not solve, correct or comment.`;
 
+  const TRANSCRIBE_PROMPT = `The image is a piece of a student's handwriting (maybe one word, maybe several lines of math).
+Answer with JSON only: {"text": "..."}
+- text: exactly what is written, as plain typed text, one line per written line. Matrices as rows with
+  commas between entries and semicolons between rows ("1, 2; 3, 4"). Write fractions as 1/2, powers as x^2,
+  square roots as sqrt(x). Copy what is there, even if it is wrong. Do not solve, correct or comment.
+  If nothing legible is written, answer {"text": ""}.`;
+
   const PRACTICE_RULE = "They are practising: never give the correct value or the next step, only what is wrong and where.";
   const EXPLAIN_RULE = "You may say what the correct value is and why.";
 
@@ -171,6 +178,13 @@ Answer with JSON only.`;
     return { model, ...cleanIndex(parseJson(text)) };
   }
 
+  async function transcribe(image) {
+    const { model, text } = await generate(image, TRANSCRIBE_PROMPT, null);
+    const data = parseJson(text);
+    const out = Array.isArray(data.text) ? data.text.join("\n") : String(data.text ?? "");
+    return { model, text: out.trim().slice(0, 6000) };
+  }
+
   async function readWork(image, { problem = "", mode = "practice" } = {}) {
     const { model, text } = await generate(image, readPrompt(problem, mode), READING_SCHEMA);
     return { model, reading: parseJson(text) };
@@ -187,5 +201,5 @@ Answer with JSON only.`;
     return error?.message || "Reading the page failed.";
   }
 
-  window.SkybridgeAI = { hasKey, getKey, setKey, indexPage, readWork, explain, cleanIndex, parseJson };
+  window.SkybridgeAI = { hasKey, getKey, setKey, indexPage, transcribe, readWork, explain, cleanIndex, parseJson };
 })();

@@ -115,6 +115,30 @@
     return changes.name || "";
   }
 
+  // Handwriting to typed text for the strokes you pick (the lasso's "To text"): read by the PC when
+  // it is on, otherwise by Gemini with your key, the same readers that name pages.
+  async function convert(strokes) {
+    const how = reader();
+    if (!how) {
+      return { ok: false, error: navigator.onLine === false && AI?.hasKey() ? "No connection. Turning writing into text needs the internet or your PC." : "To turn writing into text, add your free Gemini key under Notebooks, then Smart features." };
+    }
+    let image;
+    try { image = await pictureOf(strokes); } catch { return { ok: false, error: "There is nothing written there." }; }
+    if (how === "pc") {
+      try {
+        const read = await readViaPc(image);
+        return { ok: true, text: String(read.text || "").trim() };
+      } catch (error) {
+        if (!AI?.hasKey() || navigator.onLine === false) return { ok: false, error: error.message };
+      }
+    }
+    try {
+      return { ok: true, text: (await AI.transcribe(image)).text };
+    } catch (error) {
+      return { ok: false, error: AI.explain(error) };
+    }
+  }
+
   async function dueNotebooks() {
     const books = await Notebooks.list();
     const unread = books.filter((book) => book.count >= MIN_STROKES && book.hash && book.hash !== book.readHash);
@@ -281,7 +305,7 @@
   }
 
   window.SkybridgeSmart = {
-    init, touched, pump, readNow, onRelay, search, check, status, timing, pending: () => waiting,
+    init, touched, pump, readNow, convert, onRelay, search, check, status, timing, pending: () => waiting,
     onStatus: (fn) => listeners.add(fn),
     onNotice: (fn) => noticeListeners.add(fn),
   };

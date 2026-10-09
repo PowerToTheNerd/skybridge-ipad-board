@@ -97,6 +97,7 @@
         <button type="button" class="tool" id="lassoColor">Colour</button>
         <button type="button" class="tool" id="lassoBrackets">Brackets</button>
         <button type="button" class="tool" id="lassoDuplicate">Duplicate</button>
+        <button type="button" class="tool" id="lassoText">To text</button>
         <button type="button" class="tool" id="lassoDelete">Delete</button>
         <button type="button" class="tool" id="lassoDone">Done</button>
       </div>
@@ -196,6 +197,16 @@
       <div class="hsv-hue" id="hsvHue" role="slider" aria-label="Hue"><i id="hsvHueKnob"></i></div>
       <div class="hsv-row"><span class="hsv-chip" id="hsvChip"></span><output id="hsvHex">#2b6fd6</output><span class="hsv-note">Any colour</span></div>
       <div class="hsv-recent" id="hsvRecent" aria-label="Recent colours"></div>
+    </div>
+  </section>
+
+  <!-- "To text": what the lasso's handwriting reads as, ready to copy. -->
+  <section class="settings text-sheet" id="textSheet" role="dialog" aria-label="Writing as text" hidden>
+    <p class="text-head">Typed from your writing <small>Check it against the page</small></p>
+    <textarea id="textOut" rows="5" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
+    <div class="text-actions">
+      <button type="button" class="nb-btn" id="textCopy">Copy</button>
+      <button type="button" class="nb-btn" id="textClose">Done</button>
     </div>
   </section>
 

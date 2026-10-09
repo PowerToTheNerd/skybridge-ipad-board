@@ -937,3 +937,12 @@ input[type="range"] {
 /* Longer toasts (why a page was not named) wrap instead of running off the screen. */
 .toast { width: max-content; max-width: min(560px, calc(100vw - 32px)); border-radius: 22px; line-height: 1.35; }
 .nb-fold-body #smartNow { justify-self: start; }
+
+/* To text result: a sheet in the middle of the page with the typed words to copy. */
+.text-sheet { left: 50%; right: auto; top: auto; bottom: calc(84px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(480px, calc(100vw - 24px)); gap: 12px; }
+.text-head { margin: 0; font-size: 15px; font-weight: 500; }
+.text-head small { margin-left: 8px; color: var(--muted); font-size: 12px; font-weight: 400; }
+.text-sheet textarea { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: rgba(0, 0, 0, 0.25); color: var(--text); font: 16px/1.45 ui-monospace, "SF Mono", Menlo, monospace; resize: vertical; }
+.text-actions { display: flex; gap: 10px; }
+.text-actions .nb-btn { flex: 1; }
+.lasso-bar .tool { white-space: nowrap; }
