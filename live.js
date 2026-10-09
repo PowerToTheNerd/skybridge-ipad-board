@@ -17,7 +17,7 @@
     { id: "gemini-3.8-live", label: "Gemini 3.8 Live" },
     { id: "gemini-3.8-live-extended-thinking", label: "Gemini 3.8 Live Extended Thinking" },
   ];
-  const DEFAULTS = { on: false, model: MODELS[0].id };
+  const DEFAULTS = { on: false, model: MODELS[0].id, check: false };
   const SETUP_MS = 15000;
   const TURN_MS = 60000;
   const listeners = new Set();

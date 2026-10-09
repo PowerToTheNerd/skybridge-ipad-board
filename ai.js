@@ -34,6 +34,15 @@
     } catch {}
     return { day: pacificDay(), counts: {} };
   }
+  // Google said "used up for today" for this model: fill its bar, even when this iPad counted fewer requests
+  // (the free quota belongs to the key, so Skybridge on the PC and AI Studio use it too).
+  function markOut(model) {
+    const usage = readUsage();
+    usage.out = { ...(usage.out || {}), [model]: true };
+    usage.counts[model] = Math.max(usage.counts[model] || 0, LIMITS[model]?.rpd || 0);
+    try { localStorage.setItem(USAGE_KEY, JSON.stringify(usage)); } catch {}
+    usageListeners.forEach((fn) => fn());
+  }
   function tally(model) {
     const usage = readUsage();
     usage.counts[model] = (usage.counts[model] || 0) + 1;
@@ -43,8 +52,8 @@
   const usedToday = (model) => readUsage().counts[model] || 0;
   const liveStatus = () => ({ used: window.SkybridgeLive?.used() || 0, on: Boolean(window.SkybridgeLive?.usable()), error: lastLiveError });
   function usage() {
-    const counts = readUsage().counts;
-    return MODELS.map((name) => ({ model: name, label: LIMITS[name]?.label || name, used: counts[name] || 0, rpd: LIMITS[name]?.rpd || 0, rpm: LIMITS[name]?.rpm || 0 }));
+    const { counts, out = {} } = readUsage();
+    return MODELS.map((name) => ({ model: name, label: LIMITS[name]?.label || name, out: Boolean(out[name]), missing: missing.has(name), used: counts[name] || 0, rpd: LIMITS[name]?.rpd || 0, rpm: LIMITS[name]?.rpm || 0 }));
   }
   // Seconds a model must wait before another request fits in its per-minute allowance.
   function minuteWait(model) {
@@ -58,7 +67,17 @@
   const rest = new Map(); // model -> when it may be tried again
   const restWhy = new Map(); // model -> what put it to rest ("429", "429 today", "503", ...)
   const DAILY_REST_MS = 30 * 60000; // out of the day's free requests: no point asking again for a while
-  const missing = new Set();
+  // A model Google says it can't find for this key is skipped for half an hour, then tried again (and always listed).
+  const MISSING_MS = 30 * 60000;
+  const missing = {
+    at: new Map(),
+    has(name) {
+      const when = this.at.get(name);
+      if (when && Date.now() - when > MISSING_MS) { this.at.delete(name); return false; }
+      return Boolean(when);
+    },
+    add(name) { this.at.set(name, Date.now()); },
+  };
   const queue = [];
   let draining = false;
   let lastStart = 0;
@@ -241,6 +260,16 @@ Answer with JSON only.`;
   async function attempt(image, prompt, schema, extra, background) {
     const tried = [];
     let last = null;
+    // Google already said, today, that every model that exists is used up: don't spend requests finding that out again.
+    const outToday = readUsage().out || {};
+    const askable = MODELS.filter((name) => !missing.has(name));
+    if (askable.length && askable.every((name) => outToday[name])) {
+      const error = new AiError("Used up for today.", "rate", { daily: true, status: 429 });
+      error.tried = MODELS.map((name) => `${name.replace("gemini-", "")}: ${missing.has(name) ? "not found for this key (404)" : "429 today"}`);
+      error.allDaily = missing.at.size === 0;
+      error.someDaily = true;
+      throw error;
+    }
     for (let round = 0; round < 2; round += 1) {
       const now = Date.now();
       for (const name of MODELS) {
@@ -270,6 +299,7 @@ Answer with JSON only.`;
             if (error.kind === "key" || error.kind === "network") { error.tried = tried; throw error; }
             if (error.kind !== "bad") tried.push(`${model.replace("gemini-", "")}: ${error.status || error.kind}`);
             restWhy.set(model, error.kind === "rate" ? (error.daily ? "429 today" : "429") : String(error.status || error.kind));
+            if (error.kind === "rate" && error.daily) markOut(model);
             if (error.kind === "rate") rest.set(model, Date.now() + (error.daily ? DAILY_REST_MS : Math.max(timing.restRateMs, (error.retryAfter || 0) * 1000)));
             else if (error.kind === "busy" || error.kind === "timeout") rest.set(model, Date.now() + timing.restBusyMs);
             else if (error.kind === "missing") missing.add(model);
@@ -278,17 +308,25 @@ Answer with JSON only.`;
         }
         await sleep(300);
       }
-      const transient = last && ["rate", "busy", "timeout"].includes(last.kind);
+      const transient = last && ["rate", "busy", "timeout"].includes(last.kind) && !last.daily;
       if (background || !transient) break;
       // Something you asked for: let the soonest model recover (a few seconds at most), then one more round.
       const soon = Math.min(...MODELS.filter((name) => !missing.has(name)).map((name) => rest.get(name) || 0));
       await sleep(Math.min(timing.waitMs, Math.max(2000, soon - Date.now())));
     }
     if (last) {
-      last.tried = tried;
+      // What happened to every model, so nothing is left out of the message.
+      last.tried = MODELS.map((name) => {
+        const short = name.replace("gemini-", "");
+        if (missing.has(name)) return `${short}: not found for this key (404)`;
+        if (restWhy.has(name)) return `${short}: ${restWhy.get(name)}`;
+        const said = tried.find((t) => t.startsWith(`${short}:`));
+        return said || `${short}: not tried`;
+      });
       // Every model that exists said the same: the day's free requests are used up.
       const live = MODELS.filter((name) => !missing.has(name));
-      last.allDaily = live.length > 0 && live.every((name) => restWhy.get(name) === "429 today");
+      last.allDaily = live.length > 0 && missing.at.size === 0 && live.every((name) => restWhy.get(name) === "429 today");
+      last.someDaily = MODELS.some((name) => restWhy.get(name) === "429 today");
     }
     throw last || new AiError("No model answered.", "empty");
   }
@@ -431,6 +469,7 @@ Say each number as it is written, say "equals", "plus", "minus" and "times" for 
     if (kind === "local") return `${error.message} (Notebooks > Smart features > Local model)`;
     if (kind === "key") return "Gemini didn't accept the key. Check it in Notebooks, then Smart features.";
     if (kind === "rate" && error.allDaily) return `Today's free Gemini requests are used up${where}. They come back around midnight Pacific time (3 AM Eastern). Until then page names wait and practice uses the built-in problems.`;
+    if (kind === "rate" && error.someDaily) return `Gemini's free requests are used up for some models today${where}. The rest were busy or not available to your key. Live (unlimited) can take over: Notebooks > Smart features > Gemini Live.`;
     if (kind === "rate") return `Gemini's free limit was reached${where}. It slows down and tries again on its own.`;
     if (kind === "network") return "No connection to Gemini.";
     if (kind === "timeout") return `Gemini took too long${where}. It tries again on its own.`;
@@ -440,5 +479,5 @@ Say each number as it is written, say "equals", "plus", "minus" and "times" for 
     return error?.message || "Reading the page failed.";
   }
 
-  window.SkybridgeAI = { hasKey, hasGeminiKey, getKey, setKey, usage, liveStatus, onUsage: (fn) => { usageListeners.add(fn); window.SkybridgeLive?.onUsage(fn); }, LIMITS, indexPage, transcribe, ask, askPdf, readWork, explain, busy, cleanIndex, shortTitle, parseJson, timing, MODELS };
+  window.SkybridgeAI = { hasKey, hasGeminiKey, modelState: () => MODELS.map((name) => ({ model: name, rest: restWhy.get(name) || "", missing: missing.has(name) })), getKey, setKey, usage, liveStatus, onUsage: (fn) => { usageListeners.add(fn); window.SkybridgeLive?.onUsage(fn); }, LIMITS, indexPage, transcribe, ask, askPdf, readWork, explain, busy, cleanIndex, shortTitle, parseJson, timing, MODELS };
 })();

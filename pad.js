@@ -114,6 +114,7 @@
     liveOut: document.getElementById("liveOut"),
     liveOn: document.getElementById("liveOn"),
     liveModel: document.getElementById("liveModel"),
+    liveCheck: document.getElementById("liveCheck"),
     liveTest: document.getElementById("liveTest"),
     liveResult: document.getElementById("liveResult"),
     localOut: document.getElementById("localOut"),
@@ -3481,6 +3482,7 @@
     const cfg = Live.config();
     el.liveOn.value = cfg.on ? "on" : "off";
     el.liveModel.value = cfg.model;
+    el.liveCheck.value = cfg.check ? "on" : "off";
     el.liveOut.textContent = cfg.on ? (window.SkybridgeAI.hasGeminiKey() ? "On" : "Needs a key") : "Off";
     el.liveOut.dataset.state = cfg.on && window.SkybridgeAI.hasGeminiKey() ? "on" : "off";
   }
@@ -3488,6 +3490,7 @@
     for (const model of Live.MODELS) el.liveModel.append(Object.assign(document.createElement("option"), { value: model.id, textContent: model.label }));
     renderLive();
     el.liveOn.addEventListener("change", () => { Live.save({ on: el.liveOn.value === "on" }); renderLive(); });
+    el.liveCheck.addEventListener("change", () => { Live.save({ check: el.liveCheck.value === "on" }); renderLive(); });
     el.liveModel.addEventListener("change", () => { Live.save({ model: el.liveModel.value }); renderLive(); });
     el.liveTest.addEventListener("click", async () => {
       if (!window.SkybridgeAI.hasGeminiKey()) { toast("Add your Gemini key first"); return; }
@@ -3515,18 +3518,18 @@
     el.usageList.replaceChildren(...AI.usage().map((row) => {
       const line = document.createElement("div");
       line.className = "usage-row";
-      line.dataset.full = String(row.used >= row.rpd);
+      line.dataset.full = String(row.used >= row.rpd || row.out);
       const name = document.createElement("span");
       name.textContent = row.label;
       const bar = document.createElement("i");
-      bar.style.setProperty("--used", `${Math.min(100, (row.used / row.rpd) * 100)}%`);
+      bar.style.setProperty("--used", `${row.out ? 100 : Math.min(100, (row.used / row.rpd) * 100)}%`);
       const count = document.createElement("b");
-      count.textContent = `${row.used} of ${row.rpd}`;
+      count.textContent = row.missing ? "not found" : row.out ? "used up today" : `${row.used} of ${row.rpd}`;
       line.append(name, bar, count);
       return line;
     }), liveRow());
     const liveWhy = window.SkybridgeAI.liveStatus();
-    el.usageNote.textContent = (liveWhy.on && liveWhy.error ? `Live last said: ${liveWhy.error} ` : "") + "Free requests used today, counted on this iPad. The free key allows about 5 a minute and 20 a day per model, and the day starts again around midnight Pacific (3 AM Eastern). Anything else using the key isn't counted here.";
+    el.usageNote.textContent = (liveWhy.on && liveWhy.error ? `Live last said: ${liveWhy.error} ` : "") + "Free requests used today. The free key allows about 5 a minute and 20 a day per model, and the day starts again around midnight Pacific (3 AM Eastern). The quota belongs to your key, so Skybridge on the PC and AI Studio use it too, and this iPad only counts its own requests. When Google says a model is used up, its bar fills.";
   }
   window.SkybridgeAI?.onUsage(renderUsage);
   renderUsage();

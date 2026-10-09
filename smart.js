@@ -345,9 +345,23 @@
       if (result.verdict !== "unreadable") remember(key, answer);
       return answer;
     } catch (error) {
+      // Flash is out for today (or busy): Live has no daily limit, so it can give an opinion if the student allows it.
+      // It is a voice model reading the picture, not the exact checker, and the answer says so.
+      const Live = window.SkybridgeLive;
+      if (["rate", "busy", "timeout", "missing"].includes(error?.kind) && Live?.usable() && Live.config().check) {
+        try {
+          const spoken = await Live.ask({ image, prompt: LIVE_CHECK(bridge.problemText?.() || "") });
+          return { ok: true, verdict: "unverified", box: null, text: `Live's opinion (${spoken.model}). It read your page like a tutor would; the numbers were NOT checked exactly, so it can be wrong.\n${spoken.text}` };
+        } catch (liveError) {
+          return { ok: false, error: `${AI.explain(error)}\nLive couldn't help either: ${liveError.message}` };
+        }
+      }
       return { ok: false, error: AI.explain(error) };
     }
   }
+
+  const LIVE_CHECK = (problem) => `This picture is a student's handwritten math. The problem: ${problem && problem.trim() ? problem.trim() : "(not given: work it out from the page)"}
+Look at their work step by step and say, in three or four short sentences, whether it looks right. If a step looks wrong, say which line and which entry, but do NOT say the correct value or the next step: they are practising. Say that this is your reading of the picture and numbers were not verified.`;
 
   function init(given) {
     bridge = given;
