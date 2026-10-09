@@ -3254,6 +3254,10 @@
     set: document.getElementById("homeworkSet"),
     problem: document.getElementById("homeworkProblem"),
     where: document.getElementById("homeworkWhere"),
+    prev: document.getElementById("homeworkPrev"),
+    next: document.getElementById("homeworkNext"),
+    preview: document.getElementById("homeworkPreview"),
+    info: document.getElementById("homeworkInfo"),
     go: document.getElementById("homeworkGo"),
     pick: document.getElementById("homeworkPick"),
     out: document.getElementById("homeworkOut"),
@@ -3270,11 +3274,32 @@
     if (select && sets.some((set) => set.id === select)) hw.set.value = select;
     await renderHomeworkProblems();
   }
+  let hwSet = null;
   async function renderHomeworkProblems(index) {
-    const set = hw.set.value ? await Homework.get(hw.set.value) : null;
-    hw.problem.replaceChildren(...(set?.problems || []).map((item, i) => Object.assign(document.createElement("option"), { value: String(i), textContent: item.label })));
+    hwSet = hw.set.value ? await Homework.get(hw.set.value) : null;
+    hw.problem.replaceChildren(...(hwSet?.problems || []).map((item, i) => Object.assign(document.createElement("option"), { value: String(i), textContent: item.label })));
     if (index != null) hw.problem.value = String(index);
+    renderHomeworkStep();
   }
+  // The arrows, the one-line preview of the chosen problem, and what read this PDF.
+  function renderHomeworkStep() {
+    const count = hwSet?.problems.length || 0;
+    const at = Math.max(0, hw.problem.selectedIndex);
+    hw.prev.disabled = at <= 0;
+    hw.next.disabled = at >= count - 1;
+    const item = hwSet?.problems[at];
+    hw.preview.textContent = item ? [item.text, ...item.lines.slice(0, 1)].filter(Boolean).join(" ").replace(/\\begin\{[a-z]*matrix\}.*?\\end\{[a-z]*matrix\}/g, "[matrix]") : "";
+    const Engine = window.SkybridgeEngine;
+    const by = hwSet ? { local: "your local model, page by page", gemini: "Gemini" }[hwSet.by] : "";
+    hw.info.textContent = hwSet
+      ? `${by ? `Read by ${by}. ` : ""}The problems stay on this iPad, so the same PDF is never read again. Answers printed in the PDF are never shown.`
+      : `A new PDF is read once (${Engine ? Engine.planText("homework") : "Gemini"}) and split into problems (1A, 1B...). Answers printed in the PDF are never shown.`;
+  }
+  const whereValue = () => hw.where.querySelector('[aria-checked="true"]')?.dataset.where || "page";
+  function setWhere(value) {
+    hw.where.querySelectorAll("button").forEach((button) => button.setAttribute("aria-checked", String(button.dataset.where === value)));
+  }
+
   // Put one homework problem on this page, or in a new notebook. No call: it was read when the PDF came in.
   async function placeHomework(setId, index, where) {
     const set = await Homework.get(setId);
@@ -3314,9 +3339,14 @@
     Homework.onChange(() => renderHomework(hw.set.value));
     hw.set.addEventListener("change", () => renderHomeworkProblems());
     const where = storage("get", "skybridge.homeworkWhere");
-    if (where === "page" || where === "new") hw.where.value = where;
-    hw.where.addEventListener("change", () => storage("set", "skybridge.homeworkWhere", hw.where.value));
-    hw.go.addEventListener("click", () => placeHomework(hw.set.value, Number(hw.problem.value) || 0, hw.where.value));
+    if (where === "page" || where === "new") setWhere(where);
+    hw.where.querySelectorAll("button").forEach((button) => button.addEventListener("click", () => { setWhere(button.dataset.where); storage("set", "skybridge.homeworkWhere", button.dataset.where); }));
+    hw.problem.addEventListener("change", renderHomeworkStep);
+    const step = (by) => { const next = hw.problem.selectedIndex + by; if (next >= 0 && next < hw.problem.options.length) { hw.problem.selectedIndex = next; renderHomeworkStep(); } };
+    hw.prev.addEventListener("click", () => step(-1));
+    hw.next.addEventListener("click", () => step(1));
+    window.SkybridgeEngine?.onChange(renderHomeworkStep);
+    hw.go.addEventListener("click", () => placeHomework(hw.set.value, Number(hw.problem.value) || 0, whereValue()));
     hw.importBtn.addEventListener("click", () => hw.file.click());
     hw.file.addEventListener("change", async () => {
       const file = hw.file.files?.[0];
@@ -3541,7 +3571,7 @@
   }
 
   // Notebooks and Smart features are two swipeable pages, like Pen and Paper. The last one is remembered.
-  const NB_PAGES = ["books", "smart"];
+  const NB_PAGES = ["books", "homework", "smart"];
   let nbPage = storage("get", "skybridge.nbPage");
   if (!NB_PAGES.includes(nbPage)) nbPage = "books";
   let nbLock = 0;

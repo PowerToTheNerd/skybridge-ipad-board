@@ -1067,7 +1067,7 @@ input[type="range"] {
 .zoom-pill[hidden] { display: none; }
 
 /* Notebooks sheet: two swipeable pages, like Pen and Paper. */
-.nb-tabs { grid-template-columns: repeat(2, 1fr); flex: none; }
+.nb-tabs { grid-template-columns: repeat(3, 1fr); flex: none; }
 .nb-pages { margin: 0 -18px; }
 .nb-pages .page { padding: 0 18px; max-height: calc(100dvh - var(--bar-h) - env(safe-area-inset-top) - 190px); gap: 14px; }
 .nb-pages .nb-folds { margin: 0 -18px; }
@@ -1102,3 +1102,24 @@ input[type="range"] {
 .engine-row .will { color: var(--text); }
 .engine-row .last { color: var(--muted); }
 .engine-row .last[data-state="bad"] { color: var(--bad); }
+
+/* Homework tab */
+.hw-card { display: grid; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--line); margin-bottom: 2px; }
+.hw-pick { display: grid; gap: 12px; }
+.hw-pick[hidden] { display: none; }
+.hw-card select { height: 42px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--line); background: rgba(var(--wash-rgb), 0.04); color: var(--text); font: inherit; font-size: 16px; min-width: 0; }
+.hw-stepper { display: grid; grid-template-columns: 44px 1fr 44px; gap: 6px; }
+.hw-arrow { height: 42px; border-radius: 10px; border: 1px solid var(--line-strong); background: rgba(var(--wash-rgb), 0.05); color: var(--text); display: grid; place-items: center; cursor: pointer; }
+.hw-arrow svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.hw-arrow:disabled { opacity: 0.35; cursor: default; }
+.hw-preview { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.hw-preview:empty { display: none; }
+.hw-go { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+.hw-open { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.hw-where { display: inline-grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 12px; border: 1px solid var(--line); background: rgba(var(--wash-rgb), 0.04); }
+.hw-where button { height: 34px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; white-space: nowrap; cursor: pointer; }
+.hw-where button[aria-checked="true"] { background: rgba(var(--wash-rgb), 0.12); color: var(--text); }
+.hw-more summary { color: var(--muted); font-size: 13px; cursor: pointer; list-style: none; }
+.hw-more summary::-webkit-details-marker { display: none; }
+.hw-more[open] { display: grid; gap: 8px; }
+.hw-card #homeworkOut { color: var(--muted); font-size: 13px; }

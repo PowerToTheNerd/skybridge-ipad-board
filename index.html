@@ -209,6 +209,7 @@
     </header>
     <div class="page-tabs segmented nb-tabs" role="tablist" aria-label="Notebook pages" id="nbTabs">
       <button type="button" role="tab" data-page="books" aria-selected="true">Notebooks</button>
+      <button type="button" role="tab" data-page="homework" aria-selected="false">Homework</button>
       <button type="button" role="tab" data-page="smart" aria-selected="false">Smart features</button>
     </div>
     <div class="pages nb-pages" id="nbPages">
@@ -218,34 +219,41 @@
           <input type="search" class="nb-search" id="notebookSearch" placeholder="Search notebooks" aria-label="Search names, tags and handwriting" autocapitalize="off" autocorrect="off" spellcheck="false">
         </label>
         <ul class="nb-list" id="notebookList"></ul>
-        <div class="nb-folds">
-          <details class="nb-fold" id="homeworkFold">
-        <summary><span>Homework PDF</span><output id="homeworkOut"></output></summary>
-        <div class="nb-fold-body">
+      </div>
+      <div class="page" data-page="homework" role="tabpanel">
+        <section class="hw-card" aria-label="Homework">
+          <div class="nb-section-head"><h3>Homework</h3><output id="homeworkOut"></output></div>
           <button type="button" class="nb-btn" id="homeworkImport">Import a PDF</button>
           <input type="file" id="homeworkFile" accept="application/pdf,.pdf" hidden>
-          <div id="homeworkPick" hidden>
+          <div class="hw-pick" id="homeworkPick" hidden>
             <label class="nb-address">
               <span>Homework</span>
               <select id="homeworkSet"></select>
             </label>
-            <label class="nb-address">
+            <div class="nb-address">
               <span>Problem</span>
-              <select id="homeworkProblem"></select>
-            </label>
-            <label class="nb-address">
-              <span>Put it</span>
-              <select id="homeworkWhere">
-                <option value="page">On this page</option>
-                <option value="new">In a new notebook</option>
-              </select>
-            </label>
-            <button type="button" class="nb-btn" id="homeworkGo">Open problem</button>
-            <button type="button" class="nb-link" id="homeworkRemove">Remove this homework from the iPad</button>
+              <div class="hw-stepper">
+                <button type="button" class="hw-arrow" id="homeworkPrev" aria-label="Previous problem"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12 4-6 6 6 6"/></svg></button>
+                <select id="homeworkProblem" aria-label="Problem"></select>
+                <button type="button" class="hw-arrow" id="homeworkNext" aria-label="Next problem"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 4 6 6-6 6"/></svg></button>
+              </div>
+            </div>
+            <p class="hw-preview" id="homeworkPreview"></p>
+            <div class="hw-go">
+              <button type="button" class="nb-btn hw-open" id="homeworkGo">Open problem</button>
+              <div class="hw-where" id="homeworkWhere" role="radiogroup" aria-label="Where to put it">
+                <button type="button" role="radio" data-where="page" aria-checked="true">This page</button>
+                <button type="button" role="radio" data-where="new" aria-checked="false">New notebook</button>
+              </div>
+            </div>
+            <details class="hw-more">
+              <summary>More</summary>
+              <button type="button" class="nb-link" id="homeworkRemove">Remove this homework from the iPad</button>
+            </details>
           </div>
-          <p class="nb-fine">Gemini reads the PDF once with your key and splits it into problems (1A, 1B...). They stay on this iPad, so the same PDF is never read again. Answers printed in the PDF are never shown.</p>
-        </div>
-      </details>
+          <p class="nb-fine" id="homeworkInfo"></p>
+        </section>
+        <div class="nb-folds">
           <details class="nb-fold" id="practiceFold">
         <summary><span>Practice problem</span><output id="practiceOut"></output></summary>
         <div class="nb-fold-body">
