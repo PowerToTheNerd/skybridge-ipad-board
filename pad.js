@@ -77,6 +77,7 @@
     geminiKeyRemove: document.getElementById("geminiKeyRemove"),
     smartOut: document.getElementById("smartOut"),
     smartNote: document.getElementById("smartNote"),
+    smartNow: document.getElementById("smartNow"),
     syncHost: document.getElementById("syncHost"),
     syncCode: document.getElementById("syncCode"),
     syncCodeRow: document.getElementById("syncCodeRow"),
@@ -2317,7 +2318,7 @@
     }
     el.toast.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { el.toast.hidden = true; }, action ? 6000 : 2600);
+    toastTimer = setTimeout(() => { el.toast.hidden = true; }, Math.max(action ? 7000 : 2600, String(text).length * 70));
   }
 
 
@@ -2576,6 +2577,11 @@
     window.SkybridgeSmart?.pump();
     renderNotebookUi();
   });
+  el.smartNow.addEventListener("click", async () => {
+    el.smartNow.disabled = true;
+    toast("Reading your pages…");
+    try { toast(await window.SkybridgeSmart.readNow()); } finally { el.smartNow.disabled = false; renderNotebookUi(); }
+  });
   el.geminiKeyRemove.addEventListener("click", () => {
     window.SkybridgeAI.setKey("");
     toast("Key removed");
@@ -2637,6 +2643,16 @@
       },
     });
     window.SkybridgeSmart?.onStatus(() => renderNotebookUi());
+    // Naming happens quietly in the background, so say when it worked, and when and why it did not.
+    window.SkybridgeSmart?.onNotice((text, openSettings) => {
+      toast(text, openSettings ? {
+        label: "Open",
+        run: () => {
+          if (el.notebookSheet.hidden) el.notebookBtn.click();
+          document.getElementById("smartFold").open = true;
+        },
+      } : undefined);
+    });
     connect();
   }
 

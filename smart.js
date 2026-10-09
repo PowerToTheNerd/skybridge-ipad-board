@@ -13,7 +13,7 @@
   const AI = window.SkybridgeAI;
   const MathCheck = window.SkybridgeMath;
   const MIN_STROKES = 3; // a page with less than this isn't worth reading
-  const timing = { idleMs: 25000, retryMs: 60000 }; // read a page after a pause in writing; wait before retrying a failure
+  const timing = { idleMs: 10000, retryMs: 60000 }; // read a page after a pause in writing; wait before retrying a failure
   const PC_WAIT_MS = 70000;
   const MAX_SIDE = 1600;
 
@@ -26,6 +26,26 @@
   const listeners = new Set();
   const tried = new Map();
   const asked = new Map(); // read requests sent to the PC, waiting for an answer
+
+  // Things worth telling the person (a page named, or why it was not): shown as a toast by the page.
+  const noticeListeners = new Set();
+  let lastNotice = { text: "", at: 0 };
+  function notify(text, open = false) {
+    // The same trouble is told once, not every retry.
+    if (text === lastNotice.text && Date.now() - lastNotice.at < 5 * 60000) return;
+    lastNotice = { text, at: Date.now() };
+    noticeListeners.forEach((fn) => fn(text, open));
+  }
+  // Without a key the nudge comes at most once a day, so it never nags.
+  function nudgeDue() {
+    try {
+      const last = Number(localStorage.getItem("skybridge.keyNudge") || 0);
+      if (Date.now() - last < 24 * 3600 * 1000) return false;
+      localStorage.setItem("skybridge.keyNudge", String(Date.now()));
+    } catch { /* storage blocked: nudge once per visit */ }
+    return true;
+  }
+  let force = false; // "Read now": don't wait for a pause in writing
 
   const status = () => message;
   function setStatus(text) {
@@ -92,6 +112,7 @@
       if (!meta.named && labels.title && labels.title !== "Untitled page") changes.name = labels.title;
     }
     await bridge.saveMeta(meta.id, changes);
+    return changes.name || "";
   }
 
   async function dueNotebooks() {
@@ -113,13 +134,17 @@
         if (!unread.length) { setStatus(""); break; }
         if (!how) {
           setStatus(`${unread.length} ${unread.length === 1 ? "page is" : "pages are"} waiting to be read`);
+          const idle = unread.some((book) => bridge.openId() !== book.id || Date.now() - bridge.lastChange() >= timing.idleMs);
+          if (idle && (force || (!AI?.hasKey() && nudgeDue()))) {
+            notify(navigator.onLine === false && AI?.hasKey() ? "Pages can't be named while the iPad is offline. They will be when it is back online." : "Pages can't be named yet. Add your free Gemini key under Notebooks, then Smart features.", !AI?.hasKey());
+          }
           break;
         }
         const ready = unread.filter((book) => Date.now() - (tried.get(book.id) || 0) > timing.retryMs);
         if (!ready.length) break;
         const next = ready[0];
         // The page you are writing on waits until you pause.
-        if (bridge.openId() === next.id && Date.now() - bridge.lastChange() < timing.idleMs) {
+        if (!force && bridge.openId() === next.id && Date.now() - bridge.lastChange() < timing.idleMs) {
           clearTimeout(timer);
           timer = setTimeout(pump, timing.idleMs - (Date.now() - bridge.lastChange()) + 500);
           break;
@@ -127,9 +152,13 @@
         tried.set(next.id, Date.now());
         setStatus(`Reading “${next.name}”…`);
         try {
-          await readNotebook(next, how);
+          const named = await readNotebook(next, how);
+          setStatus("");
+          if (named) notify(`Named this page “${named}”`);
         } catch (error) {
-          setStatus(error.kind === "pc" ? error.message : AI.explain(error));
+          const why = error.kind === "pc" ? error.message : AI.explain(error);
+          setStatus(why);
+          notify(`Couldn't name “${next.name}”. ${why}`, error.kind === "key");
           // A connection or key problem stops the loop; try again later (and when the iPad is back online).
           if (error.kind === "key" || error.kind === "network") {
             clearTimeout(timer);
@@ -143,6 +172,22 @@
       running = false;
       bridge?.refresh();
       if (again) { clearTimeout(timer); timer = setTimeout(pump, 300); }
+    }
+  }
+
+  // Read every waiting page now, without waiting for a pause. Returns what happened, in words.
+  async function readNow() {
+    force = true;
+    tried.clear();
+    try {
+      for (let i = 0; running && i < 300; i += 1) await new Promise((done) => setTimeout(done, 200));
+      lastNotice = { text: "", at: 0 };
+      await pump();
+      for (let i = 0; running && i < 300; i += 1) await new Promise((done) => setTimeout(done, 200));
+      const left = await dueNotebooks();
+      return left.length ? message || `${left.length} still waiting` : "All pages are read";
+    } finally {
+      force = false;
     }
   }
 
@@ -236,7 +281,8 @@
   }
 
   window.SkybridgeSmart = {
-    init, touched, pump, onRelay, search, check, status, timing, pending: () => waiting,
+    init, touched, pump, readNow, onRelay, search, check, status, timing, pending: () => waiting,
     onStatus: (fn) => listeners.add(fn),
+    onNotice: (fn) => noticeListeners.add(fn),
   };
 })();

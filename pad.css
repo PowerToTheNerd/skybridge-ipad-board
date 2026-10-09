@@ -933,3 +933,7 @@ input[type="range"] {
 .lasso-end::after { content: ""; position: absolute; inset: -14px; }
 .lasso-box[data-line="true"] .lasso-end { display: block; }
 .lasso-box[data-line="true"] .lasso-handle { display: none; }
+
+/* Longer toasts (why a page was not named) wrap instead of running off the screen. */
+.toast { width: max-content; max-width: min(560px, calc(100vw - 32px)); border-radius: 22px; line-height: 1.35; }
+.nb-fold-body #smartNow { justify-self: start; }
