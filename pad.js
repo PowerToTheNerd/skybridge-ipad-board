@@ -45,6 +45,8 @@
     lassoSizeDown: document.getElementById("lassoSizeDown"),
     lassoSizeUp: document.getElementById("lassoSizeUp"),
     lassoBold: document.getElementById("lassoBold"),
+    bgReads: document.getElementById("bgReads"),
+    updateApp: document.getElementById("updateApp"),
     lassoDuplicate: document.getElementById("lassoDuplicate"),
     lassoText: document.getElementById("lassoText"),
     textSheet: document.getElementById("textSheet"),
@@ -3716,6 +3718,25 @@
     button.title = label;
     button.innerHTML = `<svg viewBox="0 0 20 20" aria-hidden="true">${path}</svg>`;
   }
+
+  // Smart features footer: how many pages were read in the background this session, and which app version is running.
+  async function renderBgReads() {
+    const log = window.SkybridgeSmart?.readLog?.() || [];
+    let version = "";
+    try { version = (await caches.keys()).find((name) => name.startsWith("skybridge-board-"))?.slice("skybridge-board-".length) || ""; } catch {}
+    const auto = log.filter((item) => !item.manual).length;
+    const last = log[log.length - 1];
+    el.bgReads.textContent = `Pages read this session: ${auto} in the background, ${log.length - auto} when asked${last ? `. Last: “${last.name}” at ${new Date(last.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}. A named page is not read again. App version ${version || "unknown"}.`;
+  }
+  window.SkybridgeSmart?.onStatus?.(renderBgReads);
+  el.notebookBtn.addEventListener("click", renderBgReads);
+  el.updateApp.addEventListener("click", async () => {
+    try {
+      for (const registration of await navigator.serviceWorker.getRegistrations()) await registration.unregister();
+      for (const name of await caches.keys()) if (name.startsWith("skybridge-board-")) await caches.delete(name);
+    } catch {}
+    location.reload();
+  });
 
   async function renderNotebookList() {
     if (el.notebookSheet.hidden) return;

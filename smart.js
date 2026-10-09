@@ -92,6 +92,9 @@
   }
 
   const manual = new Set(); // pages you asked to be read again
+  const autoDone = new Set(); // pages read in the background this session: never read again that way
+  const readLog = []; // what was read this session, for the Smart features page: { name, how, at, manual }
+  const MAX_LOG = 50;
   async function readNotebook(meta, how) {
     const found = await Notebooks.load(meta.id);
     if (!found) return;
@@ -116,6 +119,9 @@
       if (!meta.named && title !== "Untitled page") changes.name = title;
     }
     await bridge.saveMeta(meta.id, changes);
+    readLog.push({ name: meta.name, how, at: Date.now(), manual: manual.has(meta.id) });
+    if (readLog.length > MAX_LOG) readLog.shift();
+    if (!manual.has(meta.id)) autoDone.add(meta.id);
     manual.delete(meta.id);
     return changes.name || "";
   }
@@ -169,7 +175,7 @@
     const books = await Notebooks.list();
     // A page is read once. After that (named by a reader or by you) it is left alone, however much you write
     // on it, until you ask for it again (Re-read on the page's row in the notebook list).
-    const unread = books.filter((book) => book.count >= MIN_STROKES && book.hash && (manual.has(book.id) || (!book.readHash && !book.named)));
+    const unread = books.filter((book) => book.count >= MIN_STROKES && book.hash && (manual.has(book.id) || (!book.readHash && !book.named && !autoDone.has(book.id))));
     waiting = unread.length;
     return unread;
   }
@@ -382,7 +388,7 @@ Look at their work step by step and say, in three or four short sentences, wheth
   }
 
   window.SkybridgeSmart = {
-    init, touched, pump, readNow, reread, convert, onRelay, search, check, status, timing, pending: () => waiting,
+    init, touched, pump, readNow, reread, readLog: () => readLog.slice(), convert, onRelay, search, check, status, timing, pending: () => waiting,
     onStatus: (fn) => listeners.add(fn),
     onNotice: (fn) => noticeListeners.add(fn),
   };
