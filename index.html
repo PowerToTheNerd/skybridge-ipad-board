@@ -358,6 +358,14 @@
                   <option value="solo">Solo: straight from this iPad</option>
                 </select>
               </label>
+              <label class="nb-address">
+                <span>Fast mode (skip long thinking)</span>
+                <select id="localFast">
+                  <option value="no">Off: let it think</option>
+                  <option value="yes">On: answer quickly</option>
+                </select>
+              </label>
+              <p class="nb-fine">A reasoning model can think for minutes before it answers. Fast mode asks it for low effort and no long thinking, if your server supports that. Check my work is much quicker.</p>
               <p class="nb-fine" id="localRoute"></p>
               <button type="button" class="nb-btn" id="localPair" hidden>Pair with Skybridge first</button>
               <button type="button" class="nb-btn" id="localTest">Test it</button>
@@ -428,7 +436,7 @@
 
   <!-- Gemini's verdict from Check my work, and the mic controls while a Live session runs. -->
   <section class="verdict" id="verdict" role="status" aria-live="polite" hidden>
-    <div class="verdict-head"><strong id="verdictTitle">Check my work</strong><button type="button" class="tool" id="verdictClose" aria-label="Close">Close</button></div>
+    <div class="verdict-head"><strong id="verdictTitle">Check my work</strong><span><button type="button" class="tool" id="verdictCancel" hidden>Cancel</button> <button type="button" class="tool" id="verdictClose" aria-label="Close">Close</button></span></div>
     <p id="verdictText"></p>
   </section>
 

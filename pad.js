@@ -101,6 +101,8 @@
     verdictTitle: document.getElementById("verdictTitle"),
     verdictText: document.getElementById("verdictText"),
     verdictClose: document.getElementById("verdictClose"),
+    verdictCancel: document.getElementById("verdictCancel"),
+    localFast: document.getElementById("localFast"),
     liveControls: document.getElementById("liveControls"),
     mute: document.getElementById("muteBtn"),
     done: document.getElementById("doneBtn"),
@@ -2986,7 +2988,16 @@
     el.verdictTitle.textContent = "Check my work";
     el.verdictText.textContent = "Reading your page, then checking the numbers…";
     updateButtons();
+    // A local model can think for minutes: show that it is working, and let the student stop it.
+    const stop = window.SkybridgeLocal?.onProgress((info) => {
+      if (!checking || info.phase === "done") { el.verdictCancel.hidden = true; return; }
+      const doing = info.phase === "writing" ? "writing the answer" : info.phase === "waiting" ? "waiting for a first reply" : "thinking";
+      el.verdictText.textContent = `Local model is ${doing}… ${info.seconds} s${info.fast ? " (Fast mode)" : ""}`;
+      el.verdictCancel.hidden = false;
+    });
     const result = await window.SkybridgeSmart.check();
+    stop?.();
+    el.verdictCancel.hidden = true;
     showVerdict(result);
   }
 
@@ -3008,6 +3019,7 @@
     // A PC that never answers shouldn't leave the button stuck.
     setTimeout(() => { if (checking) showVerdict({ ok: false, error: "No answer from the PC. Is Skybridge open?" }); }, 90000);
   });
+  el.verdictCancel.addEventListener("click", () => window.SkybridgeLocal?.cancel());
   el.verdictClose.addEventListener("click", () => { el.verdict.hidden = true; });
 
   // Mute and Done speaking show only while a Live session runs on the PC.
@@ -3720,6 +3732,7 @@
     set(el.localModel, cfg.model);
     el.localVision.value = cfg.vision ? "yes" : "no";
     el.localVia.value = cfg.via;
+    el.localFast.value = cfg.fast ? "yes" : "no";
     el.localRoute.textContent = Local.explainRoute();
     const hasUrl = Boolean(Local.endpoint(cfg.url));
     const used = hasUrl && Engine.local();
@@ -3742,6 +3755,7 @@
       if (value) { saveLocal({ key: value }); toast("Local key saved on this iPad"); }
     });
     el.localVision.addEventListener("change", () => saveLocal({ vision: el.localVision.value === "yes" }));
+    el.localFast.addEventListener("change", () => saveLocal({ fast: el.localFast.value === "yes" }));
     el.localVia.addEventListener("change", () => { saveLocal({ via: el.localVia.value }); el.localResult.hidden = true; });
     el.localPair.addEventListener("click", () => {
       el.syncFold.open = true;

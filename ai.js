@@ -382,7 +382,7 @@ Answer with JSON only.`;
         } catch (error) {
           trail.push({ engine: "local", why: brief(error.message) });
           // "Local model" only never falls back; otherwise the next engine takes over when there is one.
-          if (onlyLocal || !hasGeminiKey()) fail(error);
+          if (error.kind === "cancel" || onlyLocal || !hasGeminiKey()) fail(error);
         }
       } else if (onlyLocal) {
         fail(new AiError(pdf ? "Local model only can't read a PDF file directly. Import it from Homework, which reads it page by page." : "Local model only is on, but this needs a model that reads pictures. Switch on Can it read pictures, or choose Hybrid.", "local"));
@@ -485,8 +485,16 @@ Say each number as it is written, say "equals", "plus", "minus" and "times" for 
     return { model, data: parseJson(text) };
   }
 
+  function localWillRead() {
+    const Local = window.SkybridgeLocal;
+    const Engine = window.SkybridgeEngine;
+    return Boolean(Local && Local.endpoint(Local.config().url) && (!Engine || Engine.local()) && Local.usable({ image: true }));
+  }
+
   async function readWork(image, { problem = "", mode = "practice" } = {}) {
-    const { model, text } = await generate(image, readPrompt(problem, mode), READING_SCHEMA, {}, { feature: "check" });
+    // A reasoning model on your own PC can think for minutes about a long prompt: tell it to be brief.
+    const hurry = localWillRead() ? `\nBe quick: don't deliberate at length. Keep transcription to the essential lines and every other field to one short sentence.` : "";
+    const { model, text } = await generate(image, readPrompt(problem, mode) + hurry, READING_SCHEMA, {}, { feature: "check" });
     return { model, reading: parseJson(text) };
   }
 
@@ -514,5 +522,5 @@ Say each number as it is written, say "equals", "plus", "minus" and "times" for 
     return error?.message || "Reading the page failed.";
   }
 
-  window.SkybridgeAI = { hasKey, hasGeminiKey, modelState: () => MODELS.map((name) => ({ model: name, rest: restWhy.get(name) || "", missing: missing.has(name) })), getKey, setKey, usage, liveStatus, onUsage: (fn) => { usageListeners.add(fn); window.SkybridgeLive?.onUsage(fn); }, LIMITS, indexPage, transcribe, ask, askPdf, askPage, readWork, explain, busy, cleanIndex, shortTitle, parseJson, timing, MODELS };
+  window.SkybridgeAI = { hasKey, hasGeminiKey, modelState: () => MODELS.map((name) => ({ model: name, rest: restWhy.get(name) || "", missing: missing.has(name) })), getKey, setKey, usage, liveStatus, onUsage: (fn) => { usageListeners.add(fn); window.SkybridgeLive?.onUsage(fn); }, LIMITS, indexPage, transcribe, ask, askPdf, askPage, readWork, localWillRead, explain, busy, cleanIndex, shortTitle, parseJson, timing, MODELS };
 })();

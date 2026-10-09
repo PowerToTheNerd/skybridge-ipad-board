@@ -58,8 +58,8 @@
   const reader = () => (bridge?.pcReady() ? "pc" : AI?.hasKey() && navigator.onLine !== false ? "gemini" : null);
 
   // ---- a picture of a page ---------------------------------------------------------------------
-  function shrink(canvas) {
-    const scale = Math.min(1, MAX_SIDE / Math.max(canvas.width, canvas.height));
+  function shrink(canvas, side = MAX_SIDE) {
+    const scale = Math.min(1, side / Math.max(canvas.width, canvas.height));
     const out = document.createElement("canvas");
     out.width = Math.max(1, Math.round(canvas.width * scale));
     out.height = Math.max(1, Math.round(canvas.height * scale));
@@ -332,7 +332,7 @@
     let page;
     try {
       page = await window.SkybridgeExport.renderBoard();
-      image = shrink(page.canvas);
+      image = shrink(page.canvas, AI.localWillRead?.() ? 1024 : MAX_SIDE); // a smaller picture is far quicker for a local model
     } catch (error) {
       return { ok: false, error: error.message || "There is nothing on the page yet." };
     }
