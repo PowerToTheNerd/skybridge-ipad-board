@@ -16,6 +16,8 @@
   // the free per-minute limits. What you asked for jumps ahead of background reading.
   const timing = { gapMs: 3500, restBusyMs: 20000, restRateMs: 60000, waitMs: 15000 };
   const rest = new Map(); // model -> when it may be tried again
+  const restWhy = new Map(); // model -> what put it to rest ("429", "429 today", "503", ...)
+  const DAILY_REST_MS = 30 * 60000; // out of the day's free requests: no point asking again for a while
   const missing = new Set();
   const queue = [];
   let draining = false;
@@ -164,19 +166,22 @@ Answer with JSON only.`;
     if (!response.ok) {
       let detail = "";
       let retryAfter = Number(response.headers.get("retry-after")) || 0;
+      let daily = false;
       try {
         const body = await response.json();
         detail = body?.error?.message || "";
         // Google says how long to wait in the error's details ("retryDelay": "34s").
         const wait = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(JSON.stringify(body));
         if (wait) retryAfter = Math.max(retryAfter, Number(wait[1]));
+        // Google names the limit that was hit: a "...PerDay" quota is the day's allowance, not a busy minute.
+        daily = response.status === 429 && /PerDay/i.test(JSON.stringify(body));
       } catch {}
       const kind = response.status === 429 ? "rate"
         : response.status === 404 ? "missing"
         : response.status >= 500 ? "busy"
         : /api key/i.test(detail) || response.status === 401 || response.status === 403 ? "key"
         : "bad";
-      throw new AiError(detail.slice(0, 160) || `Gemini answered ${response.status}.`, kind, { status: response.status, retryAfter, model });
+      throw new AiError(detail.slice(0, 160) || `Gemini answered ${response.status}.`, kind, { status: response.status, retryAfter, model, daily });
     }
     const data = await response.json();
     const text = (data?.candidates?.[0]?.content?.parts || []).map((part) => part.text || "").join("");
@@ -194,6 +199,10 @@ Answer with JSON only.`;
       const now = Date.now();
       let models = MODELS.filter((name) => !missing.has(name) && (rest.get(name) || 0) <= now);
       if (!models.length) models = MODELS.filter((name) => !missing.has(name)); // all resting: try anyway
+      // A model that is resting is skipped, but the message still says so, so it never looks like it wasn't there.
+      for (const name of MODELS) {
+        if (!missing.has(name) && !models.includes(name) && restWhy.has(name) && !tried.some((t) => t.startsWith(`${name.replace("gemini-", "")}:`))) tried.push(`${name.replace("gemini-", "")}: ${restWhy.get(name)}, resting`);
+      }
       for (const model of models) {
         const configs = [
           { ...(schema ? { responseSchema: schema } : {}), thinkingConfig: { thinkingBudget: 1024 }, ...extra },
@@ -202,12 +211,14 @@ Answer with JSON only.`;
         for (const config of configs) {
           try {
             const text = await call(model, image, prompt, config);
+            restWhy.delete(model);
             return { model, text };
           } catch (error) {
             last = error;
             if (error.kind === "key" || error.kind === "network") { error.tried = tried; throw error; }
             if (error.kind !== "bad") tried.push(`${model.replace("gemini-", "")}: ${error.status || error.kind}`);
-            if (error.kind === "rate") rest.set(model, Date.now() + Math.max(timing.restRateMs, (error.retryAfter || 0) * 1000));
+            restWhy.set(model, error.kind === "rate" ? (error.daily ? "429 today" : "429") : String(error.status || error.kind));
+            if (error.kind === "rate") rest.set(model, Date.now() + (error.daily ? DAILY_REST_MS : Math.max(timing.restRateMs, (error.retryAfter || 0) * 1000)));
             else if (error.kind === "busy" || error.kind === "timeout") rest.set(model, Date.now() + timing.restBusyMs);
             else if (error.kind === "missing") missing.add(model);
             if (error.kind !== "bad") break; // another config won't help; the next model might
@@ -221,7 +232,12 @@ Answer with JSON only.`;
       const soon = Math.min(...MODELS.filter((name) => !missing.has(name)).map((name) => rest.get(name) || 0));
       await sleep(Math.min(timing.waitMs, Math.max(2000, soon - Date.now())));
     }
-    if (last) last.tried = tried;
+    if (last) {
+      last.tried = tried;
+      // Every model that exists said the same: the day's free requests are used up.
+      const live = MODELS.filter((name) => !missing.has(name));
+      last.allDaily = live.length > 0 && live.every((name) => restWhy.get(name) === "429 today");
+    }
     throw last || new AiError("No model answered.", "empty");
   }
 
@@ -285,6 +301,7 @@ Answer with JSON only.`;
     const kind = error?.kind;
     const where = error?.tried?.length ? ` (${[...new Set(error.tried)].join(", ")})` : "";
     if (kind === "key") return "Gemini didn't accept the key. Check it in Notebooks, then Smart features.";
+    if (kind === "rate" && error.allDaily) return `Today's free Gemini requests are used up${where}. They come back around midnight Pacific time (3 AM Eastern). Until then page names wait and practice uses the built-in problems.`;
     if (kind === "rate") return `Gemini's free limit was reached${where}. It slows down and tries again on its own.`;
     if (kind === "network") return "No connection to Gemini.";
     if (kind === "timeout") return `Gemini took too long${where}. It tries again on its own.`;

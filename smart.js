@@ -221,7 +221,7 @@
           if (["key", "network", "rate", "busy", "timeout", "missing"].includes(error.kind)) {
             failures += 1;
             clearTimeout(timer);
-            const delay = Math.min(10 * 60000, timing.retryMs * 2 ** (failures - 1)) + 500;
+            const delay = (error.allDaily ? 30 * 60000 : Math.min(10 * 60000, timing.retryMs * 2 ** (failures - 1))) + 500;
             blockedUntil = Date.now() + delay;
             timer = setTimeout(pump, delay);
             break;
