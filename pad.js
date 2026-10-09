@@ -1887,7 +1887,7 @@
   const FX = [
     { id: "light", label: "Theme light", hint: "A slow drift of soft light across the toolbar and rail." },
     { id: "living", label: "Living paper", hint: "A faint, slow light drifting across the paper. The paper itself and the ink stay still." },
-    { id: "hover", label: "Pencil hover glow", hint: "A soft ring that follows the Pencil just above the screen (iPads that sense hover)." },
+    { id: "hover", label: "Pencil hover", hint: "A precise dot in your ink colour where the Pencil hovers, or the eraser's outline when you have the eraser. Needs an iPad that senses hover." },
     { id: "wet", label: "Wet ink", hint: "A new stroke shines for a moment, then dries." },
     { id: "parallax", label: "Paper parallax", hint: "The grid slides a touch slower than the ink when you move the board." },
   ];
@@ -1914,14 +1914,30 @@
   const fxOn = (id) => Boolean(settings.fxs[id]);
   const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
 
-  // Pencil hover glow: one small element moved by transform in an animation frame.
+  // Pencil hover: a small dot the size of the pen tip in the ink colour (a wider soft one for the
+  // highlighter), or the eraser's real outline. One element, moved by transform in an animation frame.
+  // Safari reports where the Pencil is, but not how high above the glass, so the dot's opacity is fixed.
+  const HOVER_OPACITY = 0.65;
   let hoverFrame = 0;
   let hoverAt = null;
+  let hoverLook = "";
   function showHover() {
     hoverFrame = 0;
-    if (!hoverAt) { el.hoverGlow.style.opacity = "0"; return; }
-    el.hoverGlow.style.transform = `translate3d(${hoverAt[0] - 22}px, ${hoverAt[1] - 22}px, 0)`;
-    el.hoverGlow.style.opacity = "1";
+    const glow = el.hoverGlow;
+    if (!hoverAt || tool === "lasso" || tool === "matrix") { glow.style.opacity = "0"; return; }
+    const eraser = tool === "eraser";
+    const marker = tool === "marker";
+    const board = tool === "eraser" ? settings.eraser : marker ? markerWidth() : settings.width;
+    const size = Math.max(eraser ? 10 : marker ? 8 : 5, Math.round(board * view.zoom * 10) / 10);
+    const look = `${tool}|${size}|${pen}|${settings.paper}|${settings.paperColor}`;
+    if (look !== hoverLook) {
+      hoverLook = look;
+      glow.dataset.kind = eraser ? "eraser" : marker ? "marker" : "dot";
+      glow.style.width = glow.style.height = `${size}px`;
+      glow.style.background = eraser ? "" : strokeColor(pen);
+    }
+    glow.style.transform = `translate3d(${hoverAt[0] - size / 2}px, ${hoverAt[1] - size / 2}px, 0)`;
+    glow.style.opacity = String(marker ? 0.35 : eraser ? 1 : HOVER_OPACITY);
   }
   el.canvas.addEventListener("pointermove", (event) => {
     if (!fxOn("hover") || event.pointerType !== "pen") return;
