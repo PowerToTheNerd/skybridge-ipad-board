@@ -154,6 +154,7 @@
     rail: document.getElementById("rail"),
     railToggle: document.getElementById("railToggle"),
     zoomPill: document.getElementById("zoomPill"),
+    newPageBtn: document.getElementById("newPageBtn"),
     layouts: [...document.querySelectorAll(".layouts [data-layout]")],
     geminiBoard: document.getElementById("whiteboardBoard"),
     geminiPane: document.getElementById("whiteboardCard"),
@@ -1113,6 +1114,7 @@
     el.zoomPill.textContent = `${Math.round(view.zoom * 100)}% · reset`;
   }
   el.zoomPill.addEventListener("click", () => moveView(0, 0, 1));
+  el.newPageBtn.addEventListener("click", async () => { await newNotebook(); renderNotebookList(); });
 
   function sendView() {
     const { width, height } = el.stage.getBoundingClientRect();
@@ -3075,7 +3077,7 @@
         next.type = "button";
         next.className = "my-board-problem-hide practice-next";
         next.textContent = "Next problem";
-        next.addEventListener("click", nextPractice);
+        next.addEventListener("click", problem.source === "homework" ? nextHomework : nextPractice);
         fresh.append(next);
       }
       decorateCard(fresh);
@@ -3119,6 +3121,99 @@
     const worked = strokes.filter((stroke) => !stroke.eraser).length >= 3;
     return placePractice(nb?.problem?.pick || nb?.problem?.topic || el.practiceTopic.value, worked ? "new" : "page");
   };
+  // ---- homework PDFs: the problems Gemini read out of an imported PDF (see homework.js) ----------------
+  const Homework = window.SkybridgeHomework;
+  const hw = {
+    set: document.getElementById("homeworkSet"),
+    problem: document.getElementById("homeworkProblem"),
+    where: document.getElementById("homeworkWhere"),
+    go: document.getElementById("homeworkGo"),
+    pick: document.getElementById("homeworkPick"),
+    out: document.getElementById("homeworkOut"),
+    file: document.getElementById("homeworkFile"),
+    importBtn: document.getElementById("homeworkImport"),
+    remove: document.getElementById("homeworkRemove"),
+  };
+  async function renderHomework(select) {
+    if (!Homework) return;
+    const sets = await Homework.list();
+    hw.pick.hidden = !sets.length;
+    hw.out.textContent = sets.length ? `${sets.length} saved` : "";
+    hw.set.replaceChildren(...sets.map((set) => Object.assign(document.createElement("option"), { value: set.id, textContent: `${set.name} (${set.problems.length})` })));
+    if (select && sets.some((set) => set.id === select)) hw.set.value = select;
+    await renderHomeworkProblems();
+  }
+  async function renderHomeworkProblems(index) {
+    const set = hw.set.value ? await Homework.get(hw.set.value) : null;
+    hw.problem.replaceChildren(...(set?.problems || []).map((item, i) => Object.assign(document.createElement("option"), { value: String(i), textContent: item.label })));
+    if (index != null) hw.problem.value = String(index);
+  }
+  // Put one homework problem on this page, or in a new notebook. No call: it was read when the PDF came in.
+  async function placeHomework(setId, index, where) {
+    const set = await Homework.get(setId);
+    const problem = set && Homework.problemOf(set, index);
+    if (!problem || practiceBusy) return;
+    practiceBusy = true;
+    try {
+      if (where === "new") {
+        await newNotebook();
+        const label = `${set.name} ${problem.title}`.slice(0, 40);
+        await Notebooks.rename(nb.id, label);
+        Object.assign(nb, { name: label, named: true });
+      }
+      nb.problem = problem;
+      saving = saving.then(() => Notebooks.save(nb.id, { meta: { problem }, touch: false })).catch(() => {});
+      await showPracticeCard(problem);
+      el.notebookSheet.hidden = true;
+      el.notebookBtn.setAttribute("aria-expanded", "false");
+      renderNotebookUi();
+      toast(`${set.name} ${problem.title}. Write your work below it.`);
+    } finally {
+      practiceBusy = false;
+    }
+  }
+  // "Next problem" on a homework card: the next one in the same PDF (a page with your work stays as it is).
+  const nextHomework = async () => {
+    const problem = nb?.problem;
+    if (!problem?.set) return;
+    const set = await Homework.get(problem.set);
+    if (!set) { toast("That homework was removed from this iPad."); return; }
+    if (problem.index + 1 >= set.problems.length) { toast(`That was the last problem in ${set.name}.`); return; }
+    const worked = strokes.filter((stroke) => !stroke.eraser).length >= 3;
+    await placeHomework(set.id, problem.index + 1, worked ? "new" : "page");
+  };
+  if (Homework) {
+    renderHomework();
+    Homework.onChange(() => renderHomework(hw.set.value));
+    hw.set.addEventListener("change", () => renderHomeworkProblems());
+    const where = storage("get", "skybridge.homeworkWhere");
+    if (where === "page" || where === "new") hw.where.value = where;
+    hw.where.addEventListener("change", () => storage("set", "skybridge.homeworkWhere", hw.where.value));
+    hw.go.addEventListener("click", () => placeHomework(hw.set.value, Number(hw.problem.value) || 0, hw.where.value));
+    hw.importBtn.addEventListener("click", () => hw.file.click());
+    hw.file.addEventListener("change", async () => {
+      const file = hw.file.files?.[0];
+      hw.file.value = "";
+      if (!file) return;
+      hw.importBtn.disabled = true;
+      hw.importBtn.textContent = "Reading the PDF…";
+      toast("Reading the PDF. This takes a little while, and only happens once.");
+      try {
+        const made = await Homework.importPdf(file);
+        if (!made.ok) { toast(made.error, !window.SkybridgeAI.hasKey() ? { label: "Open", run: () => { document.getElementById("smartFold").open = true; } } : undefined); return; }
+        await renderHomework(made.set.id);
+        toast(made.cached ? `Already saved: ${made.set.name}, ${made.set.problems.length} problems (no call needed)` : `Found ${made.set.problems.length} problems in ${made.set.name}`);
+      } finally {
+        hw.importBtn.disabled = false;
+        hw.importBtn.textContent = "Import a PDF";
+      }
+    });
+    hw.remove.addEventListener("click", async () => {
+      const removed = await Homework.remove(hw.set.value);
+      if (removed) toast(`Removed ${removed.name}`, { label: "Undo", run: () => Homework.restore(removed) });
+    });
+  }
+
   function renderPracticeCount() {
     window.SkybridgePractice?.counts().then((count) => {
       el.practiceOut.textContent = count.total ? `${count.total} saved` : "";

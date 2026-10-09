@@ -12,6 +12,7 @@
   const MODELS = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
   const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
   const ATTEMPT_MS = 30000;
+  const PDF_ATTEMPT_MS = 120000;
   // Requests go one at a time with a gap, so a burst (many pages to read, a check, To text) stays under
   // the free per-minute limits. What you asked for jumps ahead of background reading.
   const timing = { gapMs: 3500, restBusyMs: 20000, restRateMs: 60000, waitMs: 15000 };
@@ -146,14 +147,16 @@ Answer with JSON only.`;
 
   async function call(model, image, prompt, config) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), ATTEMPT_MS);
+    // `image` is a base64 picture, or { mime, data } for a PDF (which takes longer to read).
+    const media = image && typeof image === "object" ? image : image ? { mime: "image/png", data: image } : null;
+    const timer = setTimeout(() => controller.abort(), media?.mime === "application/pdf" ? PDF_ATTEMPT_MS : ATTEMPT_MS);
     let response;
     try {
       response = await fetch(`${ENDPOINT}/${model}:generateContent`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": getKey() },
         body: JSON.stringify({
-          contents: [{ role: "user", parts: [...(image ? [{ inline_data: { mime_type: "image/png", data: image } }] : []), { text: prompt }] }],
+          contents: [{ role: "user", parts: [...(media ? [{ inline_data: { mime_type: media.mime, data: media.data } }] : []), { text: prompt }] }],
           generationConfig: { temperature: 0, responseMimeType: "application/json", ...config },
         }),
         signal: controller.signal,
@@ -284,6 +287,12 @@ Answer with JSON only.`;
     return { model, data: parseJson(text) };
   }
 
+  // A PDF (base64) with a prompt: what you asked for, so it goes ahead of background reading.
+  async function askPdf(base64, prompt, schema) {
+    const { model, text } = await generate({ mime: "application/pdf", data: base64 }, prompt, schema, { maxOutputTokens: 32000 });
+    return { model, data: parseJson(text) };
+  }
+
   async function readWork(image, { problem = "", mode = "practice" } = {}) {
     const { model, text } = await generate(image, readPrompt(problem, mode), READING_SCHEMA);
     return { model, reading: parseJson(text) };
@@ -311,5 +320,5 @@ Answer with JSON only.`;
     return error?.message || "Reading the page failed.";
   }
 
-  window.SkybridgeAI = { hasKey, getKey, setKey, indexPage, transcribe, ask, readWork, explain, busy, cleanIndex, shortTitle, parseJson, timing, MODELS };
+  window.SkybridgeAI = { hasKey, getKey, setKey, indexPage, transcribe, ask, askPdf, readWork, explain, busy, cleanIndex, shortTitle, parseJson, timing, MODELS };
 })();

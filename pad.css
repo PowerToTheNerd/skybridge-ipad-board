@@ -241,7 +241,8 @@ canvas {
 .rail[data-collapsed="true"] { padding: 6px; }
 .rail[data-collapsed="true"] .rail-toggle svg { transform: rotate(180deg); }
 .rail-toggle svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-.zoom-pill { position: fixed; right: max(14px, env(safe-area-inset-right)); bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 30; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--panel, rgba(30,30,34,.92)); color: inherit; font-size: 14px; backdrop-filter: blur(10px); }
+.corner-pill { position: fixed; right: max(14px, env(safe-area-inset-right)); bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 30; display: flex; gap: 8px; align-items: center; }
+.zoom-pill { padding: 8px 16px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--panel, rgba(30,30,34,.92)); color: inherit; font-size: 14px; backdrop-filter: blur(10px); }
 
 .settings {
   position: fixed;
@@ -1059,3 +1060,8 @@ input[type="range"] {
 .segmented.four { grid-template-columns: repeat(4, 1fr); }
 .segmented.two { grid-template-columns: 1fr 1fr; }
 .card-dot { display: grid; place-items: center; font-size: 13px; font-weight: 600; color: var(--text); }
+
+/* The + beside the zoom pill: a new notebook in one tap. */
+.zoom-pill.new-page { width: 40px; height: 36px; padding: 0; display: grid; place-items: center; color: var(--text); }
+.zoom-pill.new-page svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.zoom-pill[hidden] { display: none; }

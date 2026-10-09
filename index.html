@@ -231,6 +231,33 @@
           <p class="nb-fine">Gemini writes it with your key. It never shows the answer, and Check my work grades what you write.</p>
         </div>
       </details>
+      <details class="nb-fold" id="homeworkFold">
+        <summary><span>Homework PDF</span><output id="homeworkOut"></output></summary>
+        <div class="nb-fold-body">
+          <button type="button" class="nb-btn" id="homeworkImport">Import a PDF</button>
+          <input type="file" id="homeworkFile" accept="application/pdf,.pdf" hidden>
+          <div id="homeworkPick" hidden>
+            <label class="nb-address">
+              <span>Homework</span>
+              <select id="homeworkSet"></select>
+            </label>
+            <label class="nb-address">
+              <span>Problem</span>
+              <select id="homeworkProblem"></select>
+            </label>
+            <label class="nb-address">
+              <span>Put it</span>
+              <select id="homeworkWhere">
+                <option value="page">On this page</option>
+                <option value="new">In a new notebook</option>
+              </select>
+            </label>
+            <button type="button" class="nb-btn" id="homeworkGo">Open problem</button>
+            <button type="button" class="nb-link" id="homeworkRemove">Remove this homework from the iPad</button>
+          </div>
+          <p class="nb-fine">Gemini reads the PDF once with your key and splits it into problems (1A, 1B...). They stay on this iPad, so the same PDF is never read again. Answers printed in the PDF are never shown.</p>
+        </div>
+      </details>
       <details class="nb-fold" id="smartFold">
         <summary><span>Smart features</span><output id="smartOut"></output></summary>
         <div class="nb-fold-body">
@@ -313,7 +340,10 @@
     <button type="button" class="tool" id="doneBtn">Done speaking</button>
   </div>
 
-  <button type="button" class="zoom-pill" id="zoomPill" hidden aria-label="Back to the start at 100%"></button>
+  <div class="corner-pill" id="cornerPill">
+    <button type="button" class="zoom-pill" id="zoomPill" hidden aria-label="Back to the start at 100%"></button>
+    <button type="button" class="zoom-pill new-page" id="newPageBtn" aria-label="New notebook" title="New notebook"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg></button>
+  </div>
 
   <p class="toast" id="toast" role="status" aria-live="polite" hidden></p>
 
@@ -334,6 +364,7 @@
   <script src="./smart.js"></script>
   <script src="./marks.js"></script>
   <script src="./practice.js"></script>
+  <script src="./homework.js"></script>
   <script src="./pad.js"></script>
   <script src="./export.js"></script>
 </body>
