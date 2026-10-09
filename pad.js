@@ -41,6 +41,10 @@
     lassoColor: document.getElementById("lassoColor"),
     lassoDelete: document.getElementById("lassoDelete"),
     lassoBrackets: document.getElementById("lassoBrackets"),
+    lassoTextTools: document.getElementById("lassoTextTools"),
+    lassoSizeDown: document.getElementById("lassoSizeDown"),
+    lassoSizeUp: document.getElementById("lassoSizeUp"),
+    lassoBold: document.getElementById("lassoBold"),
     lassoDuplicate: document.getElementById("lassoDuplicate"),
     lassoText: document.getElementById("lassoText"),
     textSheet: document.getElementById("textSheet"),
@@ -72,12 +76,8 @@
     cardTitle: document.getElementById("cardTitle"),
     cardText: document.getElementById("cardText"),
     cardAnchor: document.getElementById("cardAnchor"),
-    pinFont: document.getElementById("pinFont"),
     pinWeight: document.getElementById("pinWeight"),
-    pinColor: document.getElementById("pinColor"),
     pinInk: document.getElementById("pinInk"),
-    pinSize: document.getElementById("pinSize"),
-    pinSizeOut: document.getElementById("pinSizeOut"),
     pinPreview: document.getElementById("pinPreview"),
     pinRestyle: document.getElementById("pinRestyle"),
     paperPicker: document.getElementById("paperPicker"),
@@ -228,7 +228,7 @@
   settings.fxs = settings.fxs && typeof settings.fxs === "object" ? settings.fxs : {};
   // How a problem card looks and where it sits (Pen & paper > Card).
   const CARD_DEFAULTS = { font: "inter", size: "l", title: "auto", text: "auto", anchor: "tl" };
-  const PIN_DEFAULTS = { v: 2, font: "inter", size: 22, weight: 0, color: "#8a94a0", ink: "ink" };
+  const PIN_DEFAULTS = { v: 4, weight: 1, ink: "ink" }; // font, size and colours come from the Card settings
   settings.pin = settings.pin && settings.pin.v === PIN_DEFAULTS.v ? { ...PIN_DEFAULTS, ...settings.pin } : { ...PIN_DEFAULTS }; // older looks are replaced once
   settings.card = { ...CARD_DEFAULTS, ...(settings.card && typeof settings.card === "object" ? settings.card : {}) };
   if (!(settings.theme in THEMES)) settings.theme = DEFAULTS.theme; // the older Auto and fixed colours come back as green
@@ -1816,21 +1816,7 @@
   }
   segmented(el.cardFont, CARD_FONTS, "font", "Card font");
   const PIN_WEIGHTS = [[0, "Normal"], [1, "Medium"], [2, "Bold"], [3, "Heavy"]];
-  const PIN_COLORS = [["#8a94a0", "Grey"], ["ink", "Ink"], ["#2f6fd6", "Blue"], ["#2f8f4e", "Green"], ["#c0392b", "Red"]];
-  segmented(el.pinFont, CARD_FONTS, "font", "Pinned writing font", settings.pin);
   segmented(el.pinWeight, PIN_WEIGHTS, "weight", "Pinned writing thickness", settings.pin);
-  for (const [value, text] of PIN_COLORS) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "paper card-dot";
-    button.setAttribute("role", "radio");
-    button.setAttribute("aria-label", text);
-    button.title = text;
-    button.dataset.value = value;
-    button.style.background = value === "ink" ? "var(--ink, #222)" : value;
-    button.addEventListener("click", () => { settings.pin.color = value; saveSettings(); renderSettings(); });
-    el.pinColor.append(button);
-  }
   const PIN_INKS = [["ink", "Auto (pencil)"], ["#2f6fd6", "Blue"], ["#2f8f4e", "Green"], ["#c0392b", "Red"], ["#8a94a0", "Grey"]];
   for (const [value, text] of PIN_INKS) {
     const button = document.createElement("button");
@@ -1844,7 +1830,6 @@
     button.addEventListener("click", () => { settings.pin.ink = value; saveSettings(); renderSettings(); });
     el.pinInk.append(button);
   }
-  el.pinSize.addEventListener("input", () => { settings.pin.size = Number(el.pinSize.value); saveSettings(); renderPinSettings(); });
   segmented(el.cardSize, CARD_SIZES, "size", "Card size");
   segmented(el.cardAnchor, CARD_ANCHORS, "anchor", "Where the card sits");
   swatches(el.cardTitle, "title", "Card title colour");
@@ -1885,6 +1870,21 @@
   }
 
   // Buttons on the card: Move (tap to go to the next corner, or drag it to one), Next problem, Hide.
+  const CARD_ICONS = {
+    move: ["Move (drag to a corner, tap to go to the next)", '<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/>'],
+    next: ["Next problem", '<path d="M5 5l9 7-9 7zM18 5v14"/>'],
+    pin: ["Pin to page", '<path d="M9 4h6l-1 6 3 3H7l3-3zM12 13v7"/>'],
+    hide: ["Hide", '<path d="M6 6l12 12M18 6L6 18"/>'],
+  };
+  function iconifyCard(card) {
+    card.querySelectorAll(".card-tools button, :scope > .practice-next").forEach((button) => {
+      const kind = button.classList.contains("card-move") ? "move" : button.classList.contains("card-pin") ? "pin" : button.classList.contains("practice-next") ? "next" : "hide";
+      const [label, path] = CARD_ICONS[kind];
+      button.title = label;
+      button.setAttribute("aria-label", label);
+      button.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
+    });
+  }
   function decorateCard(card) {
     if (!card) return;
     if (card._tools) {
@@ -1893,6 +1893,7 @@
       const extra = card.querySelectorAll(":scope > .practice-next");
       const hide = tools.querySelector(".my-board-problem-hide:not(.card-move):not(.practice-next)");
       if (extra.length) { extra.forEach((button) => tools.append(button)); if (hide) tools.append(hide); }
+      iconifyCard(card);
       applyCardLook(card);
       return;
     }
@@ -1940,6 +1941,7 @@
     };
     move.addEventListener("pointerup", drop);
     move.addEventListener("pointercancel", drop);
+    iconifyCard(card);
     applyCardLook(card);
   }
   new MutationObserver(() => el.stage.querySelectorAll(".my-board-problem").forEach(decorateCard)).observe(el.stage, { childList: true });
@@ -2491,8 +2493,8 @@
     const left = (x0 - view.x) * view.zoom;
     const top = (y0 - view.y) * view.zoom;
     Object.assign(el.lassoBox.style, { left: `${left}px`, top: `${top}px`, width: `${(x1 - x0) * view.zoom}px`, height: `${(y1 - y0) * view.zoom}px` });
-    el.lassoBar.classList.toggle("below", top < 64);
     el.lassoEdit.hidden = !(lasso.selected.length === 1 && lasso.selected[0].text);
+    renderTextTools();
     // One straight line selected: its two ends become handles to pull, instead of the corners.
     const ends = lasso.selected.length === 1 ? lineEnds(lasso.selected[0]) : null;
     el.lassoBox.dataset.line = String(Boolean(ends));
@@ -2700,6 +2702,46 @@
   }
 
   el.lassoBrackets.addEventListener("click", () => addBrackets(true));
+
+  // Selection sidebar, Text section: font, size and bold for the typed text in the selection (a pinned problem is typed text too).
+  const textSelected = () => lasso.selected.filter((stroke) => stroke.text);
+  function renderTextTools() {
+    const picked = textSelected();
+    el.lassoTextTools.hidden = !picked.length;
+    if (!picked.length) return;
+    const fonts = new Set(picked.map((stroke) => stroke.font));
+    el.lassoTextTools.querySelectorAll("[data-lfont]").forEach((button) => button.setAttribute("aria-pressed", String(fonts.size === 1 && fonts.has(button.dataset.lfont))));
+    el.lassoBold.setAttribute("aria-pressed", String(picked.every((stroke) => (stroke.weight || 0) >= 2)));
+  }
+  async function styleText(change) {
+    const picked = textSelected();
+    if (!picked.length) return;
+    if (change.font) { try { await document.fonts.load(`20px ${TEXT_FAMILIES[change.font]}`); } catch {} }
+    const before = picked.map((stroke) => itemOf(strokes, stroke));
+    const after = picked.map((old) => {
+      const [[x0, y0], [x1, y1]] = old.points;
+      const lines = old.text.split("\n").length;
+      let size = Math.abs(y1 - y0) / lines / TEXT_LINE;
+      if (change.sizeBy) size = Math.max(10, Math.min(90, Math.round(size + change.sizeBy)));
+      const font = change.font || old.font;
+      const box = textBox(old.text, size, font);
+      const left = Math.min(x0, x1);
+      const top = Math.min(y0, y1);
+      return { s: { ...copyStroke(old), font, weight: change.weight ?? old.weight ?? 0, points: [[left, top], [left + box.width, top + box.height]] }, i: strokes.indexOf(old) };
+    });
+    boards.mine.put(after);
+    record("mine", before, after);
+    lastBoard = "mine";
+    const ids = new Set(lasso.selected.map((stroke) => stroke.id));
+    lasso.selected = strokes.filter((stroke) => ids.has(stroke.id));
+    rebuildBase();
+    positionLasso();
+    schedulePaint();
+  }
+  el.lassoTextTools.querySelectorAll("[data-lfont]").forEach((button) => button.addEventListener("click", () => styleText({ font: button.dataset.lfont })));
+  el.lassoSizeDown.addEventListener("click", () => styleText({ sizeBy: -2 }));
+  el.lassoSizeUp.addEventListener("click", () => styleText({ sizeBy: 2 }));
+  el.lassoBold.addEventListener("click", () => styleText({ weight: el.lassoBold.getAttribute("aria-pressed") === "true" ? 0 : 2 }));
   let textTarget = null; // the text item being edited, or null for a new one
   // To text: the selected writing is read (by the PC or by Gemini) and shown to copy.
   el.lassoText.addEventListener("click", async () => {
@@ -3257,6 +3299,25 @@
 
   // The problem as strokes: the words as text, every matrix as a grid of entries with brackets drawn to its size.
   // All carry pin (so Check my work never reads them) and pg (so they restyle together).
+  // The look of the card above the page: the same font, size and colours, so pinning changes nothing you can see.
+  const CARD_PX = { s: 17, m: 19, l: 22, xl: 26 };
+  // The colour the card is really showing for a part of it (so "Auto" matches too), as #rrggbb.
+  function shownColor(selector) {
+    const node = el.stage.querySelector(`.my-board-problem ${selector}`);
+    const hit = node && /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(getComputedStyle(node).color);
+    return hit ? `#${[hit[1], hit[2], hit[3]].map((v) => Number(v).toString(16).padStart(2, "0")).join("")}` : null;
+  }
+  function pinStyle() {
+    const card = settings.card;
+    return {
+      font: card.font in TEXT_FAMILIES ? card.font : "inter",
+      size: CARD_PX[card.size] || 22,
+      weight: settings.pin.weight,
+      color: cardColor(card.text) || shownColor(".wb-text, .wb-note") || "ink",
+      titleColor: cardColor(card.title) || shownColor(".wb-title") || "#8a94a0",
+      ink: settings.pin.ink,
+    };
+  }
   function pinStrokes(problem, style, x, y, pg) {
     const Marks = window.SkybridgeMarks;
     const size = style.size;
@@ -3264,9 +3325,9 @@
     const base = { eraser: false, hl: false, width: 1, sim: false, clean: true, pin: true, pg };
     const out = [];
     // The wording: plain text, in the chosen font and colour.
-    const words = (text, left, top) => {
-      const box = textBox(text, size, font);
-      out.push({ ...base, id: newId(), color: style.color, weight: style.weight, text, font, points: [[left, top], [left + box.width, top + box.height]] });
+    const words = (text, left, top, color = style.color, scale = 1) => {
+      const box = textBox(text, size * scale, font);
+      out.push({ ...base, id: newId(), color, weight: style.weight, text, font, points: [[left, top], [left + box.width, top + box.height]] });
       return box;
     };
     // The drawing: pencil in the matrix ink colour (labels like "A =" in the hand font).
@@ -3275,8 +3336,10 @@
       out.push({ ...base, id: newId(), color: style.ink, weight: 0, text, font: "hand", points: [[left, top], [left + box.width, top + box.height]] });
       return box;
     };
-    const head = [problem.title, "", ...wrapWords(problem.text, Math.max(24, Math.round(1000 / size)))].join("\n");
-    let top = y + words(head, x, y).height + size * 0.9;
+    const titleBox = words(problem.title || "", x, y, style.titleColor, 1.25);
+    const body = wrapWords(problem.text, Math.max(24, Math.round(1000 / size))).join("\n");
+    let top = y + titleBox.height + size * 0.6;
+    top += words(body, x, top).height + size * 0.9;
     const pencil = (strokes, width) => strokes.forEach((line) => out.push({ ...base, id: newId(), color: style.ink, width, points: line.points }));
     const digit = size * 0.8; // height of an entry
     const rowH = size * 1.55;
@@ -3325,7 +3388,7 @@
   async function pinProblem() {
     const problem = nb?.problem;
     if (!problem || problem.pinned) return;
-    const style = settings.pin;
+    const style = pinStyle();
     try { await document.fonts.load(`${style.size}px ${TEXT_FAMILIES[style.font] || TEXT_FAMILIES.hand}`); } catch {}
     const x = view.x + 120 / view.zoom; // clear of the tool rail
     const y = view.y + 84 / view.zoom;
@@ -3354,7 +3417,7 @@
     const x = Math.min(anchor[0][0], anchor[1][0]);
     const y = Math.min(anchor[0][1], anchor[1][1]);
     const before = old.map((stroke) => itemOf(strokes, stroke));
-    const made = pinStrokes(problem, settings.pin, x, y, newId());
+    const made = pinStrokes(problem, pinStyle(), x, y, newId());
     before.forEach(({ s }) => boards.mine.remove(s.id));
     const items = made.map((s, k) => ({ s, i: strokes.length + k }));
     boards.mine.put(items);
@@ -3372,15 +3435,14 @@
   // Settings: the choices, a preview drawn by the same code that pins, and the Restyle button.
   function renderPinSettings() {
     const look = settings.pin;
-    for (const container of [el.pinFont, el.pinWeight, el.pinColor, el.pinInk]) {
-      const key = container === el.pinFont ? "font" : container === el.pinWeight ? "weight" : container === el.pinInk ? "ink" : "color";
+    for (const container of [el.pinWeight, el.pinInk]) {
+      const key = container === el.pinWeight ? "weight" : "ink";
       container.querySelectorAll("[data-value]").forEach((button) => button.setAttribute("aria-checked", String(button.dataset.value === String(look[key]))));
     }
-    el.pinSize.value = look.size;
-    el.pinSizeOut.textContent = `${look.size}`;
     el.pinRestyle.hidden = !(nb?.problem?.pinned && strokes.some((stroke) => stroke.pin));
     // The preview is drawn again once the chosen font has loaded.
-    const fontKey = `${look.size}px ${TEXT_FAMILIES[look.font] || TEXT_FAMILIES.hand}`;
+    const shown = pinStyle();
+    const fontKey = `${shown.size}px ${TEXT_FAMILIES[shown.font] || TEXT_FAMILIES.hand}`;
     if (renderPinSettings.loaded !== fontKey) {
       renderPinSettings.loaded = fontKey;
       document.fonts.load(fontKey).then(() => { if (renderPinSettings.loaded === fontKey) renderPinSettings(); }, () => {});
@@ -3390,7 +3452,7 @@
       const ctx = canvas.getContext("2d");
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const sample = { title: "1B", text: "Find the inverse of A.", lines: ["A = \\begin{bmatrix} 1 & 2 & 1 \\\\ 5 & 12 & -1 \\end{bmatrix}"] };
-      const made = pinStrokes(sample, look, 0, 0, "preview");
+      const made = pinStrokes(sample, shown, 0, 0, "preview");
       const xs = made.flatMap((s) => s.points.map((p) => p[0]));
       const ys = made.flatMap((s) => s.points.map((p) => p[1]));
       const minX = Math.min(...xs);

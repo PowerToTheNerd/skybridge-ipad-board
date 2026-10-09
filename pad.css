@@ -709,17 +709,44 @@ input[type="range"] {
 .lasso-handle[data-corner="ne"] { right: -10px; top: -10px; cursor: nesw-resize; }
 .lasso-handle[data-corner="sw"] { left: -10px; bottom: -10px; cursor: nesw-resize; }
 .lasso-handle[data-corner="se"] { right: -10px; bottom: -10px; cursor: nwse-resize; }
+/* The selection sidebar: slides in on the right while something is selected; icons, with a short label under each. */
 .lasso-bar {
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + 12px);
+  position: fixed;
+  right: calc(env(safe-area-inset-right) + 10px);
+  top: calc(var(--bar-h) + env(safe-area-inset-top) + 16px);
+  width: 76px;
   display: flex;
-  gap: 6px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 6px;
+  border: 1px solid var(--edge-hi, var(--edge));
+  border-radius: 16px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-1);
   cursor: default;
+  z-index: 30;
+  max-height: calc(100vh - var(--bar-h) - 90px);
+  overflow-y: auto;
+  animation: side-in 0.18s ease-out;
 }
-.lasso-bar.below { bottom: auto; top: calc(100% + 12px); }
-.lasso-bar .tool { height: 40px; padding: 0 14px; background: var(--surface-raised); border-color: var(--edge-hi, var(--edge)); color: var(--text); }
-.lasso-bar .tool:active:not(:disabled) { border-color: var(--accent); }
+@keyframes side-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.side-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  min-height: 52px; padding: 6px 2px; border: 0; border-radius: 10px;
+  background: transparent; color: var(--text); font-size: 10.5px; font-weight: 600; line-height: 1.1; font-family: inherit; touch-action: manipulation;
+}
+.side-btn svg { width: 24px; height: 24px; }
+.side-btn:active { background: rgba(var(--acc-rgb), 0.18); }
+.side-btn[hidden] { display: none; }
+.side-text { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--edge); }
+.side-text[hidden] { display: none; }
+.side-title { font-size: 10.5px; font-weight: 600; text-align: center; color: var(--muted); }
+.side-fonts, .side-size { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.side-size { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; }
+.side-size .side-font { min-width: 0; padding: 0; }
+.side-font { min-height: 36px; padding: 0; border: 1px solid var(--edge); border-radius: 9px; background: transparent; color: var(--text); font-size: 14px; touch-action: manipulation; }
+.side-size .side-font { font-size: 11px; }
+.side-font[aria-pressed="true"] { border-color: var(--accent); background: rgba(var(--acc-rgb), 0.2); }
 .toast button {
   margin-left: 10px;
   padding: 4px 12px;
@@ -959,7 +986,6 @@ input[type="range"] {
 .text-sheet textarea { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); color: var(--text); font: 16px/1.45 ui-monospace, "SF Mono", Menlo, monospace; resize: vertical; }
 .text-actions { display: flex; gap: 10px; }
 .text-actions .nb-btn { flex: 1; }
-.lasso-bar .tool { white-space: nowrap; }
 
 /* Paper pattern: blank, dots, square grid or lined, as icons. */
 .segmented.grid-styles { grid-template-columns: repeat(4, 1fr); }
@@ -1041,8 +1067,10 @@ input[type="range"] {
 .card-tools { position: absolute; top: 6px; right: 8px; display: flex; gap: 6px; pointer-events: auto; }
 .stage .card-tools .my-board-problem-hide {
   position: static;
-  padding: 7px 14px;
-  min-height: 34px;
+  display: grid; place-items: center;
+  padding: 0;
+  width: 38px;
+  min-height: 38px;
   border: 1px solid var(--edge-hi);
   border-radius: 10px;
   background: var(--bg);
@@ -1124,3 +1152,5 @@ input[type="range"] {
 .hw-more summary::-webkit-details-marker { display: none; }
 .hw-more[open] { display: grid; gap: 8px; }
 .hw-card #homeworkOut { color: var(--muted); font-size: 13px; }
+
+.card-tools .my-board-problem-hide svg { width: 20px; height: 20px; }

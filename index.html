@@ -95,14 +95,28 @@
       <i class="lasso-handle" data-corner="nw"></i><i class="lasso-handle" data-corner="ne"></i>
       <i class="lasso-handle" data-corner="sw"></i><i class="lasso-handle" data-corner="se"></i>
       <i class="lasso-end" data-end="a"></i><i class="lasso-end" data-end="b"></i>
-      <div class="lasso-bar" id="lassoBar">
-        <button type="button" class="tool" id="lassoColor">Colour</button>
-        <button type="button" class="tool" id="lassoBrackets">Brackets</button>
-        <button type="button" class="tool" id="lassoDuplicate">Duplicate</button>
-        <button type="button" class="tool" id="lassoEdit" hidden>Edit text</button>
-        <button type="button" class="tool" id="lassoText">To text</button>
-        <button type="button" class="tool" id="lassoDelete">Delete</button>
-        <button type="button" class="tool" id="lassoDone">Done</button>
+      <div class="lasso-bar" id="lassoBar" role="toolbar" aria-label="Selection">
+        <button type="button" class="side-btn" id="lassoColor" title="Colour" aria-label="Colour"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 4v16M4 12h8"/></svg><span>Colour</span></button>
+        <button type="button" class="side-btn" id="lassoBrackets" title="Brackets" aria-label="Brackets"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H6v16h3M15 4h3v16h-3"/></svg><span>Brackets</span></button>
+        <button type="button" class="side-btn" id="lassoDuplicate" title="Copy" aria-label="Copy"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg><span>Copy</span></button>
+        <button type="button" class="side-btn" id="lassoEdit" title="Edit text" aria-label="Edit text" hidden><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg><span>Edit text</span></button>
+        <button type="button" class="side-btn" id="lassoText" title="To text" aria-label="To text"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6h14M12 6v13M9 19h6"/></svg><span>To text</span></button>
+        <button type="button" class="side-btn" id="lassoDelete" title="Delete" aria-label="Delete"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13"/></svg><span>Delete</span></button>
+        <button type="button" class="side-btn" id="lassoDone" title="Done" aria-label="Done"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg><span>Done</span></button>
+        <div class="side-text" id="lassoTextTools" hidden>
+          <span class="side-title">Text</span>
+          <div class="side-fonts">
+            <button type="button" class="side-font" data-lfont="hand" title="Hand" aria-label="Hand font" style="font-family: Virgil, cursive">Aa</button>
+            <button type="button" class="side-font" data-lfont="roboto" title="Roboto" aria-label="Roboto font" style="font-family: 'Skybridge Roboto', sans-serif">Aa</button>
+            <button type="button" class="side-font" data-lfont="inter" title="Inter" aria-label="Inter font" style="font-family: 'Skybridge Inter', sans-serif">Aa</button>
+            <button type="button" class="side-font" data-lfont="jetbrains" title="Mono" aria-label="Mono font" style="font-family: 'Skybridge JetBrains Mono', monospace">Aa</button>
+          </div>
+          <div class="side-size">
+            <button type="button" class="side-font" id="lassoSizeDown" title="Smaller" aria-label="Smaller text">A&minus;</button>
+            <button type="button" class="side-font" id="lassoSizeUp" title="Bigger" aria-label="Bigger text">A+</button>
+            <button type="button" class="side-font" id="lassoBold" title="Bold" aria-label="Bold text"><b>B</b></button>
+          </div>
+        </div>
       </div>
     </div>
   </main>
@@ -193,12 +207,9 @@
         <div class="setting"><span class="setting-head">Title colour</span><div class="papers" role="radiogroup" id="cardTitle"></div></div>
         <div class="setting"><span class="setting-head">Text colour</span><div class="papers" role="radiogroup" id="cardText"></div></div>
         <div class="setting"><span class="setting-head">Position</span><div class="segmented two" role="radiogroup" id="cardAnchor"></div></div>
-        <p class="setting-hint">Pin to page writes the wording as plain text and draws each matrix in pencil, with brackets that fit it.</p>
-        <div class="setting"><span class="setting-head">Wording font</span><div class="segmented four" role="radiogroup" id="pinFont"></div></div>
+        <p class="setting-hint">Pin to page copies the card: same font, size and colours as above. Each matrix is drawn in pencil, with brackets that fit it.</p>
         <div class="setting"><span class="setting-head">Thickness</span><div class="segmented four" role="radiogroup" id="pinWeight"></div></div>
-        <div class="setting"><span class="setting-head">Wording colour</span><div class="papers" role="radiogroup" id="pinColor"></div></div>
         <div class="setting"><span class="setting-head">Matrix drawing colour</span><div class="papers" role="radiogroup" id="pinInk"></div></div>
-        <label class="setting"><span class="setting-head">Size <output id="pinSizeOut"></output></span><input type="range" id="pinSize" min="16" max="44" step="1"></label>
         <canvas id="pinPreview" class="pin-preview" width="680" height="300" aria-label="Preview of a pinned problem"></canvas>
         <button type="button" class="tool wide" id="pinRestyle" hidden>Restyle the pinned problem on this page</button>
       </div>
