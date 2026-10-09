@@ -968,11 +968,12 @@ input[type="range"] {
 #gridSizeRow { grid-auto-flow: column; grid-template-columns: auto 1fr; align-items: center; gap: 14px; }
 #gridSizeRow .setting-head { gap: 8px; white-space: nowrap; }
 
-/* A short, wide screen (an iPad on its side): the pen and paper panel goes two columns so it fits without scrolling. */
-@media (min-width: 900px) and (max-height: 900px) {
-  #settings { width: min(640px, calc(100vw - 24px)); grid-template-columns: 1fr 1fr; column-gap: 24px; align-items: start; }
-  #settings .preview, #settings #recenterBtn { grid-column: 1 / -1; }
-}
+/* Pen and paper are two swipeable pages, so the panel stays short. */
+#settings { display: flex; flex-direction: column; overflow: hidden; width: min(400px, calc(100vw - 24px)); }
+.page-tabs { flex: none; }
+.pages { display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; margin: 0 -16px; min-height: 0; }
+.pages::-webkit-scrollbar { display: none; }
+.page { flex: 0 0 100%; scroll-snap-align: start; scroll-snap-stop: always; display: grid; gap: 12px; align-content: start; padding: 0 16px; overflow-y: auto; max-height: calc(100dvh - var(--bar-h) - env(safe-area-inset-top) - 130px); overscroll-behavior: contain; }
 
 /* "Next problem" sits beside Hide on a practice problem's card. */
 .my-board-problem-hide.practice-next { right: 62px; }
@@ -996,3 +997,4 @@ input[type="range"] {
 @media (prefers-reduced-motion: reduce) {
   :root[data-fx="on"] :is(.bar, .rail)::after { animation: none; --fx-x: 30%; }
 }
+.page-tabs button[aria-selected="true"] { background: var(--line-strong); color: var(--text); }

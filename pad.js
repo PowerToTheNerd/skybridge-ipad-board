@@ -26,7 +26,7 @@
   const THEMES = { auto: "Auto", green: 156, blue: 215, violet: 265, amber: 38, rose: 340, graphite: null };
   const THEME_NAMES = { auto: "Auto (complements the paper)", green: "Green", blue: "Blue", violet: "Violet", amber: "Amber", rose: "Rose", graphite: "Graphite" };
   const PAPER_HUES = { night: 156, black: 205, slate: 218, chalk: 156, white: 215, cream: 40 };
-  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], palette: [], rail: true, paper: "night", theme: "auto", fx: false, finger: "move", grid: "dots", gridSize: 24, grain: true, layout: "mine" };
+  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], palette: [], rail: true, paper: "night", theme: "auto", fx: false, page: "pen", finger: "move", grid: "dots", gridSize: 24, grain: true, layout: "mine" };
   const LAYOUTS = ["mine", "both", "gemini"];
 
   const el = {
@@ -64,6 +64,8 @@
     papers: document.getElementById("papers"),
     themes: document.getElementById("themes"),
     fx: document.getElementById("fxBtn"),
+    pages: document.getElementById("settingsPages"),
+    tabs: document.querySelectorAll("#settingsTabs [data-page]"),
     fingerModes: [...document.querySelectorAll("[data-finger]")],
     recenter: document.getElementById("recenterBtn"),
     gridStyles: [...document.querySelectorAll("#gridStyles [data-grid]")],
@@ -160,6 +162,7 @@
   const settings = { ...DEFAULTS };
   try { Object.assign(settings, JSON.parse(storage("get", SETTINGS_KEY) || "{}")); } catch {}
   if (!(settings.paper in PAPERS)) settings.paper = DEFAULTS.paper;
+  if (!["pen", "paper"].includes(settings.page)) settings.page = "pen";
   if (!(settings.theme in THEMES)) settings.theme = DEFAULTS.theme;
   // The pattern used to be on or off; now it is blank, dots, a square grid or lined.
   const GRIDS = ["none", "dots", "square", "lined"];
@@ -1795,6 +1798,27 @@
   });
   el.recenter.addEventListener("click", () => moveView(0, 0, 1));
 
+  // Pen and Paper are two pages side by side: swipe or tap a tab, and the last one is remembered.
+  let pageLock = 0;
+  function showPage(name, smooth) {
+    pageLock = performance.now() + (smooth ? 600 : 100);
+    el.pages.scrollTo({ left: name === "paper" ? el.pages.clientWidth : 0, behavior: smooth ? "smooth" : "auto" });
+    el.tabs.forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.page === name)));
+  }
+  el.tabs.forEach((tab) => tab.addEventListener("click", () => {
+    settings.page = tab.dataset.page;
+    saveSettings();
+    showPage(settings.page, true);
+  }));
+  el.pages.addEventListener("scroll", () => {
+    if (performance.now() < pageLock) return;
+    const name = el.pages.scrollLeft > el.pages.clientWidth / 2 ? "paper" : "pen";
+    if (name === settings.page) return;
+    settings.page = name;
+    saveSettings();
+    el.tabs.forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.page === name)));
+  }, { passive: true });
+
   function setSettingsOpen(open) {
     el.notebookSheet.hidden = true;
     el.notebookBtn.setAttribute("aria-expanded", "false");
@@ -1804,6 +1828,7 @@
       el.colorBtn.setAttribute("aria-expanded", "false");
     }
     el.settings.hidden = !open;
+    if (open) showPage(settings.page, false);
     el.settingsBtn.setAttribute("aria-expanded", String(open));
     el.settingsBtn.setAttribute("aria-pressed", String(open));
     if (open) {
