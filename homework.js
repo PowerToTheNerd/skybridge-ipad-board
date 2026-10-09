@@ -126,7 +126,7 @@ If a problem needs a picture or graph you cannot write down, say "(see the figur
     const id = await fingerprint(buffer);
     const have = await get(id);
     if (have) return { ok: true, set: have, cached: true };
-    if (!AI?.hasKey()) return { ok: false, error: "Reading a PDF needs your free Gemini key. Add it under Notebooks, then Smart features." };
+    if (!AI?.hasGeminiKey()) return { ok: false, error: "Reading a PDF needs your free Gemini key. Add it under Notebooks, then Smart features." };
     if (navigator.onLine === false) return { ok: false, error: "No connection. Reading a new PDF needs the internet (once)." };
     try {
       const { data } = await AI.askPdf(toBase64(buffer), PROMPT, SCHEMA);

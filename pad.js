@@ -107,6 +107,20 @@
     notebookBtn: document.getElementById("notebookBtn"),
     notebookName: document.getElementById("notebookName"),
     notebookSheet: document.getElementById("notebookSheet"),
+    nbPages: document.getElementById("nbPages"),
+    nbTabs: document.querySelectorAll("#nbTabs [data-page]"),
+    usageList: document.getElementById("usageList"),
+    usageNote: document.getElementById("usageNote"),
+    localOut: document.getElementById("localOut"),
+    localUrl: document.getElementById("localUrl"),
+    localKey: document.getElementById("localKey"),
+    localModel: document.getElementById("localModel"),
+    localVision: document.getElementById("localVision"),
+    localMode: document.getElementById("localMode"),
+    localRoute: document.getElementById("localRoute"),
+    localTest: document.getElementById("localTest"),
+    localResult: document.getElementById("localResult"),
+    localRemove: document.getElementById("localRemove"),
     notebookList: document.getElementById("notebookList"),
     notebookNew: document.getElementById("notebookNew"),
     syncOut: document.getElementById("syncOut"),
@@ -1030,6 +1044,8 @@
         renderSession(message);
       } else if (message.t === "checked") {
         showVerdict(message);
+      } else if (message.t === "llm-result") {
+        window.SkybridgeLocal?.onRelay(message);
       } else if (message.t === "read-result") {
         window.SkybridgeSmart?.onRelay(message);
       } else if (message.t === "sent") {
@@ -3095,7 +3111,7 @@
     el.practiceGo.textContent = "Getting a problem…";
     try {
       const made = await Practice.take(pick);
-      if (!made.ok) { toast(made.error, !window.SkybridgeAI.hasKey() ? { label: "Open", run: () => { document.getElementById("smartFold").open = true; } } : undefined); return; }
+      if (!made.ok) { toast(made.error, !window.SkybridgeAI.hasKey() ? { label: "Open", run: () => { openSmartTab(); } } : undefined); return; }
       if (where === "new") {
         await newNotebook();
         const label = Practice.TOPICS.find((t) => t.id === made.problem.topic)?.label || made.problem.title;
@@ -3200,7 +3216,7 @@
       toast("Reading the PDF. This takes a little while, and only happens once.");
       try {
         const made = await Homework.importPdf(file);
-        if (!made.ok) { toast(made.error, !window.SkybridgeAI.hasKey() ? { label: "Open", run: () => { document.getElementById("smartFold").open = true; } } : undefined); return; }
+        if (!made.ok) { toast(made.error, !window.SkybridgeAI.hasKey() ? { label: "Open", run: () => { openSmartTab(); } } : undefined); return; }
         await renderHomework(made.set.id);
         toast(made.cached ? `Already saved: ${made.set.name}, ${made.set.problems.length} problems (no call needed)` : `Found ${made.set.problems.length} problems in ${made.set.name}`);
       } finally {
@@ -3412,16 +3428,111 @@
     renderNotebookList();
   }
 
+  // Notebooks and Smart features are two swipeable pages, like Pen and Paper. The last one is remembered.
+  const NB_PAGES = ["books", "smart"];
+  let nbPage = storage("get", "skybridge.nbPage");
+  if (!NB_PAGES.includes(nbPage)) nbPage = "books";
+  let nbLock = 0;
+  function showNbPage(name, smooth) {
+    nbPage = name;
+    nbLock = performance.now() + (smooth ? 600 : 100);
+    el.nbPages.scrollTo({ left: NB_PAGES.indexOf(name) * el.nbPages.clientWidth, behavior: smooth ? "smooth" : "auto" });
+    el.nbTabs.forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.page === name)));
+  }
+  el.nbTabs.forEach((tab) => tab.addEventListener("click", () => { storage("set", "skybridge.nbPage", tab.dataset.page); showNbPage(tab.dataset.page, true); }));
+  el.nbPages.addEventListener("scroll", () => {
+    if (performance.now() < nbLock) return;
+    const name = NB_PAGES[Math.min(NB_PAGES.length - 1, Math.round(el.nbPages.scrollLeft / el.nbPages.clientWidth))];
+    if (name === nbPage) return;
+    nbPage = name;
+    storage("set", "skybridge.nbPage", name);
+    el.nbTabs.forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.page === name)));
+  }, { passive: true });
+  function openSmartTab() {
+    if (el.notebookSheet.hidden) el.notebookBtn.click();
+    storage("set", "skybridge.nbPage", "smart");
+    showNbPage("smart", false);
+  }
+
+  // ---- Smart features: today's free Gemini requests, and the local model ----------------------------
+  const Local = window.SkybridgeLocal;
+  function renderUsage() {
+    const AI = window.SkybridgeAI;
+    if (!AI?.usage) return;
+    el.usageList.replaceChildren(...AI.usage().map((row) => {
+      const line = document.createElement("div");
+      line.className = "usage-row";
+      line.dataset.full = String(row.used >= row.rpd);
+      const name = document.createElement("span");
+      name.textContent = row.label;
+      const bar = document.createElement("i");
+      bar.style.setProperty("--used", `${Math.min(100, (row.used / row.rpd) * 100)}%`);
+      const count = document.createElement("b");
+      count.textContent = `${row.used} of ${row.rpd}`;
+      line.append(name, bar, count);
+      return line;
+    }));
+    el.usageNote.textContent = "Free requests used today, counted on this iPad. The free key allows about 5 a minute and 20 a day per model, and the day starts again around midnight Pacific (3 AM Eastern). Anything else using the key isn't counted here.";
+  }
+  window.SkybridgeAI?.onUsage(renderUsage);
+  renderUsage();
+
+  function renderLocal() {
+    if (!Local) return;
+    const cfg = Local.config();
+    const set = (node, value) => { if (document.activeElement !== node) node.value = value; };
+    set(el.localUrl, cfg.url);
+    el.localKey.placeholder = cfg.key ? "Saved. Paste a new key to replace it" : "Optional";
+    set(el.localModel, cfg.model);
+    el.localVision.value = cfg.vision ? "yes" : "no";
+    el.localMode.value = cfg.mode;
+    el.localRoute.textContent = Local.explainRoute();
+    const on = Local.endpoint(cfg.url) && cfg.mode !== "off";
+    el.localOut.textContent = !Local.endpoint(cfg.url) ? "Not set" : cfg.mode === "off" ? "Off" : cfg.mode === "only" ? "Instead of Gemini" : "Before Gemini";
+    el.localOut.dataset.state = on ? "on" : "off";
+    el.localRemove.hidden = !cfg.url && !cfg.key;
+  }
+  if (Local) {
+    renderLocal();
+    Local.attach({ ready: () => connected && pcOpen, send: (message) => send(message) });
+    const saveLocal = (patch) => { Local.save(patch); renderLocal(); renderSmartUi(); };
+    el.localUrl.addEventListener("change", () => saveLocal({ url: el.localUrl.value.trim() }));
+    el.localModel.addEventListener("change", () => saveLocal({ model: el.localModel.value.trim() }));
+    el.localKey.addEventListener("change", () => {
+      const value = el.localKey.value.trim();
+      el.localKey.value = "";
+      if (value) { saveLocal({ key: value }); toast("Local key saved on this iPad"); }
+    });
+    el.localVision.addEventListener("change", () => saveLocal({ vision: el.localVision.value === "yes" }));
+    el.localMode.addEventListener("change", () => saveLocal({ mode: el.localMode.value }));
+    el.localRemove.addEventListener("click", () => { saveLocal({ url: "", key: "", model: "", vision: false, mode: "first" }); el.localResult.hidden = true; toast("Local model forgotten"); });
+    el.localTest.addEventListener("click", async () => {
+      el.localTest.disabled = true;
+      el.localTest.textContent = "Trying…";
+      el.localResult.hidden = true;
+      try {
+        const result = await Local.test();
+        el.localResult.hidden = false;
+        el.localResult.textContent = result.ok ? `It answered in ${(result.ms / 1000).toFixed(1)} s: "${result.text}".` : result.error;
+        el.localResult.dataset.state = result.ok ? "on" : "off";
+      } finally {
+        el.localTest.disabled = false;
+        el.localTest.textContent = "Test it";
+      }
+    });
+  }
+
   function renderSmartUi() {
     const Smart = window.SkybridgeSmart;
     const AI = window.SkybridgeAI;
     if (!Smart || !AI) return;
-    const keyed = AI.hasKey();
+    const keyed = AI.hasGeminiKey();
     const pending = Smart.pending();
-    el.smartOut.textContent = Smart.status() || (keyed ? "Gemini key saved" : pcOpen && connected ? "Using your PC" : "Off");
-    el.smartOut.dataset.state = keyed || (pcOpen && connected) ? "on" : "off";
-    el.smartNote.textContent = "Titles, tags and searchable handwriting for every page, and Check my work without your PC. "
-      + "Pages are read by Skybridge when your PC is on, otherwise by Gemini with your own free key.";
+    el.smartOut.textContent = (keyed ? "Key saved" : Local?.usable({ image: false }) ? "Local model" : pcOpen && connected ? "Using your PC" : "Off");
+    el.smartOut.dataset.state = keyed || Local?.usable({ image: false }) || (pcOpen && connected) ? "on" : "off";
+    el.smartNote.textContent = (Smart.status() ? `${Smart.status()} ` : "")
+      + "Titles, tags and searchable handwriting for every page, and Check my work without your PC. "
+      + "Pages are read by Skybridge when your PC is on, otherwise by your local model or Gemini with your own free key.";
     el.geminiKey.placeholder = keyed ? "Saved. Paste a new key to replace it" : "Paste your key";
     el.geminiKeyRemove.hidden = !keyed;
   }
@@ -3452,7 +3563,7 @@
     setSettingsOpen(false);
     el.notebookSheet.hidden = !open;
     el.notebookBtn.setAttribute("aria-expanded", String(open));
-    if (open) renderNotebookUi();
+    if (open) { renderNotebookUi(); renderUsage(); renderLocal(); showNbPage(nbPage, false); }
   });
   el.notebookNew.addEventListener("click", async () => { await newNotebook(); renderNotebookList(); });
   el.syncRetry.addEventListener("click", () => { retryNow(); toast("Looking for your PC"); });
@@ -3508,8 +3619,7 @@
       toast(text, openSettings ? {
         label: "Open",
         run: () => {
-          if (el.notebookSheet.hidden) el.notebookBtn.click();
-          document.getElementById("smartFold").open = true;
+          openSmartTab();
         },
       } : undefined);
     });

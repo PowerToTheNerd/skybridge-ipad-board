@@ -16,6 +16,44 @@
   // Requests go one at a time with a gap, so a burst (many pages to read, a check, To text) stays under
   // the free per-minute limits. What you asked for jumps ahead of background reading.
   const timing = { gapMs: 3500, restBusyMs: 20000, restRateMs: 60000, waitMs: 15000 };
+  // What the free key allows (Google AI Studio's rate-limit page): requests per minute and per day. The count of
+  // today's requests is kept on this iPad (the day turns over at midnight Pacific, when Google resets it).
+  const LIMITS = {
+    "gemini-3.8-flash": { label: "Gemini 3.8 Flash", rpm: 5, rpd: 20 },
+    "gemini-2.5-flash": { label: "Gemini 2.5 Flash", rpm: 5, rpd: 20 },
+    "gemini-2.5-flash-lite": { label: "Gemini 2.5 Flash-Lite", rpm: 10, rpd: 20 },
+  };
+  const USAGE_KEY = "skybridge.geminiUsage";
+  const recent = new Map(); // model -> start times of its requests in the last minute
+  const usageListeners = new Set();
+  const pacificDay = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+  function readUsage() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(USAGE_KEY) || "{}");
+      if (saved.day === pacificDay() && saved.counts) return saved;
+    } catch {}
+    return { day: pacificDay(), counts: {} };
+  }
+  function tally(model) {
+    const usage = readUsage();
+    usage.counts[model] = (usage.counts[model] || 0) + 1;
+    try { localStorage.setItem(USAGE_KEY, JSON.stringify(usage)); } catch {}
+    usageListeners.forEach((fn) => fn());
+  }
+  const usedToday = (model) => readUsage().counts[model] || 0;
+  function usage() {
+    const counts = readUsage().counts;
+    return MODELS.map((name) => ({ model: name, label: LIMITS[name]?.label || name, used: counts[name] || 0, rpd: LIMITS[name]?.rpd || 0, rpm: LIMITS[name]?.rpm || 0 }));
+  }
+  // Seconds a model must wait before another request fits in its per-minute allowance.
+  function minuteWait(model) {
+    const limit = LIMITS[model]?.rpm;
+    if (!limit) return 0;
+    const now = Date.now();
+    const stamps = (recent.get(model) || []).filter((at) => now - at < 60000);
+    recent.set(model, stamps);
+    return stamps.length >= limit ? stamps[0] + 60000 - now : 0;
+  }
   const rest = new Map(); // model -> when it may be tried again
   const restWhy = new Map(); // model -> what put it to rest ("429", "429 today", "503", ...)
   const DAILY_REST_MS = 30 * 60000; // out of the day's free requests: no point asking again for a while
@@ -59,7 +97,9 @@
   }
   const getKey = () => storage("get");
   const setKey = (value) => storage("set", String(value || "").trim());
-  const hasKey = () => Boolean(getKey());
+  const hasGeminiKey = () => Boolean(getKey());
+  // "Can an AI request run?": a Gemini key, or a local model that is switched on.
+  const hasKey = () => hasGeminiKey() || Boolean(window.SkybridgeLocal?.usable({ image: false }) || window.SkybridgeLocal?.usable({ image: true }));
 
   class AiError extends Error {
     constructor(message, kind, extra = {}) { super(message); this.kind = kind; Object.assign(this, extra); }
@@ -186,6 +226,8 @@ Answer with JSON only.`;
         : "bad";
       throw new AiError(detail.slice(0, 160) || `Gemini answered ${response.status}.`, kind, { status: response.status, retryAfter, model, daily });
     }
+    recent.set(model, [...(recent.get(model) || []), Date.now()]);
+    tally(model);
     const data = await response.json();
     const text = (data?.candidates?.[0]?.content?.parts || []).map((part) => part.text || "").join("");
     if (!text.trim()) throw new AiError("Gemini gave an empty answer.", "empty");
@@ -200,8 +242,14 @@ Answer with JSON only.`;
     let last = null;
     for (let round = 0; round < 2; round += 1) {
       const now = Date.now();
+      for (const name of MODELS) {
+        const wait = minuteWait(name);
+        if (wait > 0 && (rest.get(name) || 0) < now + wait) { rest.set(name, now + wait); restWhy.set(name, "per-minute limit"); }
+      }
       let models = MODELS.filter((name) => !missing.has(name) && (rest.get(name) || 0) <= now);
       if (!models.length) models = MODELS.filter((name) => !missing.has(name)); // all resting: try anyway
+      // A model whose day's allowance looks spent here goes last, so the others are used first.
+      models = [...models.filter((name) => usedToday(name) < (LIMITS[name]?.rpd || Infinity)), ...models.filter((name) => usedToday(name) >= (LIMITS[name]?.rpd || Infinity))];
       // A model that is resting is skipped, but the message still says so, so it never looks like it wasn't there.
       for (const name of MODELS) {
         if (!missing.has(name) && !models.includes(name) && restWhy.has(name) && !tried.some((t) => t.startsWith(`${name.replace("gemini-", "")}:`))) tried.push(`${name.replace("gemini-", "")}: ${restWhy.get(name)}, resting`);
@@ -244,8 +292,29 @@ Answer with JSON only.`;
     throw last || new AiError("No model answered.", "empty");
   }
 
+  // The local model, when it is set up for this kind of request. Requests to it go one at a time.
+  let localTail = Promise.resolve();
+  async function viaLocal(image, prompt, schema, extra) {
+    const Local = window.SkybridgeLocal;
+    const run = localTail.then(async () => ({ model: Local.label(), text: await Local.chat({ prompt, image: typeof image === "string" ? image : null, schema, temperature: extra.temperature }) }));
+    localTail = run.catch(() => {});
+    return run;
+  }
+
   async function generate(image, prompt, schema, extra = {}, { background = false } = {}) {
-    if (!hasKey()) throw new AiError("Add your Gemini key first.", "key");
+    const Local = window.SkybridgeLocal;
+    const pdf = Boolean(image && typeof image === "object");
+    if (Local?.usable({ image: Boolean(image), pdf })) {
+      try {
+        return await viaLocal(image, prompt, schema, extra);
+      } catch (error) {
+        // "Instead of Gemini" never falls back; otherwise Gemini takes over when there is a key.
+        if (Local.config().mode === "only" || !hasGeminiKey()) throw error;
+      }
+    } else if (Local && Local.config().mode === "only" && Local.endpoint(Local.config().url) && !pdf) {
+      throw new AiError("Local only is on, but this needs a model that reads pictures. Switch on Can read pictures, or choose Before Gemini.", "local");
+    }
+    if (!hasGeminiKey()) throw new AiError("Add your Gemini key first.", "key");
     return schedule(() => attempt(image, prompt, schema, extra, background), background);
   }
 
@@ -309,6 +378,7 @@ Answer with JSON only.`;
   function explain(error) {
     const kind = error?.kind;
     const where = error?.tried?.length ? ` (${[...new Set(error.tried)].join(", ")})` : "";
+    if (kind === "local") return `${error.message} (Notebooks > Smart features > Local model)`;
     if (kind === "key") return "Gemini didn't accept the key. Check it in Notebooks, then Smart features.";
     if (kind === "rate" && error.allDaily) return `Today's free Gemini requests are used up${where}. They come back around midnight Pacific time (3 AM Eastern). Until then page names wait and practice uses the built-in problems.`;
     if (kind === "rate") return `Gemini's free limit was reached${where}. It slows down and tries again on its own.`;
@@ -320,5 +390,5 @@ Answer with JSON only.`;
     return error?.message || "Reading the page failed.";
   }
 
-  window.SkybridgeAI = { hasKey, getKey, setKey, indexPage, transcribe, ask, askPdf, readWork, explain, busy, cleanIndex, shortTitle, parseJson, timing, MODELS };
+  window.SkybridgeAI = { hasKey, hasGeminiKey, getKey, setKey, usage, onUsage: (fn) => usageListeners.add(fn), LIMITS, indexPage, transcribe, ask, askPdf, readWork, explain, busy, cleanIndex, shortTitle, parseJson, timing, MODELS };
 })();

@@ -1065,3 +1065,23 @@ input[type="range"] {
 .zoom-pill.new-page { width: 40px; height: 36px; padding: 0; display: grid; place-items: center; color: var(--text); }
 .zoom-pill.new-page svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .zoom-pill[hidden] { display: none; }
+
+/* Notebooks sheet: two swipeable pages, like Pen and Paper. */
+.nb-tabs { grid-template-columns: repeat(2, 1fr); flex: none; }
+.nb-pages { margin: 0 -18px; }
+.nb-pages .page { padding: 0 18px; max-height: calc(100dvh - var(--bar-h) - env(safe-area-inset-top) - 190px); gap: 14px; }
+.nb-pages .nb-folds { margin: 0 -18px; }
+.nb-section { display: grid; gap: 12px; }
+.nb-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.nb-section-head h3 { margin: 0; font-size: 16px; font-weight: 600; }
+.nb-section-head output { color: var(--muted); font-size: 13px; }
+.nb-section-head output[data-state="on"], #localOut[data-state="on"], #localResult[data-state="on"] { color: var(--ok); }
+#localResult[data-state="off"] { color: var(--bad); }
+.nb-fold select { height: 42px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--line); background: rgba(var(--wash-rgb), 0.04); color: var(--text); font: inherit; font-size: 16px; }
+.usage { display: grid; gap: 8px; }
+.usage-row { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 14px; }
+.usage-row span { overflow-wrap: anywhere; }
+.usage-row i { display: block; height: 6px; border-radius: 3px; background: rgba(var(--wash-rgb), 0.1); position: relative; overflow: hidden; }
+.usage-row i::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--used); background: var(--accent); border-radius: inherit; }
+.usage-row[data-full="true"] i::after { background: var(--bad); }
+.usage-row b { font-weight: 500; font-variant-numeric: tabular-nums; color: var(--text-2); font-size: 13px; }

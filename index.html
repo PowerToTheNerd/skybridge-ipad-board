@@ -207,31 +207,19 @@
       <h2>Notebooks</h2>
       <button type="button" class="nb-new" id="notebookNew"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4.5v11M4.5 10h11"/></svg>New</button>
     </header>
-    <label class="nb-searchbox">
-      <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.6" cy="8.6" r="5.2"/><path d="m12.6 12.6 4 4"/></svg>
-      <input type="search" class="nb-search" id="notebookSearch" placeholder="Search notebooks" aria-label="Search names, tags and handwriting" autocapitalize="off" autocorrect="off" spellcheck="false">
-    </label>
-    <ul class="nb-list" id="notebookList"></ul>
-    <div class="nb-folds">
-      <details class="nb-fold" id="practiceFold">
-        <summary><span>Practice problem</span><output id="practiceOut"></output></summary>
-        <div class="nb-fold-body">
-          <label class="nb-address">
-            <span>Topic</span>
-            <select id="practiceTopic"></select>
-          </label>
-          <label class="nb-address">
-            <span>Put it</span>
-            <select id="practiceWhere">
-              <option value="page">On this page</option>
-              <option value="new">In a new notebook</option>
-            </select>
-          </label>
-          <button type="button" class="nb-btn" id="practiceGo">Make a problem</button>
-          <p class="nb-fine">Gemini writes it with your key. It never shows the answer, and Check my work grades what you write.</p>
-        </div>
-      </details>
-      <details class="nb-fold" id="homeworkFold">
+    <div class="page-tabs segmented nb-tabs" role="tablist" aria-label="Notebook pages" id="nbTabs">
+      <button type="button" role="tab" data-page="books" aria-selected="true">Notebooks</button>
+      <button type="button" role="tab" data-page="smart" aria-selected="false">Smart features</button>
+    </div>
+    <div class="pages nb-pages" id="nbPages">
+      <div class="page" data-page="books" role="tabpanel">
+        <label class="nb-searchbox">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.6" cy="8.6" r="5.2"/><path d="m12.6 12.6 4 4"/></svg>
+          <input type="search" class="nb-search" id="notebookSearch" placeholder="Search notebooks" aria-label="Search names, tags and handwriting" autocapitalize="off" autocorrect="off" spellcheck="false">
+        </label>
+        <ul class="nb-list" id="notebookList"></ul>
+        <div class="nb-folds">
+          <details class="nb-fold" id="homeworkFold">
         <summary><span>Homework PDF</span><output id="homeworkOut"></output></summary>
         <div class="nb-fold-body">
           <button type="button" class="nb-btn" id="homeworkImport">Import a PDF</button>
@@ -258,20 +246,80 @@
           <p class="nb-fine">Gemini reads the PDF once with your key and splits it into problems (1A, 1B...). They stay on this iPad, so the same PDF is never read again. Answers printed in the PDF are never shown.</p>
         </div>
       </details>
-      <details class="nb-fold" id="smartFold">
-        <summary><span>Smart features</span><output id="smartOut"></output></summary>
+          <details class="nb-fold" id="practiceFold">
+        <summary><span>Practice problem</span><output id="practiceOut"></output></summary>
         <div class="nb-fold-body">
+          <label class="nb-address">
+            <span>Topic</span>
+            <select id="practiceTopic"></select>
+          </label>
+          <label class="nb-address">
+            <span>Put it</span>
+            <select id="practiceWhere">
+              <option value="page">On this page</option>
+              <option value="new">In a new notebook</option>
+            </select>
+          </label>
+          <button type="button" class="nb-btn" id="practiceGo">Make a problem</button>
+          <p class="nb-fine">Gemini writes it with your key. It never shows the answer, and Check my work grades what you write.</p>
+        </div>
+      </details>
+        </div>
+      </div>
+      <div class="page" data-page="smart" role="tabpanel">
+        <section class="nb-section">
+          <div class="nb-section-head"><h3>Gemini</h3><output id="smartOut"></output></div>
           <p class="nb-hint" id="smartNote"></p>
           <label class="nb-address">
             <span>Gemini API key</span>
             <input type="password" id="geminiKey" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Paste your key">
           </label>
+          <div class="usage" id="usageList" aria-label="Free requests used today"></div>
+          <p class="nb-fine" id="usageNote"></p>
           <button type="button" class="nb-btn" id="smartNow">Read pages now</button>
           <button type="button" class="nb-link" id="geminiKeyRemove" hidden>Remove the key from this iPad</button>
           <p class="nb-fine">Your key stays on this iPad. Page pictures go to Google when Gemini reads them.</p>
-        </div>
-      </details>
-      <details class="nb-fold" id="syncFold">
+        </section>
+        <div class="nb-folds">
+          <details class="nb-fold" id="localFold">
+            <summary><span>Local model</span><output id="localOut"></output></summary>
+            <div class="nb-fold-body">
+              <p class="nb-hint">Your own model (Unsloth Studio, llama.cpp, Ollama, LM Studio...) at an OpenAI-compatible address. It is tried first, so Gemini's daily free requests last longer.</p>
+              <label class="nb-address">
+                <span>Address</span>
+                <input type="url" id="localUrl" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="http://127.0.0.1:8888/v1">
+              </label>
+              <label class="nb-address">
+                <span>API key (if it has one)</span>
+                <input type="password" id="localKey" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Optional">
+              </label>
+              <label class="nb-address">
+                <span>Model name (optional)</span>
+                <input type="text" id="localModel" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="whatever the server calls it">
+              </label>
+              <label class="nb-address">
+                <span>Can it read pictures?</span>
+                <select id="localVision">
+                  <option value="no">No, words only</option>
+                  <option value="yes">Yes (a vision model)</option>
+                </select>
+              </label>
+              <label class="nb-address">
+                <span>Use it</span>
+                <select id="localMode">
+                  <option value="first">Before Gemini</option>
+                  <option value="only">Instead of Gemini</option>
+                  <option value="off">Off</option>
+                </select>
+              </label>
+              <p class="nb-fine" id="localRoute"></p>
+              <button type="button" class="nb-btn" id="localTest">Test it</button>
+              <p class="nb-hint" id="localResult" hidden></p>
+              <button type="button" class="nb-link" id="localRemove" hidden>Forget this address and key</button>
+              <p class="nb-fine">Words-only models write practice problems. A picture model also names pages, runs Check my work and To text. PDFs always use Gemini. The address and key stay on this iPad.</p>
+            </div>
+          </details>
+          <details class="nb-fold" id="syncFold">
         <summary><span>Sync with Skybridge</span><output id="syncOut"></output></summary>
         <div class="nb-fold-body">
           <p class="nb-hint" id="syncNote"></p>
@@ -286,6 +334,8 @@
           <button type="button" class="nb-btn" id="syncRetry">Sync now</button>
         </div>
       </details>
+        </div>
+      </div>
     </div>
     <p class="nb-fine" id="installNote" hidden>To keep this as an app that works without your PC: tap Share, then Add to Home Screen.</p>
   </section>
@@ -360,6 +410,7 @@
   <script src="./inkstroke.js"></script>
   <script src="./notebooks.js"></script>
   <script src="./mathcheck.js"></script>
+  <script src="./localllm.js"></script>
   <script src="./ai.js"></script>
   <script src="./smart.js"></script>
   <script src="./marks.js"></script>
