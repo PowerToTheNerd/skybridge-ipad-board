@@ -291,7 +291,7 @@
       return { ok: false, error: error.message || "There is nothing on the page yet." };
     }
     try {
-      const { model, reading } = await AI.readWork(image, { mode: "practice" });
+      const { model, reading } = await AI.readWork(image, { problem: bridge.problemText?.() || "", mode: "practice" });
       const rows = MathCheck.runChecks(reading.checks);
       const result = MathCheck.verdict(reading, rows, "practice");
       return { ok: true, text: summary(result, model), verdict: result.verdict, box: result.verdict === "wrong" ? boardBox(reading.mistake_box, page) : null };

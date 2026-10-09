@@ -156,6 +156,24 @@
     </label>
     <ul class="nb-list" id="notebookList"></ul>
     <div class="nb-folds">
+      <details class="nb-fold" id="practiceFold">
+        <summary><span>Practice problem</span><output id="practiceOut"></output></summary>
+        <div class="nb-fold-body">
+          <label class="nb-address">
+            <span>Topic</span>
+            <select id="practiceTopic"></select>
+          </label>
+          <label class="nb-address">
+            <span>Put it</span>
+            <select id="practiceWhere">
+              <option value="page">On this page</option>
+              <option value="new">In a new notebook</option>
+            </select>
+          </label>
+          <button type="button" class="nb-btn" id="practiceGo">Make a problem</button>
+          <p class="nb-fine">Gemini writes it with your key. It never shows the answer, and Check my work grades what you write.</p>
+        </div>
+      </details>
       <details class="nb-fold" id="smartFold">
         <summary><span>Smart features</span><output id="smartOut"></output></summary>
         <div class="nb-fold-body">
@@ -257,6 +275,7 @@
   <script src="./ai.js"></script>
   <script src="./smart.js"></script>
   <script src="./marks.js"></script>
+  <script src="./practice.js"></script>
   <script src="./pad.js"></script>
   <script src="./export.js"></script>
 </body>

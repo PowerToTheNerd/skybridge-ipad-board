@@ -114,7 +114,7 @@ Answer with JSON only.`;
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": getKey() },
         body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ inline_data: { mime_type: "image/png", data: image } }, { text: prompt }] }],
+          contents: [{ role: "user", parts: [...(image ? [{ inline_data: { mime_type: "image/png", data: image } }] : []), { text: prompt }] }],
           generationConfig: { temperature: 0, responseMimeType: "application/json", ...config },
         }),
         signal: controller.signal,
@@ -141,13 +141,13 @@ Answer with JSON only.`;
   }
 
   // Each model in turn; a rate limit, a missing model or a busy server moves on to the next.
-  async function generate(image, prompt, schema) {
+  async function generate(image, prompt, schema, extra = {}) {
     if (!hasKey()) throw new AiError("Add your Gemini key first.", "key");
     let last = null;
     for (const model of MODELS) {
       const configs = [
-        { ...(schema ? { responseSchema: schema } : {}), thinkingConfig: { thinkingBudget: 1024 } },
-        {}, // a model that doesn't take that config
+        { ...(schema ? { responseSchema: schema } : {}), thinkingConfig: { thinkingBudget: 1024 }, ...extra },
+        { ...extra }, // a model that doesn't take that config
       ];
       for (const config of configs) {
         try {
@@ -195,6 +195,12 @@ Answer with JSON only.`;
     return { model, text: out.trim().slice(0, 6000) };
   }
 
+  // Words only (no picture): a practice problem. `prompt` is built by practice.js.
+  async function ask(prompt, schema) {
+    const { model, text } = await generate(null, prompt, schema, { temperature: 0.9 });
+    return { model, data: parseJson(text) };
+  }
+
   async function readWork(image, { problem = "", mode = "practice" } = {}) {
     const { model, text } = await generate(image, readPrompt(problem, mode), READING_SCHEMA);
     return { model, reading: parseJson(text) };
@@ -211,5 +217,5 @@ Answer with JSON only.`;
     return error?.message || "Reading the page failed.";
   }
 
-  window.SkybridgeAI = { hasKey, getKey, setKey, indexPage, transcribe, readWork, explain, cleanIndex, shortTitle, parseJson };
+  window.SkybridgeAI = { hasKey, getKey, setKey, indexPage, transcribe, ask, readWork, explain, cleanIndex, shortTitle, parseJson };
 })();

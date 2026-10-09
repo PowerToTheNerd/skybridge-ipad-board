@@ -83,6 +83,10 @@
     smartOut: document.getElementById("smartOut"),
     smartNote: document.getElementById("smartNote"),
     smartNow: document.getElementById("smartNow"),
+    practiceTopic: document.getElementById("practiceTopic"),
+    practiceWhere: document.getElementById("practiceWhere"),
+    practiceGo: document.getElementById("practiceGo"),
+    practiceOut: document.getElementById("practiceOut"),
     syncHost: document.getElementById("syncHost"),
     syncCode: document.getElementById("syncCode"),
     syncCodeRow: document.getElementById("syncCodeRow"),
@@ -2412,6 +2416,61 @@
     schedulePaint();
     updateButtons();
     renderNotebookUi();
+    showPracticeCard(nb.problem);
+  }
+
+  // A practice problem belongs to its notebook: its card goes when you leave, and comes back when you return.
+  // (A card Gemini put there from the PC is not touched.)
+  async function showPracticeCard(problem) {
+    const card = el.stage.querySelector(".my-board-problem");
+    if (card?._practice) card.remove();
+    if (!problem || !whiteboard || !window.SkybridgePractice) return;
+    await whiteboard.draw({ board: "mine", clear: true, title: problem.title, items: window.SkybridgePractice.items(problem) });
+    const fresh = el.stage.querySelector(".my-board-problem");
+    if (fresh) fresh._practice = true;
+  }
+
+  const askedBefore = [];
+  async function makePractice() {
+    const Practice = window.SkybridgePractice;
+    if (!Practice) return;
+    el.practiceGo.disabled = true;
+    el.practiceGo.textContent = "Writing a problem…";
+    try {
+      const made = await Practice.make(el.practiceTopic.value, { avoid: askedBefore });
+      if (!made.ok) { toast(made.error, !window.SkybridgeAI.hasKey() ? { label: "Open", run: () => { document.getElementById("smartFold").open = true; } } : undefined); return; }
+      askedBefore.push(Practice.problemText(made.problem));
+      if (el.practiceWhere.value === "new") {
+        await newNotebook();
+        const label = Practice.TOPICS.find((t) => t.id === made.problem.topic)?.label || made.problem.title;
+        await Notebooks.rename(nb.id, label);
+        Object.assign(nb, { name: label, named: true });
+      }
+      nb.problem = made.problem;
+      saving = saving.then(() => Notebooks.save(nb.id, { meta: { problem: made.problem }, touch: false })).catch(() => {});
+      await showPracticeCard(made.problem);
+      el.notebookSheet.hidden = true;
+      el.notebookBtn.setAttribute("aria-expanded", "false");
+      renderNotebookUi();
+      toast("Practice problem ready. Write your work below it.");
+    } finally {
+      el.practiceGo.disabled = false;
+      el.practiceGo.textContent = "Make a problem";
+    }
+  }
+  el.practiceGo.addEventListener("click", makePractice);
+  if (window.SkybridgePractice) {
+    for (const topic of window.SkybridgePractice.TOPICS) {
+      const option = document.createElement("option");
+      option.value = topic.id;
+      option.textContent = topic.label;
+      el.practiceTopic.append(option);
+    }
+    el.practiceTopic.value = storage("get", "skybridge.practiceTopic") || "random";
+    el.practiceTopic.addEventListener("change", () => storage("set", "skybridge.practiceTopic", el.practiceTopic.value));
+    const where = storage("get", "skybridge.practiceWhere");
+    if (where === "page" || where === "new") el.practiceWhere.value = where;
+    el.practiceWhere.addEventListener("change", () => storage("set", "skybridge.practiceWhere", el.practiceWhere.value));
   }
 
   async function openNotebook(id) {
@@ -2667,6 +2726,7 @@
     window.SkybridgeSmart?.init({
       pcReady: () => connected && pcOpen,
       relaySend: (message) => send(message),
+      problemText: () => window.SkybridgePractice?.problemText(nb?.problem) || "",
       openId: () => nb?.id,
       lastChange: () => lastChangeAt,
       refresh: () => renderNotebookUi(),
