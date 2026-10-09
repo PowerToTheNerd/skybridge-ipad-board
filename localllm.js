@@ -14,7 +14,7 @@
 (() => {
   const KEY = "skybridge.local";
   const TIMEOUT_MS = 120000;
-  const DEFAULTS = { url: "", key: "", model: "", vision: false, mode: "first" };
+  const DEFAULTS = { url: "", key: "", model: "", vision: false, mode: "first", via: "auto" }; // via: auto | pc (through Skybridge) | solo (straight from this iPad)
   let bridge = null; // { ready(): bool, send(message) } to the PC
   const waits = new Map();
 
@@ -48,22 +48,49 @@
   }
 
   const mixed = (url) => location.protocol === "https:" && /^http:/i.test(url);
+  const loopback = (url) => { try { return /^(localhost|127\.\d+\.\d+\.\d+|\[::1\])$/i.test(new URL(url).hostname); } catch { return false; } };
+  // "relay" = through the PC, "direct" = straight from this iPad.
   const route = () => {
     const url = endpoint(config().url);
     if (!url) return "none";
+    const via = config().via;
+    if (via === "pc") return "relay";
+    if (via === "solo") return "direct";
     return mixed(url) ? "relay" : "direct";
   };
+
+  const TAILSCALE = "On the PC run: tailscale serve --bg --https=443 http://127.0.0.1:8888 (use your server's port), then type the https://…ts.net address it prints. The iPad needs the Tailscale app on.";
 
   function explainRoute() {
     const cfg = config();
     const url = endpoint(cfg.url);
     if (!url) return "Type your server's address, for example http://127.0.0.1:8888/v1.";
+    if (route() === "relay") {
+      return "Requests go through Skybridge on your PC: pair with it first (Sync with Skybridge) and keep it on. The address must be one the PC can reach, like your PC's own address (http://10.0.0.5:8888/v1). The PC only calls local-network addresses.";
+    }
     if (mixed(url)) {
-      return "This page is https, and a browser won't let an https page call an http address directly. So requests go through Skybridge on your PC: pair with it first (Sync with Skybridge), keep it on, and use an address the PC can reach (your PC's own address works, like http://10.0.0.5:8888/v1). For use without the PC, give an https address (a Tailscale or Cloudflare tunnel).";
+      return "Solo: this iPad calls the address itself. A browser blocks an https page (this one) from calling an http address, so this only works for an https address. " + TAILSCALE;
     }
     return /^https:/i.test(url)
       ? "This https address is called straight from the iPad, so it works without the PC. The server must allow requests from this page (CORS)."
       : "This page is http, so the iPad calls the address directly. The server must allow requests from this page (CORS).";
+  }
+
+  // Why a direct call failed: blocked by the browser, refused by the server's CORS rules, or not reachable at all.
+  async function whyDirectFailed(url) {
+    if (mixed(url) && !loopback(url)) {
+      return { kind: "mixed", error: "The browser blocked it: this page is https and the address is http. Use an https address, or switch to Through Skybridge. " + TAILSCALE };
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    try {
+      await fetch(new URL(url).origin + "/", { mode: "no-cors", signal: controller.signal });
+      return { kind: "cors", error: "The server is there but didn't let this page call it (CORS). Allow this page's address in the server's CORS or allowed-origins setting, or switch to Through Skybridge." };
+    } catch {
+      return { kind: "down", error: "Couldn't reach the server. Check the address and port, that the iPad is on the same Wi-Fi (or Tailscale is on), and that the server allows network access." };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   const label = () => config().model || "your local model";
@@ -114,7 +141,7 @@
       return { ok: true, text: textOf(data) };
     } catch (error) {
       if (error.name === "AbortError") return { ok: false, status: 0, error: "The local model took too long." };
-      return { ok: false, status: 0, network: true, error: "Couldn't reach the local server." };
+      return { ok: false, status: 0, network: true, ...(await whyDirectFailed(url)) };
     } finally {
       clearTimeout(timer);
     }
@@ -142,16 +169,17 @@
     const cfg = config();
     const url = endpoint(cfg.url);
     if (!url) throw new LocalError("No local model address is set.");
-    const send = (body) => (mixed(url) ? viaPc(url, cfg, body) : direct(url, cfg, body));
+    const send = (body) => (route() === "relay" ? viaPc(url, cfg, body) : direct(url, cfg, body));
     let result = await send(bodyFor(cfg, request, true));
     // A server that doesn't know response_format: ask again without it.
     if (!result.ok && result.status >= 400 && result.status < 500 && /response_format|json_object|json/i.test(result.error)) result = await send(bodyFor(cfg, request, false));
     // Blocked by the browser (no CORS) while a PC is paired: let the PC make the call.
-    if (!result.ok && result.network && !mixed(url) && bridge?.ready()) result = await viaPc(url, cfg, bodyFor(cfg, request, true));
+    if (!result.ok && result.network && cfg.via === "auto" && !mixed(url) && bridge?.ready()) result = await viaPc(url, cfg, bodyFor(cfg, request, true));
     if (!result.ok) {
       const why = result.status === 401 || result.status === 403 ? "The local server didn't accept the key." : result.error;
       const failure = new LocalError(why || "The local model didn't answer.");
       failure.pair = result.pair === true;
+      failure.why = result.kind || "";
       throw failure;
     }
     if (!result.text.trim()) throw new LocalError("The local model gave an empty answer.");
@@ -164,7 +192,7 @@
       const text = await chat({ prompt: "Reply with the single word: ready", temperature: 0 });
       return { ok: true, text: text.trim().slice(0, 80), ms: Date.now() - started };
     } catch (error) {
-      return { ok: false, error: error.message, pair: error.pair === true };
+      return { ok: false, error: error.message, pair: error.pair === true, kind: error.why || "" };
     }
   }
 

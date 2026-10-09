@@ -123,6 +123,7 @@
     localModel: document.getElementById("localModel"),
     localVision: document.getElementById("localVision"),
     localMode: document.getElementById("localMode"),
+    localVia: document.getElementById("localVia"),
     localRoute: document.getElementById("localRoute"),
     localTest: document.getElementById("localTest"),
     localResult: document.getElementById("localResult"),
@@ -3546,6 +3547,7 @@
     set(el.localModel, cfg.model);
     el.localVision.value = cfg.vision ? "yes" : "no";
     el.localMode.value = cfg.mode;
+    el.localVia.value = cfg.via;
     el.localRoute.textContent = Local.explainRoute();
     const on = Local.endpoint(cfg.url) && cfg.mode !== "off";
     el.localOut.textContent = !Local.endpoint(cfg.url) ? "Not set" : cfg.mode === "off" ? "Off" : cfg.mode === "only" ? "Instead of Gemini" : "Before Gemini";
@@ -3566,12 +3568,13 @@
     });
     el.localVision.addEventListener("change", () => saveLocal({ vision: el.localVision.value === "yes" }));
     el.localMode.addEventListener("change", () => saveLocal({ mode: el.localMode.value }));
+    el.localVia.addEventListener("change", () => { saveLocal({ via: el.localVia.value }); el.localResult.hidden = true; });
     el.localPair.addEventListener("click", () => {
       el.syncFold.open = true;
       el.syncFold.scrollIntoView({ block: "start", behavior: "smooth" });
       (el.syncHost.offsetParent ? el.syncHost : el.syncFold).focus?.({ preventScroll: true });
     });
-    el.localRemove.addEventListener("click", () => { saveLocal({ url: "", key: "", model: "", vision: false, mode: "first" }); el.localResult.hidden = true; toast("Local model forgotten"); });
+    el.localRemove.addEventListener("click", () => { saveLocal({ url: "", key: "", model: "", vision: false, mode: "first", via: "auto" }); el.localResult.hidden = true; toast("Local model forgotten"); });
     el.localTest.addEventListener("click", async () => {
       el.localTest.disabled = true;
       el.localTest.textContent = "Trying…";
