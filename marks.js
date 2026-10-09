@@ -32,6 +32,40 @@
   };
   const TEXT = "Correct!";
 
+  // Pencil numerals for matrix entries (Pin to page): digits, minus, point and slash, as pen strokes.
+  const DIGITS = {
+    0: { w: 0.56, strokes: [arc(0.28, 0.5, 0.26, 0.5, 90, 450, 26)] },
+    1: { w: 0.4, strokes: [[[0.08, 0.22], [0.3, 0], [0.3, 1]]] },
+    2: { w: 0.56, strokes: [[...arc(0.28, 0.28, 0.25, 0.28, 170, -30, 16), [0.03, 1], [0.55, 1]]] },
+    3: { w: 0.56, strokes: [[...arc(0.26, 0.25, 0.24, 0.25, 150, -90, 14), ...arc(0.26, 0.75, 0.28, 0.25, 90, -150, 14)]] },
+    4: { w: 0.6, strokes: [[[0.42, 1], [0.42, 0], [0.0, 0.7], [0.58, 0.7]]] },
+    5: { w: 0.56, strokes: [[[0.5, 0], [0.1, 0], [0.06, 0.45], ...arc(0.26, 0.72, 0.26, 0.28, 110, -150, 16)]] },
+    6: { w: 0.56, strokes: [[[0.48, 0.02], [0.2, 0.25], [0.04, 0.6], ...arc(0.28, 0.72, 0.24, 0.28, 180, 540, 24)]] },
+    7: { w: 0.56, strokes: [[[0.04, 0], [0.54, 0], [0.2, 1]]] },
+    8: { w: 0.54, strokes: [arc(0.27, 0.25, 0.2, 0.25, 90, 450, 20), arc(0.27, 0.74, 0.25, 0.26, 90, 450, 22)] },
+    9: { w: 0.56, strokes: [arc(0.27, 0.28, 0.24, 0.28, 0, 360, 22), [[0.51, 0.28], [0.5, 0.6], [0.3, 0.9], [0.05, 0.98]]] },
+    "-": { w: 0.42, strokes: [[[0.04, 0.55], [0.4, 0.55]]] },
+    ".": { w: 0.16, strokes: [arc(0.08, 0.95, 0.04, 0.04, 90, 450, 8)] },
+    "/": { w: 0.36, strokes: [[[0.32, 0], [0.04, 1]]] },
+  };
+  // Writes `text` (digits - . /) with the top left at (left, top), `height` tall. Null when it has any other character.
+  function numeral(text, left, top, height) {
+    const chars = [...String(text).replace(/\u2212/g, "-").replace(/\s+/g, "")];
+    if (!chars.length || chars.some((c) => !DIGITS[c])) return null;
+    const rand = jitter(Math.floor(left * 7 + top * 13) % 9973 + 5);
+    const strokes = [];
+    let pen = 0;
+    for (const c of chars) {
+      const glyph = DIGITS[c];
+      const lift = rand() * 0.04 * height;
+      for (const line of glyph.strokes) {
+        strokes.push({ points: pressured(smooth(line.map(([gx, gy]) => [left + pen + gx * height + rand() * 0.25, top + gy * height + lift + rand() * 0.25]), 2), 0.5) });
+      }
+      pen += (glyph.w + 0.14) * height;
+    }
+    return { strokes, width: pen - 0.14 * height };
+  }
+
   // Slightly different every time, so it reads as written and not stamped.
   const jitter = (seed) => {
     let x = seed || 1;
@@ -160,5 +194,5 @@
     return { strokes: lines.map((line) => ({ points: pressured(smooth(line, 6), 0.6) })), gap };
   }
 
-  window.SkybridgeMarks = { correct, circle, brackets, TEXT };
+  window.SkybridgeMarks = { correct, circle, brackets, numeral, TEXT };
 })();

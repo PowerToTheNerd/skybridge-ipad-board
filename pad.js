@@ -75,6 +75,7 @@
     pinFont: document.getElementById("pinFont"),
     pinWeight: document.getElementById("pinWeight"),
     pinColor: document.getElementById("pinColor"),
+    pinInk: document.getElementById("pinInk"),
     pinSize: document.getElementById("pinSize"),
     pinSizeOut: document.getElementById("pinSizeOut"),
     pinPreview: document.getElementById("pinPreview"),
@@ -227,8 +228,8 @@
   settings.fxs = settings.fxs && typeof settings.fxs === "object" ? settings.fxs : {};
   // How a problem card looks and where it sits (Pen & paper > Card).
   const CARD_DEFAULTS = { font: "inter", size: "l", title: "auto", text: "auto", anchor: "tl" };
-  const PIN_DEFAULTS = { font: "hand", size: 24, weight: 1, color: "#8a94a0" };
-  settings.pin = { ...PIN_DEFAULTS, ...(settings.pin && typeof settings.pin === "object" ? settings.pin : {}) };
+  const PIN_DEFAULTS = { v: 2, font: "inter", size: 22, weight: 0, color: "#8a94a0", ink: "ink" };
+  settings.pin = settings.pin && settings.pin.v === PIN_DEFAULTS.v ? { ...PIN_DEFAULTS, ...settings.pin } : { ...PIN_DEFAULTS }; // older looks are replaced once
   settings.card = { ...CARD_DEFAULTS, ...(settings.card && typeof settings.card === "object" ? settings.card : {}) };
   if (!(settings.theme in THEMES)) settings.theme = DEFAULTS.theme; // the older Auto and fixed colours come back as green
   if (!/^#[0-9a-f]{6}$/i.test(settings.accent)) settings.accent = DEFAULTS.accent;
@@ -1830,6 +1831,19 @@
     button.addEventListener("click", () => { settings.pin.color = value; saveSettings(); renderSettings(); });
     el.pinColor.append(button);
   }
+  const PIN_INKS = [["ink", "Auto (pencil)"], ["#2f6fd6", "Blue"], ["#2f8f4e", "Green"], ["#c0392b", "Red"], ["#8a94a0", "Grey"]];
+  for (const [value, text] of PIN_INKS) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "paper card-dot";
+    button.setAttribute("role", "radio");
+    button.setAttribute("aria-label", text);
+    button.title = text;
+    button.dataset.value = value;
+    if (value === "ink") button.textContent = "A"; else button.style.background = value;
+    button.addEventListener("click", () => { settings.pin.ink = value; saveSettings(); renderSettings(); });
+    el.pinInk.append(button);
+  }
   el.pinSize.addEventListener("input", () => { settings.pin.size = Number(el.pinSize.value); saveSettings(); renderPinSettings(); });
   segmented(el.cardSize, CARD_SIZES, "size", "Card size");
   segmented(el.cardAnchor, CARD_ANCHORS, "anchor", "Where the card sits");
@@ -3246,52 +3260,64 @@
   function pinStrokes(problem, style, x, y, pg) {
     const Marks = window.SkybridgeMarks;
     const size = style.size;
-    const font = style.font in TEXT_FAMILIES ? style.font : "hand";
-    const base = { color: style.color, eraser: false, hl: false, width: 1, sim: false, clean: true, pin: true, pg, weight: style.weight };
+    const font = style.font in TEXT_FAMILIES ? style.font : "inter";
+    const base = { eraser: false, hl: false, width: 1, sim: false, clean: true, pin: true, pg };
     const out = [];
-    const text = (words, left, top) => {
-      const box = textBox(words, size, font);
-      out.push({ ...base, id: newId(), text: words, font, points: [[left, top], [left + box.width, top + box.height]] });
+    // The wording: plain text, in the chosen font and colour.
+    const words = (text, left, top) => {
+      const box = textBox(text, size, font);
+      out.push({ ...base, id: newId(), color: style.color, weight: style.weight, text, font, points: [[left, top], [left + box.width, top + box.height]] });
+      return box;
+    };
+    // The drawing: pencil in the matrix ink colour (labels like "A =" in the hand font).
+    const label = (text, left, top) => {
+      const box = textBox(text, size, "hand");
+      out.push({ ...base, id: newId(), color: style.ink, weight: 0, text, font: "hand", points: [[left, top], [left + box.width, top + box.height]] });
       return box;
     };
     const head = [problem.title, "", ...wrapWords(problem.text, Math.max(24, Math.round(1000 / size)))].join("\n");
-    let top = y + text(head, x, y).height + size * 0.9;
-    const inkWidth = 1.6 + style.weight * 0.9;
-    const gapX = size * 0.8;
+    let top = y + words(head, x, y).height + size * 0.9;
+    const pencil = (strokes, width) => strokes.forEach((line) => out.push({ ...base, id: newId(), color: style.ink, width, points: line.points }));
+    const digit = size * 0.8; // height of an entry
     const rowH = size * 1.55;
+    const gapX = size * 1.0;
     for (const line of problem.lines || []) {
       const pieces = givenPieces(line);
       const measured = pieces.map((piece) => {
-        if (piece.label) { const box = textBox(piece.label, size, font); return { piece, width: box.width, height: box.height }; }
-        const columns = Math.max(...piece.rows.map((row) => row.length));
-        const widths = Array.from({ length: columns }, (_, c) => Math.max(...piece.rows.map((row) => (row[c] ? textBox(row[c], size, font).width : 0))));
-        return { piece, widths, width: widths.reduce((a, b) => a + b, 0) + gapX * (columns - 1), height: piece.rows.length * rowH };
+        if (piece.label) { const box = textBox(piece.label, size, "hand"); return { piece, width: box.width, height: box.height }; }
+        const cells = piece.rows.map((row, r) => row.map((cell, c) => (cell ? Marks?.numeral(cell, 0, 0, digit) || { text: cell, width: textBox(cell, size, "hand").width } : { width: 0 })));
+        const columns = Math.max(...cells.map((row) => row.length));
+        const widths = Array.from({ length: columns }, (_, c) => Math.max(...cells.map((row) => row[c]?.width || 0)));
+        return { piece, cells, widths, width: widths.reduce((a, b) => a + b, 0) + gapX * (columns - 1), height: piece.rows.length * rowH };
       });
       const lineH = Math.max(size * TEXT_LINE, ...measured.map((m) => m.height));
       let left = x + size * 0.9;
       for (const m of measured) {
         if (m.piece.label) {
-          text(m.piece.label, left, top + (lineH - m.height) / 2);
+          label(m.piece.label, left, top + (lineH - m.height) / 2);
           left += m.width + size * 0.5;
           continue;
         }
         const originY = top + (lineH - m.height) / 2;
+        const rowTop = (r) => originY + r * rowH + (rowH - digit) / 2;
         m.piece.rows.forEach((row, r) => {
           let cx = left;
           row.forEach((cell, c) => {
+            const made = m.cells[r][c];
             if (cell) {
-              const w = textBox(cell, size, font).width;
-              text(cell, cx + (m.widths[c] - w) / 2, originY + r * rowH + (rowH - size * TEXT_LINE) / 2);
+              const at = cx + (m.widths[c] - made.width) / 2;
+              if (made.text) label(made.text, at, rowTop(r) + digit / 2 - (size * TEXT_LINE) / 2);
+              else pencil(Marks.numeral(cell, at, rowTop(r), digit).strokes, 2);
             }
             cx += m.widths[c] + gapX;
           });
         });
-        const box = [left, originY, left + m.width, originY + m.height];
+        const box = [left, rowTop(0), left + m.width, rowTop(m.piece.rows.length - 1) + digit];
         const marks = Marks ? Marks.brackets(box, {}) : { strokes: [] };
-        for (const bracket of marks.strokes) out.push({ ...base, id: newId(), width: inkWidth, points: bracket.points });
+        pencil(marks.strokes, 2.2);
         left += m.width + (marks.gap || 24) * 2 + size * 0.5;
       }
-      top += lineH + size * 1.4;
+      top += lineH + size * 1.2;
     }
     return out;
   }
@@ -3346,8 +3372,8 @@
   // Settings: the choices, a preview drawn by the same code that pins, and the Restyle button.
   function renderPinSettings() {
     const look = settings.pin;
-    for (const container of [el.pinFont, el.pinWeight, el.pinColor]) {
-      const key = container === el.pinFont ? "font" : container === el.pinWeight ? "weight" : "color";
+    for (const container of [el.pinFont, el.pinWeight, el.pinColor, el.pinInk]) {
+      const key = container === el.pinFont ? "font" : container === el.pinWeight ? "weight" : container === el.pinInk ? "ink" : "color";
       container.querySelectorAll("[data-value]").forEach((button) => button.setAttribute("aria-checked", String(button.dataset.value === String(look[key]))));
     }
     el.pinSize.value = look.size;
@@ -3363,7 +3389,7 @@
       const canvas = el.pinPreview;
       const ctx = canvas.getContext("2d");
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const sample = { title: "Row reduce", text: "Find the inverse of A.", lines: ["A = \\begin{bmatrix} 1 & 2 \\\\ 3 & 5 \\end{bmatrix}"] };
+      const sample = { title: "1B", text: "Find the inverse of A.", lines: ["A = \\begin{bmatrix} 1 & 2 & 1 \\\\ 5 & 12 & -1 \\end{bmatrix}"] };
       const made = pinStrokes(sample, look, 0, 0, "preview");
       const xs = made.flatMap((s) => s.points.map((p) => p[0]));
       const ys = made.flatMap((s) => s.points.map((p) => p[1]));
