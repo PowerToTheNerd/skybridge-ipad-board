@@ -146,6 +146,11 @@
       <div class="papers" role="radiogroup" aria-label="Paper colour" id="papers"></div>
       <span class="setting-head">App colour</span>
       <div class="papers" role="radiogroup" aria-label="App colour" id="themes"></div>
+      <div class="hsv theme-picker" id="themePicker" hidden>
+        <div class="hsv-sv" id="themeSV" role="slider" aria-label="App colour shade"><i id="themeSVKnob"></i></div>
+        <div class="hsv-hue" id="themeHue" role="slider" aria-label="App colour hue"><i id="themeHueKnob"></i></div>
+        <div class="hsv-row"><span class="hsv-chip" id="themeChip"></span><span class="hsv-note">Your app colour</span></div>
+      </div>
       <button type="button" class="tool wide" id="fxBtn" aria-pressed="false">Theme effects (slow light)</button>
       <div class="grid-row">
         <div class="segmented grid-styles" role="radiogroup" aria-label="Paper pattern" id="gridStyles">

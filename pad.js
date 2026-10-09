@@ -21,12 +21,11 @@
     white: "Soft white",
     cream: "Cream",
   };
-  // App colour. "auto" takes a complementary hue from the paper; the rest are fixed hues
-  // (null saturates nothing: graphite), so the chrome is never locked to the paper.
-  const THEMES = { auto: "Auto", green: 156, blue: 215, violet: 265, amber: 38, rose: 340, graphite: null };
-  const THEME_NAMES = { auto: "Auto (complements the paper)", green: "Green", blue: "Blue", violet: "Violet", amber: "Amber", rose: "Rose", graphite: "Graphite" };
-  const PAPER_HUES = { night: 156, black: 205, slate: 218, chalk: 156, white: 215, cream: 40 };
-  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], palette: [], rail: true, paper: "night", theme: "auto", fx: false, page: "pen", finger: "move", grid: "dots", gridSize: 24, grain: true, layout: "mine" };
+  // App colour: four looks and one of your own. Every bar, panel and menu follows it; the ink and
+  // the paper keep their own colours.
+  const THEMES = { black: "Black", white: "White", green: "Green", purple: "Purple", custom: "Your colour" };
+  const THEME_HUES = { black: 210, white: 215, green: 156, purple: 265 };
+  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], palette: [], rail: true, paper: "night", theme: "green", accent: "#7c5cd6", fx: false, page: "pen", finger: "move", grid: "dots", gridSize: 24, grain: true, layout: "mine" };
   const LAYOUTS = ["mine", "both", "gemini"];
 
   const el = {
@@ -64,6 +63,12 @@
     papers: document.getElementById("papers"),
     themes: document.getElementById("themes"),
     fx: document.getElementById("fxBtn"),
+    themePicker: document.getElementById("themePicker"),
+    themeSV: document.getElementById("themeSV"),
+    themeSVKnob: document.getElementById("themeSVKnob"),
+    themeHue: document.getElementById("themeHue"),
+    themeHueKnob: document.getElementById("themeHueKnob"),
+    themeChip: document.getElementById("themeChip"),
     pages: document.getElementById("settingsPages"),
     tabs: document.querySelectorAll("#settingsTabs [data-page]"),
     fingerModes: [...document.querySelectorAll("[data-finger]")],
@@ -163,7 +168,8 @@
   try { Object.assign(settings, JSON.parse(storage("get", SETTINGS_KEY) || "{}")); } catch {}
   if (!(settings.paper in PAPERS)) settings.paper = DEFAULTS.paper;
   if (!["pen", "paper"].includes(settings.page)) settings.page = "pen";
-  if (!(settings.theme in THEMES)) settings.theme = DEFAULTS.theme;
+  if (!(settings.theme in THEMES)) settings.theme = DEFAULTS.theme; // the older Auto and fixed colours come back as green
+  if (!/^#[0-9a-f]{6}$/i.test(settings.accent)) settings.accent = DEFAULTS.accent;
   // The pattern used to be on or off; now it is blank, dots, a square grid or lined.
   const GRIDS = ["none", "dots", "square", "lined"];
   if (settings.grid === true) settings.grid = "dots";
@@ -1598,30 +1604,60 @@
   }
   const hex = (rgb) => `#${rgb.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
 
-  function themeHue() {
-    if (settings.theme === "auto") return (PAPER_HUES[settings.paper] + 180) % 360;
-    return THEMES[settings.theme] ?? 200;
-  }
-
-  // Sets the chrome (bar, rail, panels, borders, accent) from one hue. The ink and the
-  // paper keep their own colours, so only the app around the page changes.
+  // Sets every chrome colour (bar, rail, panels, menus, borders, accent) from the theme. White is a
+  // real light theme; the others are dark. Custom takes the hue and richness of the colour you picked.
   function applyTheme() {
-    const h = themeHue();
-    const k = settings.theme === "graphite" ? 0.12 : 1;
-    const c = (s, l) => hsl(h, s * k, l);
+    const light = settings.theme === "white";
+    let h = THEME_HUES[settings.theme] ?? 156;
+    let k = settings.theme === "black" ? 0.1 : settings.theme === "white" ? 0.7 : 1;
+    if (settings.theme === "custom") {
+      const [hh, ss] = hexToHsl(settings.accent);
+      h = hh;
+      k = Math.min(1, Math.max(0.15, ss / 55));
+    }
     const root = document.documentElement.style;
     const set = (name, rgb) => root.setProperty(`--${name}`, hex(rgb));
     const setRgb = (name, rgb) => root.setProperty(`--${name}`, rgb.join(", "));
-    set("bg", c(40, 2)); set("surface", c(30, 7)); set("surface-raised", c(26, 11));
-    set("edge", c(28, 17)); set("edge-hi", c(24, 32));
-    set("text", c(16, 91)); set("text-2", c(14, 77)); set("muted", c(10, 62));
-    set("accent", c(38, 76)); set("accent-hi", c(55, 85)); set("accent-lo", c(42, 66)); set("on-accent", c(45, 8));
-    setRgb("acc-rgb", c(38, 76)); setRgb("line-rgb", c(30, 76)); setRgb("glow-rgb", c(60, 68));
-    setRgb("bar-rgb", c(35, 3)); setRgb("text-rgb", c(16, 91));
+    const c = (s, l) => hsl(h, Math.min(100, s * k), l);
+    root.colorScheme = light ? "light" : "dark";
+    if (light) {
+      set("bg", c(14, 95)); set("surface", c(12, 99)); set("surface-raised", c(16, 93));
+      set("edge", c(14, 82)); set("edge-hi", c(16, 66));
+      set("text", c(24, 12)); set("text-2", c(18, 26)); set("muted", c(10, 40));
+      set("accent", c(70, 38)); set("accent-hi", c(75, 46)); set("accent-lo", c(70, 32)); set("on-accent", [255, 255, 255]);
+      setRgb("acc-rgb", c(70, 38)); setRgb("line-rgb", c(30, 30)); setRgb("glow-rgb", c(70, 50));
+      setRgb("bar-rgb", c(14, 96)); setRgb("panel-rgb", c(12, 98)); setRgb("text-rgb", c(24, 12)); setRgb("wash-rgb", [0, 0, 0]);
+      set("bad", [178, 58, 48]); set("ok", [30, 120, 80]);
+    } else {
+      const accent = settings.theme === "custom" ? ensureLight(settings.accent) : c(38, 76);
+      set("bg", c(40, 2)); set("surface", c(30, 7)); set("surface-raised", c(26, 11));
+      set("edge", c(28, 17)); set("edge-hi", c(24, 32));
+      set("text", c(16, 91)); set("text-2", c(14, 77)); set("muted", c(10, 62));
+      set("accent", accent); set("accent-hi", lighten(accent, 0.25)); set("accent-lo", lighten(accent, -0.12)); set("on-accent", c(45, 8));
+      setRgb("acc-rgb", accent); setRgb("line-rgb", c(30, 76)); setRgb("glow-rgb", accent);
+      setRgb("bar-rgb", c(35, 3)); setRgb("panel-rgb", c(30, 6)); setRgb("text-rgb", c(16, 91)); setRgb("wash-rgb", [255, 255, 255]);
+      set("bad", [227, 143, 143]); set("ok", [140, 231, 187]);
+    }
     // Lasso lines sit on the paper, so they use the accent nudged to read on this paper.
-    const accent = hex(c(38, 76));
-    root.setProperty("--pen-accent", window.SkybridgeInk?.colorOn ? window.SkybridgeInk.colorOn(accent, cssColor("paper")) : accent);
-    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", hex(c(40, 2)));
+    const accentHex = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#a9d9c2";
+    root.setProperty("--pen-accent", window.SkybridgeInk?.colorOn ? window.SkybridgeInk.colorOn(accentHex, cssColor("paper")) : accentHex);
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", hex(light ? c(14, 95) : c(40, 2)));
+  }
+  function hexToHsl(value) {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(value.slice(i, i + 2), 16) / 255);
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+    let h = 0;
+    if (d) h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return [((h * 60) + 360) % 360, d ? (d / (1 - Math.abs(2 * l - 1))) * 100 : 0, l * 100];
+  }
+  // A picked colour used as the accent on a dark app: kept bright enough to read.
+  function ensureLight(value) {
+    const [h, s, l] = hexToHsl(value);
+    return hsl(h, Math.max(20, s), Math.max(62, l));
+  }
+  function lighten(rgb, amount) {
+    const [h, s, l] = hexToHsl(hex(rgb));
+    return hsl(h, s, Math.min(95, Math.max(10, l + amount * 100)));
   }
 
   // Optional slow light drift on the chrome (never the paper). It stops while a pen is down.
@@ -1684,6 +1720,8 @@
     el.themes.querySelectorAll("[data-theme]").forEach((button) => {
       button.setAttribute("aria-checked", String(button.dataset.theme === settings.theme));
     });
+    el.themePicker.hidden = settings.theme !== "custom";
+    paintThemePicker();
     el.fingerModes.forEach((button) => button.setAttribute("aria-checked", String(button.dataset.finger === settings.finger)));
     if (!el.settings.hidden) renderPreview();
   }
@@ -1710,18 +1748,22 @@
     el.papers.append(button);
   });
 
+  const themeSwatch = (key) => ({
+    black: "linear-gradient(135deg, #0b0c0e 50%, #3a3d42 50%)",
+    white: "linear-gradient(135deg, #f6f6f4 50%, #c9ccd2 50%)",
+    green: "linear-gradient(135deg, #0b1411 50%, #a9d9c2 50%)",
+    purple: "linear-gradient(135deg, #130f1c 50%, #b9a2ee 50%)",
+    custom: "conic-gradient(#f66, #fd6, #6d8, #6df, #86f, #f6c, #f66)",
+  })[key];
   Object.keys(THEMES).forEach((key) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "paper theme-dot";
     button.dataset.theme = key;
     button.setAttribute("role", "radio");
-    button.setAttribute("aria-label", THEME_NAMES[key]);
-    button.title = THEME_NAMES[key];
-    const hue = THEMES[key];
-    button.style.background = key === "auto"
-      ? "linear-gradient(135deg, hsl(156 45% 70%) 50%, hsl(336 45% 70%) 50%)"
-      : hue === null ? "hsl(0 0% 62%)" : `hsl(${hue} 45% 70%)`;
+    button.setAttribute("aria-label", THEMES[key]);
+    button.title = THEMES[key];
+    button.style.background = themeSwatch(key);
     button.addEventListener("click", () => {
       settings.theme = key;
       saveSettings();
@@ -1730,6 +1772,33 @@
     });
     el.themes.append(button);
   });
+
+  // Your own app colour: a shade square and a hue bar, like the pen's, that set the accent.
+  const themeHsv = { h: 265, s: 0.6, v: 0.84 };
+  function paintThemePicker() {
+    el.themeSV.style.background = `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(${themeHsv.h} 100% 50%))`;
+    el.themeSVKnob.style.left = `${themeHsv.s * 100}%`;
+    el.themeSVKnob.style.top = `${(1 - themeHsv.v) * 100}%`;
+    el.themeHueKnob.style.left = `${(themeHsv.h / 360) * 100}%`;
+    el.themeChip.style.background = hsvToHex(themeHsv);
+  }
+  function themePickerMove() {
+    settings.theme = "custom";
+    settings.accent = hsvToHex(themeHsv);
+    paintThemePicker();
+    renderSettings();
+  }
+  dragOn(el.themeSV, (event) => {
+    const [x, y] = frac(event, el.themeSV);
+    themeHsv.s = x;
+    themeHsv.v = 1 - y;
+    themePickerMove();
+  }, saveSettings);
+  dragOn(el.themeHue, (event) => {
+    themeHsv.h = frac(event, el.themeHue)[0] * 359.9;
+    themePickerMove();
+  }, saveSettings);
+  Object.assign(themeHsv, hexToHsv(settings.accent));
 
   el.fx.addEventListener("click", () => {
     settings.fx = !settings.fx;
@@ -2494,6 +2563,7 @@
     }
     el.toast.hidden = false;
     clearTimeout(toastTimer);
+    if (action?.sticky) return; // stays until tapped (a new board is ready)
     toastTimer = setTimeout(() => { el.toast.hidden = true; }, Math.max(action ? 7000 : 2600, String(text).length * 70));
   }
 
@@ -2918,16 +2988,32 @@
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") saveNow(); });
   window.addEventListener("pagehide", saveNow);
 
+  // Keeps the installed board current. A new version installs by itself; this asks the server for
+  // one every time the app comes back to the front and every ten minutes, says so when one is ready
+  // (the message stays until tapped), and reloads on its own when you return to the app and aren't writing.
   function registerServiceWorker() {
     if (!("serviceWorker" in navigator) || !window.isSecureContext) return;
     let hadController = Boolean(navigator.serviceWorker.controller);
+    let updateReady = false;
+    const reloadNow = () => { saveNow(); location.reload(); };
     navigator.serviceWorker.addEventListener("controllerchange", () => {
       // First time: saved for offline use. Later: a newer board is ready.
-      if (hadController) toast("Board updated", { label: "Reload", run: () => location.reload() });
-      else toast("Saved for offline use");
+      if (hadController) {
+        updateReady = true;
+        toast("A newer board is ready", { label: "Reload", run: reloadNow, sticky: true });
+      } else toast("Saved for offline use");
       hadController = true;
     });
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
+    navigator.serviceWorker.register("./sw.js").then((registration) => {
+      const check = () => registration.update().catch(() => {});
+      setInterval(check, 10 * 60000);
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState !== "visible") return;
+        if (updateReady && document.documentElement.dataset.writing !== "on") reloadNow();
+        else check();
+      });
+      check();
+    }).catch(() => {});
   }
 
   // What export.js needs to render the whole board.
