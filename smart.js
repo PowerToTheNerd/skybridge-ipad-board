@@ -20,6 +20,8 @@
   let bridge = null;
   let running = false;
   let again = false;
+  let blockedUntil = 0; // no reading before this time (Google asked us to slow down)
+  let failures = 0; // read attempts in a row that Google turned away: each waits twice as long as the last
   let timer = 0;
   let message = "";
   let waiting = 0;
@@ -104,7 +106,7 @@
           if (!AI.hasKey() || navigator.onLine === false) throw error;
         }
       }
-      if (!labels) labels = await AI.indexPage(image);
+      if (!labels) labels = await AI.indexPage(image, { background: !force });
     }
     const changes = { readHash: hash, readAt: Date.now() };
     if (labels) {
@@ -152,6 +154,12 @@
   async function pump() {
     if (!bridge) return;
     if (running) { again = true; return; } // asked while busy: look again when this round ends
+    if (!force && Date.now() < blockedUntil) {
+      // Slowing down after a rate limit or a busy server: whatever woke us, wait out the rest of it.
+      clearTimeout(timer);
+      timer = setTimeout(pump, blockedUntil - Date.now() + 100);
+      return;
+    }
     running = true;
     again = false;
     try {
@@ -180,16 +188,21 @@
         setStatus(`Reading “${next.name}”…`);
         try {
           const named = await readNotebook(next, how);
+          failures = 0;
           setStatus("");
           if (named) notify(`Named this page “${named}”`);
         } catch (error) {
           const why = error.kind === "pc" ? error.message : AI.explain(error);
           setStatus(why);
           notify(`Couldn't name “${next.name}”. ${why}`, error.kind === "key");
-          // A connection or key problem stops the loop; try again later (and when the iPad is back online).
-          if (error.kind === "key" || error.kind === "network") {
+          // A key, connection, rate-limit or busy-server problem stops the loop. Hammering the next page would
+          // only make it worse, so wait (twice as long each time, up to ten minutes) and try again.
+          if (["key", "network", "rate", "busy", "timeout", "missing"].includes(error.kind)) {
+            failures += 1;
             clearTimeout(timer);
-            timer = setTimeout(pump, timing.retryMs + 500);
+            const delay = Math.min(10 * 60000, timing.retryMs * 2 ** (failures - 1)) + 500;
+            blockedUntil = Date.now() + delay;
+            timer = setTimeout(pump, delay);
             break;
           }
           continue;
@@ -205,6 +218,7 @@
   // Read every waiting page now, without waiting for a pause. Returns what happened, in words.
   async function readNow() {
     force = true;
+    blockedUntil = 0;
     tried.clear();
     try {
       for (let i = 0; running && i < 300; i += 1) await new Promise((done) => setTimeout(done, 200));

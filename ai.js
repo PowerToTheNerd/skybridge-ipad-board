@@ -7,9 +7,46 @@
  */
 (() => {
   const KEY = "skybridge.geminiKey";
-  const MODELS = ["gemini-3.8-flash", "gemini-2.5-flash"];
+  // Free Flash models, in the order tried. A model that is busy or out of quota is rested for a while
+  // and the next one is used; one that doesn't exist is skipped for the rest of the visit.
+  const MODELS = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
   const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
   const ATTEMPT_MS = 30000;
+  // Requests go one at a time with a gap, so a burst (many pages to read, a check, To text) stays under
+  // the free per-minute limits. What you asked for jumps ahead of background reading.
+  const timing = { gapMs: 3500, restBusyMs: 20000, restRateMs: 60000, waitMs: 15000 };
+  const rest = new Map(); // model -> when it may be tried again
+  const missing = new Set();
+  const queue = [];
+  let draining = false;
+  let lastStart = 0;
+  const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+
+  function schedule(job, background) {
+    return new Promise((resolve, reject) => {
+      const item = { job, resolve, reject, background };
+      const firstBackground = queue.findIndex((other) => other.background);
+      if (background || firstBackground < 0) queue.push(item);
+      else queue.splice(firstBackground, 0, item);
+      drain();
+    });
+  }
+
+  async function drain() {
+    if (draining) return;
+    draining = true;
+    try {
+      while (queue.length) {
+        const item = queue.shift();
+        const wait = lastStart + timing.gapMs - Date.now();
+        if (wait > 0) await sleep(wait);
+        lastStart = Date.now();
+        try { item.resolve(await item.job()); } catch (error) { item.reject(error); }
+      }
+    } finally {
+      draining = false;
+    }
+  }
 
   function storage(action, value) {
     try {
@@ -22,7 +59,7 @@
   const hasKey = () => Boolean(getKey());
 
   class AiError extends Error {
-    constructor(message, kind) { super(message); this.kind = kind; }
+    constructor(message, kind, extra = {}) { super(message); this.kind = kind; Object.assign(this, extra); }
   }
 
   const INDEX_PROMPT = `You are labelling one page of a student's handwritten math notebook. The image is that page.
@@ -120,19 +157,26 @@ Answer with JSON only.`;
         signal: controller.signal,
       });
     } catch (error) {
-      throw new AiError(error.name === "AbortError" ? "Gemini took too long." : "No connection to Gemini.", error.name === "AbortError" ? "timeout" : "network");
+      throw new AiError(error.name === "AbortError" ? "Gemini took too long." : "No connection to Gemini.", error.name === "AbortError" ? "timeout" : "network", { model });
     } finally {
       clearTimeout(timer);
     }
     if (!response.ok) {
       let detail = "";
-      try { detail = (await response.json())?.error?.message || ""; } catch {}
+      let retryAfter = Number(response.headers.get("retry-after")) || 0;
+      try {
+        const body = await response.json();
+        detail = body?.error?.message || "";
+        // Google says how long to wait in the error's details ("retryDelay": "34s").
+        const wait = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(JSON.stringify(body));
+        if (wait) retryAfter = Math.max(retryAfter, Number(wait[1]));
+      } catch {}
       const kind = response.status === 429 ? "rate"
         : response.status === 404 ? "missing"
         : response.status >= 500 ? "busy"
         : /api key/i.test(detail) || response.status === 401 || response.status === 403 ? "key"
         : "bad";
-      throw new AiError(detail.slice(0, 160) || `Gemini answered ${response.status}.`, kind);
+      throw new AiError(detail.slice(0, 160) || `Gemini answered ${response.status}.`, kind, { status: response.status, retryAfter, model });
     }
     const data = await response.json();
     const text = (data?.candidates?.[0]?.content?.parts || []).map((part) => part.text || "").join("");
@@ -140,27 +184,50 @@ Answer with JSON only.`;
     return text;
   }
 
-  // Each model in turn; a rate limit, a missing model or a busy server moves on to the next.
-  async function generate(image, prompt, schema, extra = {}) {
-    if (!hasKey()) throw new AiError("Add your Gemini key first.", "key");
+  // Each model in turn. A rate limit or a busy server rests that model and moves on to the next; when
+  // every model is resting, a request you made waits a moment and goes round once more, while
+  // background reading gives up and tries again later (smart.js backs off).
+  async function attempt(image, prompt, schema, extra, background) {
+    const tried = [];
     let last = null;
-    for (const model of MODELS) {
-      const configs = [
-        { ...(schema ? { responseSchema: schema } : {}), thinkingConfig: { thinkingBudget: 1024 }, ...extra },
-        { ...extra }, // a model that doesn't take that config
-      ];
-      for (const config of configs) {
-        try {
-          const text = await call(model, image, prompt, config);
-          return { model, text };
-        } catch (error) {
-          last = error;
-          if (error.kind === "key" || error.kind === "network") throw error;
-          if (error.kind !== "bad") break; // another config won't help; the next model might
+    for (let round = 0; round < 2; round += 1) {
+      const now = Date.now();
+      let models = MODELS.filter((name) => !missing.has(name) && (rest.get(name) || 0) <= now);
+      if (!models.length) models = MODELS.filter((name) => !missing.has(name)); // all resting: try anyway
+      for (const model of models) {
+        const configs = [
+          { ...(schema ? { responseSchema: schema } : {}), thinkingConfig: { thinkingBudget: 1024 }, ...extra },
+          { ...extra }, // a model that doesn't take that config
+        ];
+        for (const config of configs) {
+          try {
+            const text = await call(model, image, prompt, config);
+            return { model, text };
+          } catch (error) {
+            last = error;
+            if (error.kind === "key" || error.kind === "network") { error.tried = tried; throw error; }
+            if (error.kind !== "bad") tried.push(`${model.replace("gemini-", "")}: ${error.status || error.kind}`);
+            if (error.kind === "rate") rest.set(model, Date.now() + Math.max(timing.restRateMs, (error.retryAfter || 0) * 1000));
+            else if (error.kind === "busy" || error.kind === "timeout") rest.set(model, Date.now() + timing.restBusyMs);
+            else if (error.kind === "missing") missing.add(model);
+            if (error.kind !== "bad") break; // another config won't help; the next model might
+          }
         }
+        await sleep(300);
       }
+      const transient = last && ["rate", "busy", "timeout"].includes(last.kind);
+      if (background || !transient) break;
+      // Something you asked for: let the soonest model recover (a few seconds at most), then one more round.
+      const soon = Math.min(...MODELS.filter((name) => !missing.has(name)).map((name) => rest.get(name) || 0));
+      await sleep(Math.min(timing.waitMs, Math.max(2000, soon - Date.now())));
     }
+    if (last) last.tried = tried;
     throw last || new AiError("No model answered.", "empty");
+  }
+
+  async function generate(image, prompt, schema, extra = {}, { background = false } = {}) {
+    if (!hasKey()) throw new AiError("Add your Gemini key first.", "key");
+    return schedule(() => attempt(image, prompt, schema, extra, background), background);
   }
 
   // A notebook name that fits a list: cut at a word boundary, never mid-word.
@@ -183,8 +250,8 @@ Answer with JSON only.`;
     return { title, tags: tags.slice(0, 6), text: text.trim().slice(0, 4000) };
   }
 
-  async function indexPage(image) {
-    const { model, text } = await generate(image, INDEX_PROMPT, null);
+  async function indexPage(image, options = {}) {
+    const { model, text } = await generate(image, INDEX_PROMPT, null, {}, { background: options.background !== false });
     return { model, ...cleanIndex(parseJson(text)) };
   }
 
@@ -206,16 +273,20 @@ Answer with JSON only.`;
     return { model, reading: parseJson(text) };
   }
 
+  // Says what went wrong and, for the free-tier problems, which model said what (429 is Google's
+  // rate limit; 503 and 500 are Google being overloaded; 404 is a model that isn't offered).
   function explain(error) {
     const kind = error?.kind;
+    const where = error?.tried?.length ? ` (${[...new Set(error.tried)].join(", ")})` : "";
     if (kind === "key") return "Gemini didn't accept the key. Check it in Notebooks, then Smart features.";
-    if (kind === "rate") return "Gemini is rate limited right now. Try again in a minute.";
+    if (kind === "rate") return `Gemini's free limit was reached${where}. It slows down and tries again on its own.`;
     if (kind === "network") return "No connection to Gemini.";
-    if (kind === "timeout") return "Gemini took too long. Try again.";
-    if (kind === "busy" || kind === "missing") return "Gemini is busy or the model isn't available. Try again shortly.";
+    if (kind === "timeout") return `Gemini took too long${where}. It tries again on its own.`;
+    if (kind === "busy") return `Google's servers are busy${where}. It tries again on its own.`;
+    if (kind === "missing") return `None of the Gemini models answered${where}. They may not be offered to this key.`;
     if (kind === "format" || kind === "empty") return "Gemini's answer couldn't be read. Try again.";
     return error?.message || "Reading the page failed.";
   }
 
-  window.SkybridgeAI = { hasKey, getKey, setKey, indexPage, transcribe, ask, readWork, explain, cleanIndex, shortTitle, parseJson };
+  window.SkybridgeAI = { hasKey, getKey, setKey, indexPage, transcribe, ask, readWork, explain, cleanIndex, shortTitle, parseJson, timing, MODELS };
 })();
