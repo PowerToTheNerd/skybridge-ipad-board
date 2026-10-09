@@ -129,10 +129,27 @@
     <div class="setting">
       <span class="setting-head">Paper</span>
       <div class="papers" role="radiogroup" aria-label="Paper colour" id="papers"></div>
-      <div class="toggles">
-        <button type="button" class="tool" id="gridBtn" aria-pressed="true">Dot grid</button>
+      <div class="grid-row">
+        <div class="segmented grid-styles" role="radiogroup" aria-label="Paper pattern" id="gridStyles">
+          <button type="button" role="radio" data-grid="none" aria-label="Blank paper" title="Blank">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="4.5" width="15" height="15" rx="2.5" /></svg>
+          </button>
+          <button type="button" role="radio" data-grid="dots" aria-label="Dots" title="Dots">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h.01M12 6h.01M18 6h.01M6 12h.01M12 12h.01M18 12h.01M6 18h.01M12 18h.01M18 18h.01" /></svg>
+          </button>
+          <button type="button" role="radio" data-grid="square" aria-label="Square grid" title="Square grid">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 4.5h15v15h-15zM9.5 4.5v15M14.5 4.5v15M4.5 9.5h15M4.5 14.5h15" /></svg>
+          </button>
+          <button type="button" role="radio" data-grid="lined" aria-label="Lined paper" title="Lined">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7h15M4.5 12h15M4.5 17h15" /></svg>
+          </button>
+        </div>
         <button type="button" class="tool" id="grainBtn" aria-pressed="true">Paper grain</button>
       </div>
+      <label class="setting" id="gridSizeRow">
+        <span class="setting-head">Spacing <output id="gridSizeOut"></output></span>
+        <input type="range" id="gridSizeInput" min="12" max="48" step="2">
+      </label>
     </div>
     <div class="setting">
       <span class="setting-head">Finger</span>

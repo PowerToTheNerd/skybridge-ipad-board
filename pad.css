@@ -946,3 +946,21 @@ input[type="range"] {
 .text-actions { display: flex; gap: 10px; }
 .text-actions .nb-btn { flex: 1; }
 .lasso-bar .tool { white-space: nowrap; }
+
+/* Paper pattern: blank, dots, square grid or lined, as icons. */
+.segmented.grid-styles { grid-template-columns: repeat(4, 1fr); }
+.grid-styles button { display: grid; place-items: center; height: 44px; padding: 0; }
+.grid-styles svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.grid-styles [data-grid="dots"] svg { stroke-width: 2.6; }
+#gridSizeRow[hidden] { display: none; }
+.grid-row { display: flex; gap: 8px; align-items: stretch; }
+.grid-row .segmented { flex: 1; }
+.grid-row #grainBtn { height: auto; padding: 0 14px; white-space: nowrap; }
+#gridSizeRow { grid-auto-flow: column; grid-template-columns: auto 1fr; align-items: center; gap: 14px; }
+#gridSizeRow .setting-head { gap: 8px; white-space: nowrap; }
+
+/* A short, wide screen (an iPad on its side): the pen and paper panel goes two columns so it fits without scrolling. */
+@media (min-width: 900px) and (max-height: 900px) {
+  #settings { width: min(640px, calc(100vw - 24px)); grid-template-columns: 1fr 1fr; column-gap: 24px; align-items: start; }
+  #settings .preview, #settings #recenterBtn { grid-column: 1 / -1; }
+}

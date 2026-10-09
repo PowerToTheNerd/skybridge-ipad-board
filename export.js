@@ -55,22 +55,30 @@
     return box;
   }
 
-  function paint(target, width, height, scale, paper, dots, offsetX, offsetY) {
+  function paint(target, width, height, scale, paper, dots, offsetX, offsetY, style = "dots", spacing = DOT_SPACING) {
     target.fillStyle = paper;
     target.fillRect(0, 0, width, height);
-    if (!dots) return;
-    // Dots sit on the same board grid as on screen.
+    if (!dots || style === "none") return;
+    // The pattern sits on the same board grid as on screen.
     target.fillStyle = dots;
-    const radius = Math.max(1, 1.25 * scale);
-    const startX = Math.ceil(offsetX / DOT_SPACING) * DOT_SPACING;
-    const startY = Math.ceil(offsetY / DOT_SPACING) * DOT_SPACING;
-    for (let y = startY; (y - offsetY) * scale < height; y += DOT_SPACING) {
-      for (let x = startX; (x - offsetX) * scale < width; x += DOT_SPACING) {
-        target.beginPath();
-        target.arc((x - offsetX) * scale, (y - offsetY) * scale, radius, 0, Math.PI * 2);
-        target.fill();
+    const startX = Math.ceil(offsetX / spacing) * spacing;
+    const startY = Math.ceil(offsetY / spacing) * spacing;
+    if (style === "dots") {
+      const radius = Math.max(1, 1.25 * scale);
+      for (let y = startY; (y - offsetY) * scale < height; y += spacing) {
+        for (let x = startX; (x - offsetX) * scale < width; x += spacing) {
+          target.beginPath();
+          target.arc((x - offsetX) * scale, (y - offsetY) * scale, radius, 0, Math.PI * 2);
+          target.fill();
+        }
       }
+      return;
     }
+    const thick = Math.max(1, scale);
+    if (style === "square") {
+      for (let x = startX; (x - offsetX) * scale < width; x += spacing) target.fillRect(Math.round((x - offsetX) * scale), 0, thick, height);
+    }
+    for (let y = startY; (y - offsetY) * scale < height; y += spacing) target.fillRect(0, Math.round((y - offsetY) * scale), width, thick);
   }
 
   // The writing on its own layer, so erasers only cut the writing, not the paper.
@@ -212,8 +220,8 @@
     const out = makeCanvas(width * scale, height * scale);
     const ctx = out.getContext("2d");
     // Dots follow the writing's own grid; the card band shares the paper.
-    paint(ctx, out.width, out.height, scale, pad.cssColor("paper"), pad.settings.grid ? pad.cssColor("grid") : "",
-      (box ? box.x0 : 0) - (width - inkW) / 2, -cardH - (card && box ? GAP : 0));
+    paint(ctx, out.width, out.height, scale, pad.cssColor("paper"), pad.settings.grid !== "none" ? pad.cssColor("grid") : "",
+      (box ? box.x0 : 0) - (width - inkW) / 2, -cardH - (card && box ? GAP : 0), pad.settings.grid, pad.settings.gridSize);
     if (card) ctx.drawImage(card.image, MARGIN * scale, (MARGIN / 2) * scale, card.width * scale, card.height * scale);
     if (box) {
       const layer = inkLayer(strokes, box, scale, inkW * scale, inkH * scale);

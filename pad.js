@@ -21,7 +21,7 @@
     white: "Soft white",
     cream: "Cream",
   };
-  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], palette: [], rail: true, paper: "night", finger: "move", grid: true, grain: true, layout: "mine" };
+  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], palette: [], rail: true, paper: "night", finger: "move", grid: "dots", gridSize: 24, grain: true, layout: "mine" };
   const LAYOUTS = ["mine", "both", "gemini"];
 
   const el = {
@@ -59,7 +59,10 @@
     papers: document.getElementById("papers"),
     fingerModes: [...document.querySelectorAll("[data-finger]")],
     recenter: document.getElementById("recenterBtn"),
-    grid: document.getElementById("gridBtn"),
+    gridStyles: [...document.querySelectorAll("#gridStyles [data-grid]")],
+    gridSizeInput: document.getElementById("gridSizeInput"),
+    gridSizeOut: document.getElementById("gridSizeOut"),
+    gridSizeRow: document.getElementById("gridSizeRow"),
     grain: document.getElementById("grainBtn"),
     send: document.getElementById("sendBtn"),
     check: document.getElementById("checkBtn"),
@@ -150,6 +153,12 @@
   const settings = { ...DEFAULTS };
   try { Object.assign(settings, JSON.parse(storage("get", SETTINGS_KEY) || "{}")); } catch {}
   if (!(settings.paper in PAPERS)) settings.paper = DEFAULTS.paper;
+  // The pattern used to be on or off; now it is blank, dots, a square grid or lined.
+  const GRIDS = ["none", "dots", "square", "lined"];
+  if (settings.grid === true) settings.grid = "dots";
+  else if (settings.grid === false) settings.grid = "none";
+  if (!GRIDS.includes(settings.grid)) settings.grid = DEFAULTS.grid;
+  settings.gridSize = Math.min(48, Math.max(12, Number(settings.gridSize) || DEFAULTS.gridSize));
   if (!LAYOUTS.includes(settings.layout)) settings.layout = DEFAULTS.layout;
   // Smoothing and tidy got stronger defaults; settings saved before that start over on them.
   if (settings.sv !== DEFAULTS.sv) Object.assign(settings, { smooth: DEFAULTS.smooth, tidy: DEFAULTS.tidy, sv: DEFAULTS.sv });
@@ -1007,7 +1016,7 @@
     view.y = Math.round(y * 10) / 10;
     // The dot grid moves and scales with the board so it feels like paper sliding.
     el.stage.style.backgroundPosition = `${-view.x * view.zoom}px ${-view.y * view.zoom}px`;
-    el.stage.style.backgroundSize = `${24 * view.zoom}px ${24 * view.zoom}px`;
+    el.stage.style.backgroundSize = `${settings.gridSize * view.zoom}px ${settings.gridSize * view.zoom}px`;
     renderZoomPill();
     queueSave(1500);
     if (!viewFrame) {
@@ -1571,24 +1580,35 @@
   // The paper and its dots are set with resolved colours rather than left to CSS
   // variables inside a gradient, which iPad Safari doesn't always repaint.
   function paintPaper() {
-    const dots = settings.grid ? `radial-gradient(circle, ${cssColor("grid")} 1.25px, transparent 1.7px)` : "none";
+    const line = cssColor("grid");
+    const pattern = {
+      none: "none",
+      dots: `radial-gradient(circle, ${line} 1.25px, transparent 1.7px)`,
+      square: `linear-gradient(to right, ${line} 1px, transparent 1px), linear-gradient(to bottom, ${line} 1px, transparent 1px)`,
+      lined: `linear-gradient(to bottom, ${line} 1px, transparent 1px)`,
+    }[settings.grid];
     for (const target of [el.stage, el.geminiBoard]) {
-      target.style.backgroundImage = dots;
+      target.style.backgroundImage = pattern;
     }
+    el.geminiBoard.style.backgroundSize = `${settings.gridSize}px ${settings.gridSize}px`;
+    el.stage.style.backgroundSize = `${settings.gridSize * view.zoom}px ${settings.gridSize * view.zoom}px`;
     el.stage.style.backgroundColor = cssColor("paper");
     el.geminiPane.style.backgroundColor = cssColor("paper");
   }
 
   function sendPaper() {
-    send({ t: "paper", paper: settings.paper, grid: settings.grid, grain: settings.grain, smooth: settings.smooth });
+    send({ t: "paper", paper: settings.paper, grid: settings.grid !== "none", gridStyle: settings.grid, gridSize: settings.gridSize, grain: settings.grain, smooth: settings.smooth });
   }
 
   function renderSettings() {
     document.documentElement.dataset.paper = settings.paper;
-    document.documentElement.dataset.grid = settings.grid ? "on" : "off";
+    document.documentElement.dataset.grid = settings.grid === "none" ? "off" : "on";
     document.documentElement.dataset.grain = settings.grain ? "on" : "off";
     paintPaper();
-    el.grid.setAttribute("aria-pressed", String(settings.grid));
+    el.gridStyles.forEach((button) => button.setAttribute("aria-checked", String(button.dataset.grid === settings.grid)));
+    el.gridSizeInput.value = settings.gridSize;
+    el.gridSizeOut.textContent = `${settings.gridSize} px`;
+    el.gridSizeRow.hidden = settings.grid === "none";
     el.grain.setAttribute("aria-pressed", String(settings.grain));
     el.widthInput.value = settings.width;
     el.widthOut.textContent = Number(settings.width).toFixed(1);
@@ -1633,14 +1653,24 @@
     el.papers.append(button);
   });
 
-  for (const key of ["grid", "grain"]) {
-    el[key].addEventListener("click", () => {
-      settings[key] = !settings[key];
-      saveSettings();
-      renderSettings();
-      sendPaper();
-    });
-  }
+  el.grain.addEventListener("click", () => {
+    settings.grain = !settings.grain;
+    saveSettings();
+    renderSettings();
+    sendPaper();
+  });
+  el.gridStyles.forEach((button) => button.addEventListener("click", () => {
+    settings.grid = button.dataset.grid;
+    saveSettings();
+    renderSettings();
+    sendPaper();
+  }));
+  el.gridSizeInput.addEventListener("input", () => {
+    settings.gridSize = Number(el.gridSizeInput.value);
+    saveSettings();
+    renderSettings();
+    sendPaper();
+  });
 
   el.widthInput.addEventListener("input", () => {
     settings.width = Number(el.widthInput.value);
