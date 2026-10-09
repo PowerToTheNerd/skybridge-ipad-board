@@ -753,6 +753,7 @@ input[type="range"] {
   animation: rise 200ms var(--ease);
 }
 .verdict[data-state="error"] { border-color: rgba(227, 143, 143, 0.5); }
+.pin-preview { width: 100%; height: auto; border-radius: 10px; background: var(--paper, #fff); border: 1px solid var(--line, rgba(128,128,128,.3)); display: block; margin: 6px 0 10px; }
 .verdict-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .verdict-head .tool { height: 36px; padding: 0 12px; font-size: 14px; }
 .verdict p { margin: 0; overflow: auto; white-space: pre-wrap; font-size: 16px; line-height: 1.45; -webkit-user-select: text; user-select: text; }

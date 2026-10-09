@@ -72,6 +72,13 @@
     cardTitle: document.getElementById("cardTitle"),
     cardText: document.getElementById("cardText"),
     cardAnchor: document.getElementById("cardAnchor"),
+    pinFont: document.getElementById("pinFont"),
+    pinWeight: document.getElementById("pinWeight"),
+    pinColor: document.getElementById("pinColor"),
+    pinSize: document.getElementById("pinSize"),
+    pinSizeOut: document.getElementById("pinSizeOut"),
+    pinPreview: document.getElementById("pinPreview"),
+    pinRestyle: document.getElementById("pinRestyle"),
     paperPicker: document.getElementById("paperPicker"),
     paperSV: document.getElementById("paperSV"),
     paperSVKnob: document.getElementById("paperSVKnob"),
@@ -220,6 +227,8 @@
   settings.fxs = settings.fxs && typeof settings.fxs === "object" ? settings.fxs : {};
   // How a problem card looks and where it sits (Pen & paper > Card).
   const CARD_DEFAULTS = { font: "inter", size: "l", title: "auto", text: "auto", anchor: "tl" };
+  const PIN_DEFAULTS = { font: "hand", size: 24, weight: 1, color: "#8a94a0" };
+  settings.pin = { ...PIN_DEFAULTS, ...(settings.pin && typeof settings.pin === "object" ? settings.pin : {}) };
   settings.card = { ...CARD_DEFAULTS, ...(settings.card && typeof settings.card === "object" ? settings.card : {}) };
   if (!(settings.theme in THEMES)) settings.theme = DEFAULTS.theme; // the older Auto and fixed colours come back as green
   if (!/^#[0-9a-f]{6}$/i.test(settings.accent)) settings.accent = DEFAULTS.accent;
@@ -321,10 +330,15 @@
     target.font = `${size}px ${family}`;
     target.fillStyle = strokeColor(stroke.color);
     target.textBaseline = "alphabetic";
+    const thick = Number.isInteger(stroke.weight) && stroke.weight > 0 ? size * 0.03 * stroke.weight : 0; // heavier writing: an outline in the same colour
+    if (thick) { target.strokeStyle = target.fillStyle; target.lineWidth = thick; target.lineJoin = "round"; }
     const widest = Math.max(1, ...lines.map((line) => target.measureText(line).width));
     target.translate(Math.min(x0, x1), Math.min(y0, y1));
     target.scale(Math.max(0.2, Math.min(4, Math.abs(x1 - x0) / widest)), 1);
-    lines.forEach((line, i) => target.fillText(line, 0, (i * TEXT_LINE + 1) * size));
+    lines.forEach((line, i) => {
+      target.fillText(line, 0, (i * TEXT_LINE + 1) * size);
+      if (thick) target.strokeText(line, 0, (i * TEXT_LINE + 1) * size);
+    });
     target.restore();
   }
 
@@ -1763,7 +1777,7 @@
   const CARD_COLORS = [["auto", "Auto"], ["#c0392b", "Red"], ["#d9822b", "Orange"], ["#2f8f4e", "Green"], ["#2f6fd6", "Blue"], ["#7c4fd0", "Purple"]];
   const CARD_ANCHORS = [["tl", "Top left"], ["tc", "Top middle"], ["tr", "Top right"], ["br", "Bottom right"]];
 
-  function segmented(container, items, key, label) {
+  function segmented(container, items, key, label, target = null) {
     container.setAttribute("aria-label", label);
     for (const [value, text] of items) {
       const button = document.createElement("button");
@@ -1772,7 +1786,7 @@
       button.dataset.value = value;
       button.textContent = text;
       button.addEventListener("click", () => {
-        settings.card[key] = value;
+        (target || settings.card)[key] = value;
         saveSettings();
         renderSettings();
       });
@@ -1800,6 +1814,23 @@
     }
   }
   segmented(el.cardFont, CARD_FONTS, "font", "Card font");
+  const PIN_WEIGHTS = [[0, "Normal"], [1, "Medium"], [2, "Bold"], [3, "Heavy"]];
+  const PIN_COLORS = [["#8a94a0", "Grey"], ["ink", "Ink"], ["#2f6fd6", "Blue"], ["#2f8f4e", "Green"], ["#c0392b", "Red"]];
+  segmented(el.pinFont, CARD_FONTS, "font", "Pinned writing font", settings.pin);
+  segmented(el.pinWeight, PIN_WEIGHTS, "weight", "Pinned writing thickness", settings.pin);
+  for (const [value, text] of PIN_COLORS) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "paper card-dot";
+    button.setAttribute("role", "radio");
+    button.setAttribute("aria-label", text);
+    button.title = text;
+    button.dataset.value = value;
+    button.style.background = value === "ink" ? "var(--ink, #222)" : value;
+    button.addEventListener("click", () => { settings.pin.color = value; saveSettings(); renderSettings(); });
+    el.pinColor.append(button);
+  }
+  el.pinSize.addEventListener("input", () => { settings.pin.size = Number(el.pinSize.value); saveSettings(); renderPinSettings(); });
   segmented(el.cardSize, CARD_SIZES, "size", "Card size");
   segmented(el.cardAnchor, CARD_ANCHORS, "anchor", "Where the card sits");
   swatches(el.cardTitle, "title", "Card title colour");
@@ -1833,6 +1864,7 @@
     for (const [container, key] of [[el.cardFont, "font"], [el.cardSize, "size"], [el.cardAnchor, "anchor"], [el.cardTitle, "title"], [el.cardText, "text"]]) {
       container.querySelectorAll("[data-value]").forEach((button) => button.setAttribute("aria-checked", String(button.dataset.value === look[key])));
     }
+    renderPinSettings();
     // The next problem drawn uses the same font and size.
     window.SkybridgeWhiteboard?.setCardStyle?.({ font: look.font, size: look.size, color: "auto", weight: "medium" });
     el.stage.querySelectorAll(".my-board-problem").forEach(applyCardLook);
@@ -3192,29 +3224,160 @@
     for (const line of problem.lines || []) out.push("", ...givenLines(line));
     return out.join("\n").replace(/\n+$/, "");
   }
+  // A given line as pieces: text labels and matrices (rows of cells).
+  function givenPieces(latex) {
+    const pieces = [];
+    let last = 0;
+    const pattern = /\\begin\{[bpvBV]?matrix\}([\s\S]*?)\\end\{[bpvBV]?matrix\}/g;
+    for (let hit = pattern.exec(latex); hit; hit = pattern.exec(latex)) {
+      const label = latexPlain(latex.slice(last, hit.index));
+      if (label) pieces.push({ label });
+      const rows = hit[1].split(/\\\\/).map((row) => row.split("&").map((cell) => latexPlain(cell))).filter((row) => row.some(Boolean));
+      if (rows.length) pieces.push({ rows });
+      last = pattern.lastIndex;
+    }
+    const rest = latexPlain(latex.slice(last));
+    if (rest) pieces.push({ label: rest });
+    return pieces;
+  }
+
+  // The problem as strokes: the words as text, every matrix as a grid of entries with brackets drawn to its size.
+  // All carry pin (so Check my work never reads them) and pg (so they restyle together).
+  function pinStrokes(problem, style, x, y, pg) {
+    const Marks = window.SkybridgeMarks;
+    const size = style.size;
+    const font = style.font in TEXT_FAMILIES ? style.font : "hand";
+    const base = { color: style.color, eraser: false, hl: false, width: 1, sim: false, clean: true, pin: true, pg, weight: style.weight };
+    const out = [];
+    const text = (words, left, top) => {
+      const box = textBox(words, size, font);
+      out.push({ ...base, id: newId(), text: words, font, points: [[left, top], [left + box.width, top + box.height]] });
+      return box;
+    };
+    const head = [problem.title, "", ...wrapWords(problem.text, Math.max(24, Math.round(1000 / size)))].join("\n");
+    let top = y + text(head, x, y).height + size * 0.9;
+    const inkWidth = 1.6 + style.weight * 0.9;
+    const gapX = size * 0.8;
+    const rowH = size * 1.55;
+    for (const line of problem.lines || []) {
+      const pieces = givenPieces(line);
+      const measured = pieces.map((piece) => {
+        if (piece.label) { const box = textBox(piece.label, size, font); return { piece, width: box.width, height: box.height }; }
+        const columns = Math.max(...piece.rows.map((row) => row.length));
+        const widths = Array.from({ length: columns }, (_, c) => Math.max(...piece.rows.map((row) => (row[c] ? textBox(row[c], size, font).width : 0))));
+        return { piece, widths, width: widths.reduce((a, b) => a + b, 0) + gapX * (columns - 1), height: piece.rows.length * rowH };
+      });
+      const lineH = Math.max(size * TEXT_LINE, ...measured.map((m) => m.height));
+      let left = x + size * 0.9;
+      for (const m of measured) {
+        if (m.piece.label) {
+          text(m.piece.label, left, top + (lineH - m.height) / 2);
+          left += m.width + size * 0.5;
+          continue;
+        }
+        const originY = top + (lineH - m.height) / 2;
+        m.piece.rows.forEach((row, r) => {
+          let cx = left;
+          row.forEach((cell, c) => {
+            if (cell) {
+              const w = textBox(cell, size, font).width;
+              text(cell, cx + (m.widths[c] - w) / 2, originY + r * rowH + (rowH - size * TEXT_LINE) / 2);
+            }
+            cx += m.widths[c] + gapX;
+          });
+        });
+        const box = [left, originY, left + m.width, originY + m.height];
+        const marks = Marks ? Marks.brackets(box, {}) : { strokes: [] };
+        for (const bracket of marks.strokes) out.push({ ...base, id: newId(), width: inkWidth, points: bracket.points });
+        left += m.width + (marks.gap || 24) * 2 + size * 0.5;
+      }
+      top += lineH + size * 1.4;
+    }
+    return out;
+  }
+
   async function pinProblem() {
     const problem = nb?.problem;
     if (!problem || problem.pinned) return;
-    try { await document.fonts.load('22px "Skybridge JetBrains Mono"'); } catch {}
-    const text = problemAsText(problem);
-    const size = 22;
-    const box = textBox(text, size, "jetbrains");
+    const style = settings.pin;
+    try { await document.fonts.load(`${style.size}px ${TEXT_FAMILIES[style.font] || TEXT_FAMILIES.hand}`); } catch {}
     const x = view.x + 120 / view.zoom; // clear of the tool rail
     const y = view.y + 84 / view.zoom;
-    const made = { id: newId(), color: "#8a94a0", eraser: false, hl: false, width: 1, sim: false, clean: true, pin: true, text, font: "jetbrains", points: [[x, y], [x + box.width, y + box.height]] };
-    const item = { s: made, i: strokes.length };
-    boards.mine.put([item]);
-    record("mine", [], [item]);
+    const made = pinStrokes(problem, style, x, y, newId());
+    const items = made.map((s, k) => ({ s, i: strokes.length + k }));
+    boards.mine.put(items);
+    record("mine", [], items);
     lastBoard = "mine";
     nb.problem = { ...problem, pinned: true };
     saving = saving.then(() => Notebooks.save(nb.id, { meta: { problem: nb.problem }, touch: false })).catch(() => {});
     el.stage.querySelector(".my-board-problem")?._practice && showPracticeCard(nb.problem);
-    lasso.selected = strokes.filter((stroke) => stroke.id === made.id);
+    const ids = new Set(made.map((s) => s.id));
+    lasso.selected = strokes.filter((stroke) => ids.has(stroke.id));
     rebuildBase();
     positionLasso();
     schedulePaint();
     toast("Pinned to the page. Lasso it to move it.", { label: "Undo", run: unpinProblem });
   }
+
+  // Write the pinned problem again in the style chosen in Settings, where it sits now.
+  function restylePin() {
+    const old = strokes.filter((stroke) => stroke.pin);
+    const problem = nb?.problem;
+    if (!old.length || !problem?.pinned) { toast("No pinned problem on this page"); return; }
+    const anchor = (old.find((stroke) => stroke.text) || old[0]).points;
+    const x = Math.min(anchor[0][0], anchor[1][0]);
+    const y = Math.min(anchor[0][1], anchor[1][1]);
+    const before = old.map((stroke) => itemOf(strokes, stroke));
+    const made = pinStrokes(problem, settings.pin, x, y, newId());
+    before.forEach(({ s }) => boards.mine.remove(s.id));
+    const items = made.map((s, k) => ({ s, i: strokes.length + k }));
+    boards.mine.put(items);
+    record("mine", before, items);
+    lastBoard = "mine";
+    const ids = new Set(made.map((s) => s.id));
+    lasso.selected = strokes.filter((stroke) => ids.has(stroke.id));
+    rebuildBase();
+    positionLasso();
+    schedulePaint();
+    toast("Pinned problem restyled", { label: "Undo", run: undoAction });
+  }
+  el.pinRestyle.addEventListener("click", restylePin);
+
+  // Settings: the choices, a preview drawn by the same code that pins, and the Restyle button.
+  function renderPinSettings() {
+    const look = settings.pin;
+    for (const container of [el.pinFont, el.pinWeight, el.pinColor]) {
+      const key = container === el.pinFont ? "font" : container === el.pinWeight ? "weight" : "color";
+      container.querySelectorAll("[data-value]").forEach((button) => button.setAttribute("aria-checked", String(button.dataset.value === String(look[key]))));
+    }
+    el.pinSize.value = look.size;
+    el.pinSizeOut.textContent = `${look.size}`;
+    el.pinRestyle.hidden = !(nb?.problem?.pinned && strokes.some((stroke) => stroke.pin));
+    // The preview is drawn again once the chosen font has loaded.
+    const fontKey = `${look.size}px ${TEXT_FAMILIES[look.font] || TEXT_FAMILIES.hand}`;
+    if (renderPinSettings.loaded !== fontKey) {
+      renderPinSettings.loaded = fontKey;
+      document.fonts.load(fontKey).then(() => { if (renderPinSettings.loaded === fontKey) renderPinSettings(); }, () => {});
+    }
+    try {
+      const canvas = el.pinPreview;
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const sample = { title: "Row reduce", text: "Find the inverse of A.", lines: ["A = \\begin{bmatrix} 1 & 2 \\\\ 3 & 5 \\end{bmatrix}"] };
+      const made = pinStrokes(sample, look, 0, 0, "preview");
+      const xs = made.flatMap((s) => s.points.map((p) => p[0]));
+      const ys = made.flatMap((s) => s.points.map((p) => p[1]));
+      const minX = Math.min(...xs);
+      const minY = Math.min(...ys);
+      const scale = Math.min(1, (canvas.width - 32) / (Math.max(...xs) - minX || 1), (canvas.height - 32) / (Math.max(...ys) - minY || 1));
+      ctx.save();
+      ctx.translate(16 - minX * scale, 16 - minY * scale);
+      ctx.scale(scale, scale);
+      made.forEach((stroke) => drawStroke(ctx, stroke));
+      ctx.restore();
+    } catch {}
+  }
+
   function unpinProblem() {
     undoAction();
     if (!nb?.problem?.pinned) return;
