@@ -3331,8 +3331,8 @@
       return box;
     };
     // The drawing: pencil in the matrix ink colour (labels like "A =" in the hand font).
-    const label = (text, left, top) => {
-      const box = textBox(text, size, "hand");
+    const label = (text, left, top, scale = 1) => {
+      const box = textBox(text, size * scale, "hand");
       out.push({ ...base, id: newId(), color: style.ink, weight: 0, text, font: "hand", points: [[left, top], [left + box.width, top + box.height]] });
       return box;
     };
@@ -3347,20 +3347,23 @@
     for (const line of problem.lines || []) {
       const pieces = givenPieces(line);
       const measured = pieces.map((piece) => {
-        if (piece.label) { const box = textBox(piece.label, size, "hand"); return { piece, width: box.width, height: box.height }; }
+        if (piece.label) { const box = textBox(piece.label, size * 1.15, "hand"); return { piece, width: box.width, height: box.height }; }
         const cells = piece.rows.map((row, r) => row.map((cell, c) => (cell ? Marks?.numeral(cell, 0, 0, digit) || { text: cell, width: textBox(cell, size, "hand").width } : { width: 0 })));
         const columns = Math.max(...cells.map((row) => row.length));
         const widths = Array.from({ length: columns }, (_, c) => Math.max(...cells.map((row) => row[c]?.width || 0)));
         return { piece, cells, widths, width: widths.reduce((a, b) => a + b, 0) + gapX * (columns - 1), height: piece.rows.length * rowH };
       });
       const lineH = Math.max(size * TEXT_LINE, ...measured.map((m) => m.height));
-      let left = x + size * 0.9;
+      let left = x; // flush with the wording above
       for (const m of measured) {
         if (m.piece.label) {
-          label(m.piece.label, left, top + (lineH - m.height) / 2);
-          left += m.width + size * 0.5;
+          label(m.piece.label, left, top + (lineH - m.height) / 2, 1.15);
+          left += m.width + size * 0.3;
           continue;
         }
+        // The left bracket stands a little outside the entries: leave room for it, plus a steady gap after the label.
+        const bracketGap = Marks ? Marks.brackets([0, 0, 1, (m.piece.rows.length - 1) * rowH + digit], {}).gap : 20;
+        left += bracketGap + size * 0.45;
         const originY = top + (lineH - m.height) / 2;
         const rowTop = (r) => originY + r * rowH + (rowH - digit) / 2;
         m.piece.rows.forEach((row, r) => {
@@ -3378,7 +3381,7 @@
         const box = [left, rowTop(0), left + m.width, rowTop(m.piece.rows.length - 1) + digit];
         const marks = Marks ? Marks.brackets(box, {}) : { strokes: [] };
         pencil(marks.strokes, 2.2);
-        left += m.width + (marks.gap || 24) * 2 + size * 0.5;
+        left += m.width + bracketGap + size * 0.9;
       }
       top += lineH + size * 1.2;
     }
