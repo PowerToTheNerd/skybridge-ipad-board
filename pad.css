@@ -700,7 +700,7 @@ input[type="range"] {
   height: 18px;
   border: 2px solid var(--pen-accent, var(--accent));
   border-radius: 50%;
-  background: var(--bg);
+  background: var(--surface-raised);
   touch-action: none;
 }
 .lasso-handle::after { content: ""; position: absolute; inset: -14px; }
@@ -717,7 +717,8 @@ input[type="range"] {
   cursor: default;
 }
 .lasso-bar.below { bottom: auto; top: calc(100% + 12px); }
-.lasso-bar .tool { height: 40px; padding: 0 14px; background: var(--surface); }
+.lasso-bar .tool { height: 40px; padding: 0 14px; background: var(--surface-raised); border-color: var(--edge-hi, var(--edge)); color: var(--text); }
+.lasso-bar .tool:active:not(:disabled) { border-color: var(--accent); }
 .toast button {
   margin-left: 10px;
   padding: 4px 12px;
@@ -937,7 +938,7 @@ input[type="range"] {
   margin: -11px 0 0 -11px;
   border: 2px solid var(--pen-accent, var(--accent));
   border-radius: 50%;
-  background: var(--bg);
+  background: var(--surface-raised);
   touch-action: none;
   cursor: grab;
 }

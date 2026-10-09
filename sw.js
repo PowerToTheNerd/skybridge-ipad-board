@@ -5,7 +5,7 @@
  * the iPad fetch the new files) and the list of every file the board needs. Notebooks are not
  * kept here; they are in IndexedDB (notebooks.js).
  */
-const VERSION = "627bc80ba129";
+const VERSION = "d98b0c4223f1";
 const CACHE = `skybridge-board-${VERSION}`;
 // Paths are relative to where this file lives, so the same file works at the root of the PC relay
 // and in a folder of a static site (like https://name.github.io/board/).
