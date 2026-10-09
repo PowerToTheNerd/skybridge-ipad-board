@@ -3709,6 +3709,7 @@
 
   const ICON_PENCIL = '<path d="m12.5 4.5 3 3M4 16l.7-3.3L13.6 3.8a1.4 1.4 0 0 1 2 0l.6.6a1.4 1.4 0 0 1 0 2l-8.9 8.9z"/>';
   const ICON_TRASH = '<path d="M4.5 6h11M8 6V4.2h4V6M6 6l.6 9.5h6.8L14 6"/>';
+  const ICON_REFRESH = '<path d="M16 10a6 6 0 1 1-1.8-4.2M16 3.5v3h-3"/>';
   const ICON_CHECK = '<path d="m4.5 10.5 3.5 3.5 7.5-8"/>';
   function iconButton(button, label, path) {
     button.setAttribute("aria-label", label);
@@ -3769,9 +3770,17 @@
       remove.className = "nb-act danger";
       iconButton(remove, "Delete", ICON_TRASH);
       remove.addEventListener("click", () => deleteNotebook(book.id));
+      const reread = document.createElement("button");
+      reread.type = "button";
+      reread.className = "nb-act";
+      iconButton(reread, "Read this page again", ICON_REFRESH);
+      reread.addEventListener("click", async () => {
+        reread.disabled = true;
+        try { toast(await window.SkybridgeSmart.reread(book.id)); } finally { reread.disabled = false; renderNotebookList(); }
+      });
       const actions = document.createElement("span");
       actions.className = "nb-acts";
-      actions.append(rename, remove);
+      actions.append(rename, ...(window.SkybridgeSmart?.reread ? [reread] : []), remove);
       row.append(main, actions);
       return row;
     });

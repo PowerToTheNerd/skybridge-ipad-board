@@ -91,6 +91,7 @@
     else wait.reject(Object.assign(new Error(result.error || "The PC couldn't read the page."), { kind: "pc" }));
   }
 
+  const manual = new Set(); // pages you asked to be read again
   async function readNotebook(meta, how) {
     const found = await Notebooks.load(meta.id);
     if (!found) return;
@@ -115,6 +116,7 @@
       if (!meta.named && title !== "Untitled page") changes.name = title;
     }
     await bridge.saveMeta(meta.id, changes);
+    manual.delete(meta.id);
     return changes.name || "";
   }
 
@@ -165,9 +167,9 @@
 
   async function dueNotebooks() {
     const books = await Notebooks.list();
-    // Names made before titles were kept short are read again, once, to get a short one.
-    const longName = (book) => !book.named && (book.title || "").length > AI.shortTitle(book.title).length;
-    const unread = books.filter((book) => book.count >= MIN_STROKES && book.hash && (book.hash !== book.readHash || longName(book)));
+    // A page is read once. After that (named by a reader or by you) it is left alone, however much you write
+    // on it, until you ask for it again (Re-read on the page's row in the notebook list).
+    const unread = books.filter((book) => book.count >= MIN_STROKES && book.hash && (manual.has(book.id) || (!book.readHash && !book.named)));
     waiting = unread.length;
     return unread;
   }
@@ -251,6 +253,14 @@
     } finally {
       force = false;
     }
+  }
+
+  // Read one page again because you asked. A manual name is kept; the tags and searchable text are refreshed.
+  async function reread(id) {
+    manual.add(id);
+    const text = await readNow();
+    manual.delete(id);
+    return text;
   }
 
   function touched() {
@@ -372,7 +382,7 @@ Look at their work step by step and say, in three or four short sentences, wheth
   }
 
   window.SkybridgeSmart = {
-    init, touched, pump, readNow, convert, onRelay, search, check, status, timing, pending: () => waiting,
+    init, touched, pump, readNow, reread, convert, onRelay, search, check, status, timing, pending: () => waiting,
     onStatus: (fn) => listeners.add(fn),
     onNotice: (fn) => noticeListeners.add(fn),
   };
