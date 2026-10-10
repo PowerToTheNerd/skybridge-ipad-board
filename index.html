@@ -289,6 +289,18 @@
     </div>
     <div class="pages nb-pages" id="nbPages">
       <div class="page" data-page="books" role="tabpanel">
+        <div class="nb-folds nb-backup-wrap">
+          <details class="nb-fold" id="backupFold">
+            <summary><span>Back up or move notebooks</span><output id="backupOut"></output></summary>
+            <div class="nb-fold-body">
+              <p class="nb-hint">Chrome, Safari and the Home Screen app each keep their own notebooks. To move them, back up in one and restore in the other. Restoring only adds, and the file has no Gemini key.</p>
+              <button type="button" class="nb-btn" id="backupMake">Back up everything</button>
+              <button type="button" class="nb-btn" id="backupRestore">Restore from a backup</button>
+              <input type="file" id="backupFile" accept="application/json,.json" hidden>
+              <p class="nb-fine" id="backupNote" aria-live="polite"></p>
+            </div>
+          </details>
+        </div>
         <label class="nb-searchbox">
           <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.6" cy="8.6" r="5.2"/><path d="m12.6 12.6 4 4"/></svg>
           <input type="search" class="nb-search" id="notebookSearch" placeholder="Search notebooks" aria-label="Search names, tags and handwriting" autocapitalize="off" autocorrect="off" spellcheck="false">
@@ -532,7 +544,18 @@
     </div>
     <button type="button" class="tool wide" id="exportPngBtn">Save image (PNG)</button>
     <button type="button" class="tool wide" id="exportPdfBtn">Save as PDF</button>
-    <p class="setting-hint">The image goes to the share sheet: Save Image, Files, Messages. The PDF opens a print page with your board and Gemini's steps. Choose Print, then pinch the preview to save it.</p>
+    <button type="button" class="tool wide" id="exportLumenBtn">Send to Lumen</button>
+    <button type="button" class="tool wide" id="openDrawingBtn">Open a drawing from Lumen</button>
+    <input type="file" id="drawingFile" accept=".json,application/json" hidden>
+    <div class="lumen-pick" id="lumenPick" hidden>
+      <div class="setting">
+        <span class="setting-head">Which Lumen folder?</span>
+        <span class="setting-hint" id="lumenSuggest"></span>
+      </div>
+      <div class="lumen-folders" id="lumenFolders" role="list"></div>
+      <button type="button" class="tool wide" id="lumenPickCancel">Cancel</button>
+    </div>
+    <p class="setting-hint">The image goes to the share sheet: Save Image, Files, Messages. The PDF opens a print page with your board and Gemini's steps. Choose Print, then pinch the preview to save it. Send to Lumen asks which Lumen folder the page goes in (with Gemini's suggestion when you have a key), then goes straight to Lumen on your PC when it is connected. Otherwise it saves a .skybridge.json file (a picture plus every stroke): save it to the matching folder in Google Drive › Lumen Inbox, or open it in Lumen with Add a drawing. Open a drawing from Lumen brings one back here to keep writing.</p>
   </section>
 
   <section class="offline" id="offline" role="alert" hidden>
@@ -592,5 +615,6 @@
   <script src="./effects.js"></script>
   <script src="./export.js"></script>
   <script src="./helpsheets.js"></script>
+  <script src="./backup.js"></script>
 </body>
 </html>

@@ -22,7 +22,14 @@
     open: document.getElementById("exportBtn"),
     png: document.getElementById("exportPngBtn"),
     pdf: document.getElementById("exportPdfBtn"),
+    lumen: document.getElementById("exportLumenBtn"),
+    openDrawing: document.getElementById("openDrawingBtn"),
+    drawingFile: document.getElementById("drawingFile"),
     note: document.getElementById("exportNote"),
+    pick: document.getElementById("lumenPick"),
+    suggest: document.getElementById("lumenSuggest"),
+    folders: document.getElementById("lumenFolders"),
+    pickCancel: document.getElementById("lumenPickCancel"),
   };
 
   function makeCanvas(width, height) {
@@ -321,6 +328,283 @@
     return "Image saved";
   }
 
+  // ---------------------------------------------------------------------------
+  // Lumen: a "Skybridge drawing" file (format skybridge-drawing, version 1) holds a
+  // picture of the page for Lumen to show and the page itself (strokes, view, photos)
+  // so the drawing can come back here unchanged. Lumen replaces, rather than copies,
+  // a drawing it already has with the same id.
+  // ---------------------------------------------------------------------------
+  const DRAWING_FORMAT = "skybridge-drawing";
+  const DRAWING_VERSION = 1;
+  const books = () => window.SkybridgeNotebooks;
+
+  async function share(file, title) {
+    if (navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title });
+        return true;
+      } catch (error) {
+        if (error?.name === "AbortError") return false;
+      }
+    }
+    const url = URL.createObjectURL(file);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = file.name;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    return true;
+  }
+
+  // A sharp picture that still fits comfortably in a Lumen note (about 6 MB at most).
+  const MAX_PREVIEW = 6e6;
+  function previewOf(canvas) {
+    let source = canvas;
+    let data = canvas.toDataURL("image/png");
+    while (data.length > MAX_PREVIEW && source.width > 800) {
+      const smaller = makeCanvas(source.width * 0.75, source.height * 0.75);
+      const ctx = smaller.getContext("2d");
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(source, 0, 0, smaller.width, smaller.height);
+      source = smaller;
+      data = source.toDataURL("image/png");
+    }
+    if (data.length > MAX_PREVIEW) data = source.toDataURL("image/jpeg", 0.9);
+    return { data, width: source.width, height: source.height };
+  }
+
+  const fileStem = (title) => title.replace(/[^\p{L}\p{N} _-]+/gu, "").trim().slice(0, 60) || "drawing";
+
+  async function drawingData() {
+    await pad.flush?.();
+    const id = books()?.current();
+    const page = id ? await books().load(id) : null;
+    const strokes = (page?.strokes || pad.strokes).filter((stroke) => stroke.points?.length);
+    const { canvas } = await renderBoard({ strokes });
+    const meta = page?.meta || { id: id || `board-${Date.now().toString(36)}`, name: "Skybridge board" };
+    const pics = books() ? [...(await books().getPics(strokes.filter((stroke) => stroke.img).map((stroke) => stroke.img))).values()] : [];
+    const title = meta.named ? meta.name : meta.title || meta.name || "Skybridge board";
+    const drawing = {
+      format: DRAWING_FORMAT,
+      version: DRAWING_VERSION,
+      id: meta.id,
+      title,
+      app: "skybridge",
+      exportedAt: Date.now(),
+      preview: previewOf(canvas),
+      board: {
+        meta,
+        strokes,
+        view: page?.view || { x: 0, y: 0, zoom: 1 },
+        paper: { color: pad.cssColor("paper"), grid: pad.settings.grid, gridSize: pad.settings.gridSize },
+      },
+      pictures: pics,
+    };
+    const name = `${fileStem(title)}.skybridge.json`;
+    return { name, drawing, canvas };
+  }
+
+  async function drawingFile() {
+    const { name, drawing } = await drawingData();
+    return new File([JSON.stringify(drawing)], name, { type: "application/json" });
+  }
+
+  // With the PC connected, its Skybridge server writes the drawing into Lumen's inbox folder
+  // and Lumen files it. Otherwise the share sheet saves it, for example to a Google Drive
+  // folder that Lumen checks on the PC.
+  const waiting = new Map();
+  function viaPc(name, drawing, size) {
+    const relay = pad.relay;
+    // The PC link carries up to 16 MB in one message; bigger drawings go through the share sheet.
+    if (!relay?.ready() || size > 15e6) return null;
+    const id = Math.random().toString(36).slice(2, 10);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        waiting.delete(id);
+        resolve({ ok: false, error: "Your PC didn't answer." });
+      }, 30000);
+      waiting.set(id, (result) => {
+        clearTimeout(timer);
+        resolve(result);
+      });
+      relay.send({ t: "lumen", id, name, drawing });
+    });
+  }
+
+  function onRelay(message) {
+    const done = waiting.get(message.id);
+    if (!done) return;
+    waiting.delete(message.id);
+    done(message);
+  }
+
+  // Lumen's folders, as Lumen last listed them in its inbox. Kept here, so the picker also
+  // works when the PC is off (the drawing then goes to the matching Google Drive folder).
+  const FOLDERS_KEY = "skybridge.lumenFolders";
+  const cachedFolders = () => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(FOLDERS_KEY) || "[]");
+      return Array.isArray(saved) ? saved.filter((path) => typeof path === "string") : [];
+    } catch {
+      return [];
+    }
+  };
+  async function lumenFolders() {
+    const relay = pad.relay;
+    if (relay?.ready()) {
+      const id = Math.random().toString(36).slice(2, 10);
+      const answer = await new Promise((resolve) => {
+        const timer = setTimeout(() => { waiting.delete(id); resolve(null); }, 4000);
+        waiting.set(id, (message) => { clearTimeout(timer); resolve(message); });
+        relay.send({ t: "lumen-folders", id });
+      });
+      if (answer?.ok && Array.isArray(answer.folders)) {
+        const folders = answer.folders.filter((path) => typeof path === "string").slice(0, 500);
+        try { localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders)); } catch {}
+        return folders;
+      }
+    }
+    return cachedFolders();
+  }
+
+  // A small picture for the folder suggestion, as the page namer uses.
+  function smallPicture(canvas, side = 768) {
+    const scale = Math.min(1, side / Math.max(canvas.width, canvas.height));
+    const out = makeCanvas(canvas.width * scale, canvas.height * scale);
+    out.getContext("2d").drawImage(canvas, 0, 0, out.width, out.height);
+    return out.toDataURL("image/png").split(",")[1];
+  }
+
+  // Lists Lumen's folders with Gemini's pick first once it answers. Resolves with the
+  // chosen path ("" for no folder, Lumen's Skybridge folder) and Gemini's name and tags
+  // for the page if they came in time, or with null when cancelled.
+  function chooseFolder(folders, drawing, canvas) {
+    const AI = window.SkybridgeAI;
+    let suggested = "";
+    let labels = null;
+    const draw = () => {
+      const order = suggested ? [suggested, ...folders.filter((path) => path !== suggested)] : folders;
+      el.folders.replaceChildren(
+        ...[...order, ""].map((path) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = `tool wide${path && path === suggested ? " suggested" : ""}`;
+          button.dataset.folder = path;
+          button.setAttribute("role", "listitem");
+          button.textContent = path ? path.split("/").join(" › ") : "No folder (Skybridge)";
+          if (path && path === suggested) {
+            const tag = document.createElement("small");
+            tag.textContent = "Suggested";
+            button.append(tag);
+          }
+          return button;
+        }),
+      );
+    };
+    draw();
+    el.sheet.classList.add("picking");
+    el.pick.hidden = false;
+    el.suggest.textContent = AI?.hasKey() ? "Asking Gemini where it fits…" : "Choose where it goes in Lumen.";
+    let open = true;
+    if (AI?.hasKey()) {
+      AI.suggestFolder(smallPicture(canvas), { title: drawing.title, tags: drawing.board?.meta?.tags || [] }, folders)
+        .then((answer) => {
+          if (!open) return;
+          suggested = answer.folder;
+          labels = answer;
+          el.suggest.textContent = suggested
+            ? `Suggested: ${suggested.split("/").join(" › ")}${answer.why ? `. ${answer.why}` : ""}`
+            : "No folder stood out. Choose one, or send it without a folder.";
+          draw();
+        })
+        .catch((error) => {
+          if (open) el.suggest.textContent = `No suggestion (${AI.explain?.(error) || "Gemini didn't answer"}). Choose a folder.`;
+        });
+    }
+    return new Promise((resolve) => {
+      const finish = (value) => {
+        open = false;
+        el.folders.removeEventListener("click", onPick);
+        el.pickCancel.removeEventListener("click", onCancel);
+        el.sheet.classList.remove("picking");
+        el.pick.hidden = true;
+        resolve(value === null ? null : { folder: value, labels });
+      };
+      const onPick = (event) => {
+        const button = event.target.closest("button[data-folder]");
+        if (button) finish(button.dataset.folder);
+      };
+      const onCancel = () => finish(null);
+      el.folders.addEventListener("click", onPick);
+      el.pickCancel.addEventListener("click", onCancel);
+    });
+  }
+
+  async function sendToLumen() {
+    const data = await drawingData();
+    const { drawing, canvas } = data;
+    let { name } = data;
+    const folders = await lumenFolders();
+    if (folders.length) {
+      const chosen = await chooseFolder(folders, drawing, canvas);
+      if (chosen === null) return "";
+      if (chosen.folder) drawing.folder = chosen.folder;
+      const meta = drawing.board?.meta || {};
+      // A page you named, or one the page namer already read, keeps its name.
+      if (chosen.labels?.title && !meta.named && !meta.title) {
+        drawing.title = chosen.labels.title;
+        name = `${fileStem(drawing.title)}.skybridge.json`;
+      }
+      if (!meta.tags?.length && chosen.labels?.tags?.length) drawing.tags = chosen.labels.tags;
+    }
+    const tags = drawing.board?.meta?.tags;
+    if (Array.isArray(tags) && tags.length) drawing.tags = tags.slice(0, 12);
+    const text = JSON.stringify(drawing);
+    const file = new File([text], name, { type: "application/json" });
+    const where = drawing.folder ? `Lumen Inbox › ${drawing.folder.split("/").join(" › ")}` : "Lumen Inbox";
+    const sent = viaPc(name, drawing, text.length);
+    if (sent) {
+      const result = await sent;
+      if (result.ok) return result.message || "Sent to Lumen on your PC";
+      pad.toast(`${result.error || "Couldn't reach Lumen on your PC."} Save it to ${where} in Google Drive instead?`, {
+        label: "Save",
+        run: () => void share(file, "Send to Lumen"),
+      });
+      return "";
+    }
+    // Shown while the share sheet is open. The tap on a folder above lets the sheet open.
+    pad.toast(`To reach Lumen with your PC off, save it in Google Drive › ${where}`);
+    return (await share(file, "Send to Lumen")) ? "Saved for Lumen" : "";
+  }
+
+  // A drawing that went to Lumen comes back as the same notebook page, replacing the
+  // copy here if there is one, then opens.
+  async function openDrawing(file) {
+    if (!file) return "";
+    let drawing;
+    try {
+      drawing = JSON.parse(await file.text());
+    } catch {
+      throw new Error("That file isn't a drawing. In Lumen, use Save for Skybridge Board on the drawing.");
+    }
+    if (drawing?.format !== DRAWING_FORMAT || drawing.version !== DRAWING_VERSION) throw new Error("That file isn't a Skybridge drawing.");
+    const board = drawing.board;
+    if (!board || !Array.isArray(board.strokes) || !board.meta?.id) throw new Error("This drawing is a picture only. Add it with Photo instead.");
+    if (!books()) throw new Error("Notebooks aren't available here.");
+    await pad.flush?.();
+    await books().restore({
+      meta: { ...board.meta, updated: Date.now(), unsynced: true },
+      strokes: board.strokes,
+      view: board.view || { x: 0, y: 0, zoom: 1 },
+      pics: Array.isArray(drawing.pictures) ? drawing.pictures : [],
+    });
+    books().setCurrent(board.meta.id);
+    location.reload();
+    return "";
+  }
+
   async function savePdf() {
     // Open the window first: browsers only allow it straight after the tap.
     const win = window.open("", "skybridge-export");
@@ -447,7 +731,7 @@ button{font:inherit;padding:10px 16px;margin:0 0 12px;border-radius:10px;border:
 
   async function run(button, task) {
     const label = button.textContent;
-    el.png.disabled = el.pdf.disabled = true;
+    el.png.disabled = el.pdf.disabled = el.lumen.disabled = el.openDrawing.disabled = true;
     button.textContent = "Working…";
     try {
       const message = await task();
@@ -457,7 +741,7 @@ button{font:inherit;padding:10px 16px;margin:0 0 12px;border-radius:10px;border:
       pad.toast(error?.message || "Couldn't export");
     } finally {
       button.textContent = label;
-      el.png.disabled = el.pdf.disabled = false;
+      el.png.disabled = el.pdf.disabled = el.lumen.disabled = el.openDrawing.disabled = false;
     }
   }
 
@@ -479,6 +763,13 @@ button{font:inherit;padding:10px 16px;margin:0 0 12px;border-radius:10px;border:
   el.open.addEventListener("click", () => setSheet(el.sheet.hidden));
   el.png.addEventListener("click", () => run(el.png, savePng));
   el.pdf.addEventListener("click", () => run(el.pdf, savePdf));
+  el.lumen.addEventListener("click", () => run(el.lumen, sendToLumen));
+  el.openDrawing.addEventListener("click", () => el.drawingFile.click());
+  el.drawingFile.addEventListener("change", () => {
+    const file = el.drawingFile.files?.[0];
+    el.drawingFile.value = "";
+    run(el.openDrawing, () => openDrawing(file));
+  });
   pad.stage.addEventListener("pointerdown", () => setSheet(false), true);
-  window.SkybridgeExport = { renderBoard, geminiPicture, savePng, savePdf, exportFolder, folderPages };
+  window.SkybridgeExport = { renderBoard, geminiPicture, savePng, savePdf, exportFolder, folderPages, drawingFile, sendToLumen, openDrawing, onRelay };
 })();

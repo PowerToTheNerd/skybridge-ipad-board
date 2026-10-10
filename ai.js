@@ -532,5 +532,33 @@ Say each number as it is written, say "equals", "plus", "minus" and "times" for 
     return error?.message || "Reading the page failed.";
   }
 
-  window.SkybridgeAI = { hasKey, hasGeminiKey, modelState: () => MODELS.map((name) => ({ model: name, rest: restWhy.get(name) || "", missing: missing.has(name) })), getKey, setKey, usage, liveStatus, onUsage: (fn) => { usageListeners.add(fn); window.SkybridgeLive?.onUsage(fn); }, LIMITS, indexPage, transcribe, ask, askPdf, askPage, readWork, localWillRead, explain, busy, cleanIndex, shortTitle, parseJson, timing, MODELS };
+  // Send to Lumen: which of Lumen's folders a page belongs in. Only the folder names, the page's
+  // name and tags, and a small picture of it are sent. The answer is only a suggestion.
+  const FOLDER_SCHEMA = {
+    type: "object",
+    properties: { folder: { type: "string" }, why: { type: "string" }, title: { type: "string" }, tags: { type: "array", items: { type: "string" } } },
+    required: ["folder", "title"],
+  };
+  function folderPrompt(page, folders) {
+    return `You file handwritten study pages into folders in a notes app.
+Page name: ${String(page.title || "untitled").slice(0, 120)}
+Page tags: ${(page.tags || []).slice(0, 12).join(", ") || "none"}
+Folders (one per line, "/" separates a folder from the one inside it):
+${folders.slice(0, 300).join("\n")}
+
+Pick the single folder from the list where this page fits best, looking at the picture too. Copy its path exactly. If none fits, answer with an empty folder. Give the reason in a few words.
+Also give the page a short title (at most 6 words) that says what it is about, such as "Inverse of a 2x2 matrix", and 2 to 5 lowercase topic tags.`;
+  }
+  async function suggestFolder(image, page, folders) {
+    const prompt = folderPrompt(page, folders);
+    const live = { prompt: `${prompt}\nAnswer with ONLY one JSON object like {"folder": "...", "why": "...", "title": "...", "tags": ["..."]}. No speech before or after it, no code fence.`, toJson: (said) => JSON.stringify(parseJson(said)) };
+    const { model, text } = await generate(image, prompt, FOLDER_SCHEMA, { temperature: 0 }, { background: false, feature: "folder", live });
+    const data = parseJson(text);
+    const wanted = String(data.folder ?? "").trim().toLowerCase();
+    const folder = folders.find((path) => path.toLowerCase() === wanted) || "";
+    const labels = cleanIndex({ tags: data.tags });
+    return { model, folder, why: folder ? String(data.why ?? "").trim().slice(0, 160) : "", title: shortTitle(data.title), tags: labels.tags || [] };
+  }
+
+  window.SkybridgeAI = { hasKey, hasGeminiKey, modelState: () => MODELS.map((name) => ({ model: name, rest: restWhy.get(name) || "", missing: missing.has(name) })), getKey, setKey, usage, liveStatus, onUsage: (fn) => { usageListeners.add(fn); window.SkybridgeLive?.onUsage(fn); }, LIMITS, indexPage, transcribe, ask, suggestFolder, askPdf, askPage, readWork, localWillRead, explain, busy, cleanIndex, shortTitle, parseJson, timing, MODELS };
 })();

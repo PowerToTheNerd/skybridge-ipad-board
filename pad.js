@@ -600,7 +600,7 @@
       if (lean.length !== message.strokes.length) message = { ...message, strokes: lean };
     }
     if (online) socket.send(JSON.stringify(message));
-    else if (!mine && !["send", "paper", "check", "control"].includes(message.t)) outbox.push(message);
+    else if (!mine && !["send", "paper", "check", "control", "lumen", "lumen-folders"].includes(message.t)) outbox.push(message);
   }
 
   function apply(message) {
@@ -1183,6 +1183,8 @@
         window.SkybridgeLocal?.onRelay(message);
       } else if (message.t === "read-result") {
         window.SkybridgeSmart?.onRelay(message);
+      } else if (message.t === "lumen-result" || message.t === "lumen-folders") {
+        window.SkybridgeExport?.onRelay(message);
       } else if (message.t === "sent") {
         toast(message.ok ? "Sent to Gemini" : (message.reason || "Not sent"));
       } else {
@@ -5044,7 +5046,15 @@
     el.imageBtn.hidden = true;
   }
 
-  window.SkybridgePad = { addHelpSheet: (file) => addPhoto(file, { help: true }), flush: saveNow, pinnedStrokes, strokes, lasso, settings, cssColor, drawStroke, toast, stage: el.stage, geminiBoard: el.geminiBoard, geminiPane: el.geminiPane, fitGemini: fitGeminiBoard, geminiSize: () => geminiSize || { w: 640, pad: [16, 24, 16, 24] } };
+  // After a backup is restored: refresh the list, and reload the open notebook if the backup brought a newer copy of it.
+  async function refreshNotebooks(changed) {
+    await renderNotebookList();
+    if (nb && changed?.has(nb.id)) {
+      const found = await Notebooks.load(nb.id);
+      if (found) showNotebook(found);
+    }
+  }
+  window.SkybridgePad = { addHelpSheet: (file) => addPhoto(file, { help: true }), flush: saveNow, refreshNotebooks, relay: { ready: () => connected, send: (message) => send(message) }, pinnedStrokes, strokes, lasso, settings, cssColor, drawStroke, toast, stage: el.stage, geminiBoard: el.geminiBoard, geminiPane: el.geminiPane, fitGemini: fitGeminiBoard, geminiSize: () => geminiSize || { w: 640, pad: [16, 24, 16, 24] } };
 
   renderSettings();
   renderLayout();

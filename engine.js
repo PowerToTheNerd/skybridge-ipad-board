@@ -21,6 +21,7 @@
   // What each feature needs: a picture, or only words, or a PDF.
   const FEATURES = [
     { id: "naming", label: "Page names", needs: "image", live: true },
+    { id: "folder", label: "Lumen folder", needs: "image", live: true },
     { id: "totext", label: "To text", needs: "image", live: true },
     { id: "check", label: "Check my work", needs: "image", live: true },
     { id: "practice", label: "Practice problems", needs: "text", live: false },

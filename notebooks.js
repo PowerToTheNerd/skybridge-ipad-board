@@ -201,9 +201,14 @@
     const found = await load(id);
     if (!found) return null;
     const meta = { ...found.meta, ...(changes || {}), updated: touch === false ? found.meta.updated : Date.now() };
+    // `updated` moves whenever a notebook is opened or saved; `edited` moves only when the writing changes.
+    // A restored backup uses it to tell which copy has the newer work.
+    if (meta.edited === undefined) meta.edited = found.meta.updated || 0;
     if (strokes) {
       meta.count = strokes.filter((stroke) => !stroke.eraser).length;
-      meta.hash = hashOf(strokes);
+      const hash = hashOf(strokes);
+      if (hash !== found.meta.hash) meta.edited = Date.now();
+      meta.hash = hash;
     }
     await putBoth(meta, {
       id,
@@ -273,8 +278,49 @@
     await putBoth(found.meta, { id: found.meta.id, strokes: found.strokes, view: found.view });
   }
 
+  // Everything stored here, for a backup file: notebooks and folders, their strokes and views, and the photos.
+  async function dump() {
+    await open();
+    if (!persistent) return { books: [...memory.books.values()], ink: [...memory.ink.values()], pics: [...memory.pics.values()] };
+    const tx = db.transaction([META, DATA, PICS]);
+    const [books, ink, pics] = await Promise.all([META, DATA, PICS].map((name) => request(tx.objectStore(name).getAll())));
+    return { books, ink, pics };
+  }
+
+  const editedAt = (meta) => Number(meta.edited) || Number(meta.updated) || 0;
+
+  // Put a backup's notebooks here without losing anything. A notebook that is already here stays unless the
+  // backup's copy has newer writing; nothing is ever deleted.
+  async function merge({ books = [], ink = [], pics = [] }) {
+    await open();
+    const have = new Map((await all()).map((book) => [book.id, book]));
+    const inkOf = new Map(ink.filter((record) => record && typeof record.id === "string").map((record) => [record.id, record]));
+    const havePics = new Set(persistent ? await request(db.transaction(PICS).objectStore(PICS).getAllKeys()) : memory.pics.keys());
+    const out = { notebooks: 0, folders: 0, replaced: 0, kept: 0, skipped: 0, photos: 0, changed: new Set() };
+    for (const pic of pics) {
+      if (!pic || typeof pic.id !== "string" || typeof pic.data !== "string" || !pic.data.startsWith("data:image/") || havePics.has(pic.id)) continue;
+      await putPic(pic);
+      out.photos += 1;
+    }
+    for (const meta of books) {
+      if (!meta || typeof meta.id !== "string" || !meta.id || meta.id.length > 64) { out.skipped += 1; continue; }
+      const here = have.get(meta.id);
+      // Already here: the same writing, or newer work, stays. Only a backup copy with newer work replaces it.
+      if (here && ((here.hash && here.hash === meta.hash) || editedAt(here) >= editedAt(meta))) { out.kept += 1; continue; }
+      const folder = meta.kind === "folder";
+      const record = inkOf.get(meta.id);
+      if (!folder && !Array.isArray(record?.strokes)) { out.skipped += 1; continue; }
+      await putBoth({ ...meta, v: FORMAT }, folder ? undefined : { id: meta.id, strokes: record.strokes, view: record.view });
+      if (here) out.replaced += 1;
+      else if (folder) out.folders += 1;
+      else out.notebooks += 1;
+      out.changed.add(meta.id);
+    }
+    return out;
+  }
+
   window.SkybridgeNotebooks = {
-    open, putPic, getPics, list, listFolders, pagesOf, createFolder, renameFolder, removeFolder, restoreFolder, setDone, create, load, save, rename, remove, restore, hashOf,
+    dump, merge, open, putPic, getPics, list, listFolders, pagesOf, createFolder, renameFolder, removeFolder, restoreFolder, setDone, create, load, save, rename, remove, restore, hashOf,
     current: () => storage("get", CURRENT_KEY),
     setCurrent: (id) => storage("set", CURRENT_KEY, id),
     isPersistent: () => persistent,

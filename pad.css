@@ -447,7 +447,7 @@ input[type="range"] {
   .bar .sep { display: none; }
 }
 
-/* ===========================================================================
+/* ====================================================================
    Finish: depth and touch feedback, in step with the PC themes.
    Raised, accent-tinted controls with a top sheen; a pressed control sinks;
    the active tool and Send glow. All motion stops under reduced motion.
@@ -1100,6 +1100,8 @@ input[type="range"] {
 .nb-pages { margin: 0 -18px; }
 .nb-pages .page { padding: 0 18px; max-height: calc(100dvh - var(--bar-h) - env(safe-area-inset-top) - 190px); gap: 14px; }
 .nb-pages .nb-folds { margin: 0 -18px; }
+.nb-backup-wrap { border-bottom: 1px solid var(--line); }
+.nb-backup-wrap .nb-fold-body { max-height: none; }
 .nb-section { display: grid; gap: 12px; }
 .nb-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .nb-section-head h3 { margin: 0; font-size: 16px; font-weight: 600; }
@@ -1293,3 +1295,11 @@ input[type="range"] {
 .help-dock.narrow .hd-foot { grid-template-columns: repeat(2, 1fr); }
 .hd-foot .tool { height: 40px; font-size: 14px; padding: 0 6px; white-space: nowrap; }
 .hw-help { display: grid; gap: 6px; margin-bottom: 10px; }
+=======
+/* Send to Lumen: choose the Lumen folder (Gemini's suggestion first). */
+.export-sheet.picking > :not(.lumen-pick) { display: none; }
+.lumen-pick { display: grid; gap: 12px; }
+.lumen-folders { display: grid; gap: 6px; max-height: min(46vh, 360px); overflow: auto; }
+.lumen-folders .tool { display: flex; align-items: center; gap: 8px; justify-content: flex-start; text-align: left; }
+.lumen-folders .tool small { margin-left: auto; color: var(--muted); font-size: 12px; }
+.lumen-folders .tool.suggested { border-color: var(--accent, var(--line-strong)); font-weight: 600; }
