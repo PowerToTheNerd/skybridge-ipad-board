@@ -3,8 +3,8 @@
  *
  * Only the theme's own surfaces change; the paper and Gemini's board are never touched. Each effect
  * draws on a small canvas BEHIND the buttons (on the bar's glass), so nothing covers a control.
- * One shared loop at about 30 frames a second, stopped while a pen is down, while the page is
- * hidden, and with reduced motion. Off by default.
+ * One shared loop at about 30 frames a second (20 while a pen is down, to leave the ink every spare
+ * moment), stopped while the page is hidden and with reduced motion. Off by default.
  *
  *   Rain: drops bead on the glass, some grow heavy and run down, then dry off.
  *   Wind: now and then a gust carries a leaf across; some hit the glass, flutter, and are blown away.
@@ -213,7 +213,7 @@
   let frame = 0, last = 0;
   function tick(t) {
     frame = requestAnimationFrame(tick);
-    if (t - last < 32) return;
+    if (t - last < (root.dataset.writing === "on" ? 48 : 32)) return; // a frame costs well under a millisecond
     const dt = Math.min(0.1, (t - last) / 1000);
     last = t;
     const now = t / 1000;
@@ -224,7 +224,7 @@
       if (state.mode === "rain") rainDraw(s, now); else windDraw(s);
     }
   }
-  const canRun = () => state.mode !== "off" && !reduced?.matches && !document.hidden && root.dataset.writing !== "on";
+  const canRun = () => state.mode !== "off" && !reduced?.matches && !document.hidden;
   function sync() {
     root.dataset.fx = state.mode;
     if (state.mode !== "rain") surfaces.forEach((s) => { s.beads = []; });
@@ -249,7 +249,6 @@
   const later = () => { clearTimeout(timer); timer = setTimeout(() => { readTheme(); surfaces.forEach(size); }, 150); };
   new MutationObserver(later).observe(root, { attributes: true, attributeFilter: ["style", "data-theme", "class"] });
   if (window.ResizeObserver) { const ro = new ResizeObserver(later); surfaces.forEach((s) => ro.observe(s.host)); }
-  new MutationObserver(sync).observe(root, { attributes: true, attributeFilter: ["data-writing"] });
   document.addEventListener("visibilitychange", sync);
   reduced?.addEventListener?.("change", sync);
 
