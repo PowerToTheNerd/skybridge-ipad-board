@@ -27,22 +27,34 @@
       <span id="notebookName">Notebook</span>
     </button>
 
-    <div class="layouts" role="radiogroup" aria-label="Which board to show">
-      <button type="button" role="radio" data-layout="mine">Mine</button>
-      <button type="button" role="radio" data-layout="both">Both</button>
-      <button type="button" role="radio" data-layout="gemini">Gemini<i class="badge" id="geminiBadge" hidden></i></button>
+    <div class="layout-pick">
+      <button type="button" class="tool layout-btn" id="layoutBtn" aria-haspopup="true" aria-expanded="false" aria-controls="layoutMenu" aria-label="Which board to show: Mine" title="Which board to show">
+        <svg class="lay-ic lay-mine" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3.5" width="14" height="17" rx="2.5"/><path d="M8.5 9h7M8.5 12.5h7M8.5 16h4"/></svg>
+        <svg class="lay-ic lay-both" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="8" height="16" rx="2"/><rect x="13" y="4" width="8" height="16" rx="2"/></svg>
+        <svg class="lay-ic lay-gemini" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c.6 4.7 2.3 6.4 7 7-4.7.6-6.4 2.3-7 7-.6-4.7-2.3-6.4-7-7 4.7-.6 6.4-2.3 7-7zM18.5 15.5c.3 2 1 2.7 3 3-2 .3-2.7 1-3 3-.3-2-1-2.7-3-3 2-.3 2.7-1 3-3z"/></svg>
+        <svg class="lay-chev" viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 8 4.5 4.5L14.5 8"/></svg>
+        <i class="badge" id="layoutBadge" hidden></i>
+      </button>
+      <div class="layouts" id="layoutMenu" role="radiogroup" aria-label="Which board to show" hidden>
+        <button type="button" role="radio" data-layout="mine">Mine</button>
+        <button type="button" role="radio" data-layout="both">Both</button>
+        <button type="button" role="radio" data-layout="gemini">Gemini<i class="badge" id="geminiBadge" hidden></i></button>
+      </div>
     </div>
 
     <div class="tools">
-      <button type="button" class="tool" id="clearBtn" disabled>Clear</button>
       <button type="button" class="tool" id="settingsBtn" aria-expanded="false" aria-controls="settings">Pen<span class="long"> &amp; paper</span></button>
       <button type="button" class="tool gear" id="labBtn" aria-label="Experimental effects" title="Experimental effects"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M2.8 12h2.6M18.6 12h2.6M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg></button>
-      <button type="button" class="tool" id="exportBtn" aria-expanded="false" aria-controls="exportSheet">Export</button>
     </div>
 
-    <button type="button" class="tool check" id="checkBtn" disabled>Check<span class="long"> my work</span></button>
-    <button type="button" class="tool" id="mulBtn" aria-label="Check by multiplying" aria-expanded="false" title="Check by multiplying: no internet needed"><svg viewBox="0 0 20 20" aria-hidden="true" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
-    <button type="button" class="send" id="sendBtn" disabled>Send<span class="long"> to Gemini</span></button>
+    <div class="bar-right">
+      <button type="button" class="tool" id="clearBtn" disabled>Clear</button>
+      <button type="button" class="tool" id="exportBtn" aria-expanded="false" aria-controls="exportSheet">Export</button>
+      <button type="button" class="tool check" id="checkBtn" disabled>Check<span class="long"> my work</span></button>
+      <button type="button" class="tool" id="mulBtn" aria-label="Check by multiplying" aria-expanded="false" title="Check by multiplying: no internet needed"><svg viewBox="0 0 20 20" aria-hidden="true" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
+      <button type="button" class="send" id="sendBtn" aria-label="Send to Gemini" title="Send to Gemini" hidden disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12 20 4l-4.5 16-3.5-6.5z"/><path d="m12 13.5 8-9.5"/></svg></button>
+      <div class="clock" id="clock" role="timer" aria-label="Time" hidden><time id="clockTime"></time><span class="clock-wx" id="clockWx" hidden><svg id="clockWxIcon" viewBox="0 0 24 24" aria-hidden="true"></svg><b id="clockWxTemp"></b></span></div>
+    </div>
   </header>
 
   <!-- Pens, eraser, lasso and undo: a rail down the left edge of the board. -->
@@ -172,6 +184,26 @@
       </div>
       <span class="setting-hint">If your finger doesn't move or pinch the board, turn this off.</span>
     </div>
+    <div class="setting">
+      <span class="setting-head">Clock</span>
+      <div class="segmented" role="radiogroup" aria-label="Show the time in the top bar">
+        <button type="button" role="radio" data-clock="on">Show the time</button>
+        <button type="button" role="radio" data-clock="off">Off</button>
+      </div>
+    </div>
+    <div class="setting">
+      <span class="setting-head">Weather</span>
+      <div class="segmented" role="radiogroup" aria-label="Show the weather next to the time">
+        <button type="button" role="radio" data-weather="on">Next to the time</button>
+        <button type="button" role="radio" data-weather="off">Off</button>
+      </div>
+      <span class="setting-hint" id="weatherHint">Asks once for your location. Only your rough area (about 10 km) goes to open-meteo.com, nothing else.</span>
+    </div>
+    <div class="setting" id="fullscreenSetting">
+      <span class="setting-head">Full screen</span>
+      <button type="button" class="tool wide" id="fullscreenBtn" hidden>Enter full screen</button>
+      <span class="setting-hint" id="fullscreenHint"></span>
+    </div>
       </div>
       <div class="page" data-page="paper" role="tabpanel">
     <div class="setting">
@@ -255,6 +287,7 @@
       <div class="page" data-page="homework" role="tabpanel">
         <section class="hw-card" aria-label="Homework">
           <div class="nb-section-head"><h3>Homework</h3><output id="homeworkOut"></output></div>
+          <button type="button" class="nb-btn hw-folder" id="homeworkFolder" disabled>Make a folder: a page for every problem</button>
           <button type="button" class="nb-btn" id="homeworkImport">Import a PDF</button>
           <input type="file" id="homeworkFile" accept="application/pdf,.pdf" hidden>
           <div class="hw-pick" id="homeworkPick" hidden>
@@ -278,7 +311,6 @@
                 <button type="button" role="radio" data-where="new" aria-checked="false">New notebook</button>
               </div>
             </div>
-            <button type="button" class="nb-btn hw-folder" id="homeworkFolder">Make a folder: a page for every problem</button>
             <details class="hw-more">
               <summary>More</summary>
               <button type="button" class="nb-link" id="homeworkRemove">Remove this homework from the iPad</button>

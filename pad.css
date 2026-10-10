@@ -1156,7 +1156,7 @@ input[type="range"] {
 .card-tools .my-board-problem-hide svg { width: 20px; height: 20px; }
 
 /* Homework folders: a row with a progress bar, its pages indented below, and the hand-in buttons */
-.hw-folder { margin-top: 10px; width: 100%; }
+.hw-folder { margin: 0 0 8px; width: 100%; }
 .nb-folder { display: flex; align-items: center; gap: 6px; padding: var(--row-pad) 10px var(--row-pad) 8px; border-radius: 12px; background: rgba(var(--acc-rgb), 0.06); margin-top: 6px; }
 .nb-folder-main { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; text-align: left; }
 .nb-chevron { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms; color: var(--text-2); }
@@ -1195,3 +1195,40 @@ input[type="range"] {
 #touchTest[hidden] { display: none; }
 #touchTest pre { margin: 0 0 12px; font: 15px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; }
 #touchTest button { min-height: 44px; margin-right: 10px; padding: 0 16px; font: inherit; border: 1px solid var(--line-strong, #888); border-radius: 10px; background: transparent; color: inherit; }
+
+/* Top bar: the board switch is one icon that drops down; Clear, Export, Check and Send sit together on the right. */
+.status { flex: 0 1 auto; max-width: 150px; }
+.bar-right { display: flex; align-items: center; gap: 6px; margin-left: auto; flex: none; }
+.layout-pick { position: relative; flex: none; }
+.layout-btn { display: flex; align-items: center; justify-content: center; gap: 2px; padding: 0 8px; min-width: 52px; }
+.layout-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.layout-btn .lay-chev { width: 14px; height: 14px; opacity: 0.7; }
+.layout-btn .lay-ic { display: none; }
+:root[data-layout="mine"] .layout-btn .lay-mine,
+:root[data-layout="both"] .layout-btn .lay-both,
+:root[data-layout="gemini"] .layout-btn .lay-gemini { display: block; }
+.layout-btn[aria-expanded="true"] { border-color: var(--accent); color: var(--text); }
+.layout-btn .badge { top: 6px; right: 4px; }
+.layouts[hidden] { display: none; }
+.layout-pick .layouts {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 30;
+  flex-direction: column; min-width: 150px; padding: 5px; gap: 2px;
+  border: 1px solid var(--edge); border-radius: 14px; overflow: visible;
+  background: var(--surface); box-shadow: var(--shadow-2);
+}
+.layout-pick .layouts button { height: 44px; padding: 0 14px; text-align: left; font-size: 16px; border-radius: 10px; display: flex; align-items: center; }
+.layout-pick .layouts button .badge { top: 50%; right: 12px; margin-top: -3.5px; }
+
+/* Smart features footer: keep the same side margin as the rows above it. */
+#bgReads { padding: 6px 18px 0; }
+#testTouch, #updateApp { padding-left: 18px; padding-right: 18px; }
+
+/* Send to Gemini only shows while the PC is connected, as one icon; the clock (and weather) sit at the far right. */
+.send[hidden] { display: none; }
+.send { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; padding: 0 12px; }
+.send svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.clock { display: flex; align-items: center; gap: 8px; flex: none; padding: 0 6px 0 4px; color: var(--text-2, var(--muted)); font-size: 15px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.clock[hidden], .clock-wx[hidden] { display: none; }
+.clock-wx { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+.clock-wx svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.clock-wx b { font-weight: 500; }

@@ -26,7 +26,7 @@
   // the paper keep their own colours.
   const THEMES = { black: "Black", white: "White", green: "Green", purple: "Purple", custom: "Your colour" };
   const THEME_HUES = { black: 210, white: 215, green: 156, purple: 265 };
-  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], palette: [], rail: true, paper: "night", theme: "green", accent: "#7c5cd6", paperColor: "#2d3b57", fxs: {}, card: {}, page: "pen", finger: "move", palm: true, penSeen: false, grid: "dots", gridSize: 24, grain: true, layout: "mine" };
+  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], palette: [], rail: true, paper: "night", theme: "green", accent: "#7c5cd6", paperColor: "#2d3b57", fxs: {}, card: {}, page: "pen", finger: "move", palm: true, penSeen: false, clock: true, weather: false, wxAt: null, grid: "dots", gridSize: 24, grain: true, layout: "mine" };
   const LAYOUTS = ["mine", "both", "gemini"];
 
   const el = {
@@ -205,6 +205,9 @@
     geminiBoard: document.getElementById("whiteboardBoard"),
     geminiPane: document.getElementById("whiteboardCard"),
     geminiBadge: document.getElementById("geminiBadge"),
+    layoutBtn: document.getElementById("layoutBtn"),
+    layoutMenu: document.getElementById("layoutMenu"),
+    layoutBadge: document.getElementById("layoutBadge"),
   };
   const ctx = el.canvas.getContext("2d");
 
@@ -550,6 +553,7 @@
     el.undo.disabled = list.length === 0 && steps.undo.length === 0;
     el.redo.disabled = steps.redo.length === 0;
     el.clear.disabled = list.length === 0;
+    el.send.hidden = !connected; // it can't work without the PC, so it isn't offered
     el.send.disabled = !(gemini ? hasGeminiInk() : hasInk()) || !connected;
     el.check.disabled = checking || !hasInk();
     el.geminiBoard.classList.toggle("has-user-ink", hasGeminiInk());
@@ -691,6 +695,7 @@
         if (settings.layout === "gemini") toast("Gemini put a problem on your board");
       } else if (settings.layout === "mine") {
         el.geminiBadge.hidden = false;
+        el.layoutBadge.hidden = false;
         toast("Gemini drew on its board");
       }
     }
@@ -701,8 +706,12 @@
     fitGeminiBoard();
     updateButtons();
     el.layouts.forEach((button) => button.setAttribute("aria-checked", String(button.dataset.layout === settings.layout)));
+    const name = settings.layout === "gemini" ? "Gemini" : settings.layout === "both" ? "Both" : "Mine";
+    el.layoutBtn.setAttribute("aria-label", `Which board to show: ${name}`);
+    el.layoutBtn.title = `Showing: ${name}`;
     if (settings.layout !== "mine") {
       el.geminiBadge.hidden = true;
+      el.layoutBadge.hidden = true;
       // Steps that arrived while it was hidden: jump to the latest one.
       requestAnimationFrame(() => { el.geminiBoard.scrollTop = el.geminiBoard.scrollHeight; });
     }
@@ -713,8 +722,18 @@
       settings.layout = button.dataset.layout;
       saveSettings();
       renderLayout();
+      setLayoutMenu(false);
     });
   });
+  function setLayoutMenu(open) {
+    el.layoutMenu.hidden = !open;
+    el.layoutBtn.setAttribute("aria-expanded", String(open));
+  }
+  el.layoutBtn.addEventListener("click", () => setLayoutMenu(el.layoutMenu.hidden));
+  document.addEventListener("pointerdown", (event) => {
+    if (!el.layoutMenu.hidden && !event.target.closest(".layout-pick")) setLayoutMenu(false);
+  }, true);
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !el.layoutMenu.hidden) setLayoutMenu(false); });
 
   // ---------------------------------------------------------------------------
   // Writing on Gemini's board. The PC lays the board out and sends its width and
@@ -2354,6 +2373,7 @@
     paintThemePicker();
     el.fingerModes.forEach((button) => button.setAttribute("aria-checked", String(button.dataset.finger === settings.finger)));
     el.palmModes.forEach((button) => button.setAttribute("aria-checked", String(button.dataset.palm === (settings.palm ? "on" : "off"))));
+    window.SkybridgeTopbar?.render();
     if (!el.settings.hidden) renderPreview();
   }
 
@@ -3752,6 +3772,7 @@
     if (!Homework) return;
     const sets = await Homework.list();
     hw.pick.hidden = !sets.length;
+    hw.folder.disabled = !sets.length;
     hw.out.textContent = sets.length ? `${sets.length} saved` : "";
     hw.set.replaceChildren(...sets.map((set) => Object.assign(document.createElement("option"), { value: set.id, textContent: `${set.name} (${set.problems.length})` })));
     if (select && sets.some((set) => set.id === select)) hw.set.value = select;
@@ -3951,6 +3972,148 @@
   }
   window.SkybridgeSmart?.onStatus?.(renderBgReads);
   el.notebookBtn.addEventListener("click", renderBgReads);
+
+  // Top bar extras: the time, optionally the local weather, and a full-screen button in Pen & paper.
+  // Weather is off until switched on; it asks for your location once and sends only the rough area
+  // (to about 10 km) to open-meteo.com.
+  (() => {
+    const clock = document.getElementById("clock");
+    const timeEl = document.getElementById("clockTime");
+    const wxBox = document.getElementById("clockWx");
+    const wxIcon = document.getElementById("clockWxIcon");
+    const wxTemp = document.getElementById("clockWxTemp");
+    const hint = document.getElementById("weatherHint");
+    const fsBtn = document.getElementById("fullscreenBtn");
+    const fsHint = document.getElementById("fullscreenHint");
+    const WX_KEY = "skybridge-weather";
+    const WX_EVERY = 30 * 60 * 1000;
+    const WX_STALE = 3 * 60 * 60 * 1000;
+    const ICONS = {
+      sun: '<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/>',
+      moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
+      partly: '<circle cx="8.5" cy="8.5" r="3"/><path d="M8.5 2.5v1.2M2.5 8.5h1.2M4.3 4.3l.9.9M12.7 4.3l-.9.9"/><path d="M9 20h8.5a3.5 3.5 0 0 0 .5-6.960A5 5 0 0 0 9.3 12.6 3.7 3.7 0 0 0 9 20z"/>',
+      cloud: '<path d="M7 18h10a4 4 0 0 0 .6-7.950A5.5 5.5 0 0 0 7.1 9.1 4.5 4.5 0 0 0 7 18z"/>',
+      fog: '<path d="M4 9h16M6 13h12M4 17h16"/>',
+      rain: '<path d="M7 15h10a4 4 0 0 0 .6-7.950A5.5 5.5 0 0 0 7.1 6.1 4.5 4.5 0 0 0 7 15z"/><path d="M8.5 18l-1 2.5M12.5 18l-1 2.5M16.5 18l-1 2.5"/>',
+      snow: '<path d="M7 15h10a4 4 0 0 0 .6-7.950A5.5 5.5 0 0 0 7.1 6.1 4.5 4.5 0 0 0 7 15z"/><path d="M8.5 19h.01M12.5 19.5h.01M16.5 19h.01M10.5 21.5h.01M14.5 21.5h.01" stroke-width="2.4"/>',
+      storm: '<path d="M7 15h10a4 4 0 0 0 .6-7.950A5.5 5.5 0 0 0 7.1 6.1 4.5 4.5 0 0 0 7 15z"/><path d="M12.5 15l-2.5 4h3l-2 3.5"/>',
+    };
+    const iconFor = (code, day) => {
+      if (code === 0 || code === 1) return day ? "sun" : "moon";
+      if (code === 2) return "partly";
+      if (code === 3) return "cloud";
+      if (code === 45 || code === 48) return "fog";
+      if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return "rain";
+      if ((code >= 71 && code <= 77) || code === 85 || code === 86) return "snow";
+      if (code >= 95) return "storm";
+      return "cloud";
+    };
+    const fahrenheit = () => {
+      let region = "";
+      try { region = new Intl.Locale(navigator.language).region || ""; } catch {}
+      return region ? ["US", "LR", "MM"].includes(region) : /-US\b/i.test(navigator.language || "");
+    };
+    const read = () => { try { return JSON.parse(storage("get", WX_KEY) || "null"); } catch { return null; } };
+
+    function renderClock() {
+      clock.hidden = !settings.clock;
+      if (!settings.clock) return;
+      timeEl.textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      const wx = settings.weather ? read() : null;
+      const fresh = wx && Date.now() - wx.at < WX_STALE;
+      wxBox.hidden = !fresh;
+      if (fresh) {
+        wxIcon.innerHTML = ICONS[iconFor(wx.code, wx.day)];
+        wxTemp.textContent = `${Math.round(wx.temp)}°`;
+        wxBox.title = wx.place ? "Weather near you" : "Weather";
+      }
+    }
+
+    let fetching = false;
+    async function refreshWeather(force) {
+      if (!settings.weather || !settings.wxAt || fetching || !navigator.onLine) return;
+      const known = read();
+      if (!force && known && Date.now() - known.at < WX_EVERY) return;
+      fetching = true;
+      try {
+        const [lat, lon] = settings.wxAt;
+        const unit = fahrenheit() ? "fahrenheit" : "celsius";
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code,is_day&temperature_unit=${unit}`;
+        const reply = await fetch(url);
+        const data = await reply.json();
+        const now = data.current;
+        if (now && typeof now.temperature_2m === "number") {
+          storage("set", WX_KEY, JSON.stringify({ at: Date.now(), temp: now.temperature_2m, code: now.weather_code, day: now.is_day !== 0, place: true }));
+        }
+      } catch {} finally { fetching = false; renderClock(); }
+    }
+
+    function locate() {
+      return new Promise((resolve) => {
+        if (!navigator.geolocation) return resolve(null);
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve([Math.round(pos.coords.latitude * 10) / 10, Math.round(pos.coords.longitude * 10) / 10]),
+          () => resolve(null),
+          { maximumAge: 6 * 60 * 60 * 1000, timeout: 15000 },
+        );
+      });
+    }
+
+    async function setWeather(on) {
+      if (!on) { settings.weather = false; saveSettings(); render(); return; }
+      hint.textContent = "Finding your area…";
+      const at = await locate();
+      if (!at) {
+        settings.weather = false;
+        saveSettings();
+        render();
+        hint.textContent = "Couldn't get your location. In Settings > Privacy > Location Services, allow Safari (or this app) to see it, then try again.";
+        return;
+      }
+      settings.weather = true;
+      settings.wxAt = at;
+      saveSettings();
+      render();
+      refreshWeather(true);
+    }
+
+    const fsRoot = document.documentElement;
+    const fsRequest = fsRoot.requestFullscreen ? () => fsRoot.requestFullscreen() : fsRoot.webkitRequestFullscreen ? () => fsRoot.webkitRequestFullscreen() : null;
+    const fsExit = () => (document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen?.());
+    const fsOn = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+    const installed = () => !!(navigator.standalone || matchMedia("(display-mode: standalone)").matches);
+    const HOME = "Safari keeps its toolbar on screen. For a real full-screen app, tap Share, then Add to Home Screen, and open it from there.";
+
+    function render() {
+      document.querySelectorAll("[data-clock]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.clock === (settings.clock ? "on" : "off"))));
+      document.querySelectorAll("[data-weather]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.weather === (settings.weather ? "on" : "off"))));
+      if (settings.weather) hint.textContent = "Asks once for your location. Only your rough area (about 10 km) goes to open-meteo.com, nothing else.";
+      if (installed()) {
+        fsBtn.hidden = true;
+        fsHint.textContent = "Already full screen: this is running as an app.";
+      } else {
+        fsBtn.hidden = !fsRequest;
+        fsBtn.textContent = fsOn() ? "Leave full screen" : "Enter full screen";
+        fsHint.textContent = HOME;
+      }
+      renderClock();
+    }
+
+    document.querySelectorAll("[data-clock]").forEach((b) => b.addEventListener("click", () => { settings.clock = b.dataset.clock === "on"; saveSettings(); render(); }));
+    document.querySelectorAll("[data-weather]").forEach((b) => b.addEventListener("click", () => setWeather(b.dataset.weather === "on")));
+    fsBtn.addEventListener("click", async () => {
+      try { await (fsOn() ? fsExit() : fsRequest()); } catch { toast("This browser wouldn't go full screen. Add to Home Screen instead."); }
+      render();
+    });
+    for (const type of ["fullscreenchange", "webkitfullscreenchange"]) document.addEventListener(type, render);
+    setInterval(renderClock, 15000);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) { renderClock(); refreshWeather(false); } });
+    window.addEventListener("online", () => refreshWeather(false));
+    setInterval(() => refreshWeather(false), 5 * 60 * 1000);
+    window.SkybridgeTopbar = { render };
+    render();
+    refreshWeather(false);
+  })();
 
   // "Test touch": a plain full-screen pad that shows what this iPad sends when you touch it, so a finger or
   // pinch that does nothing on the board can be told apart from a setting that is ignoring it.
