@@ -64,6 +64,9 @@
     <button type="button" class="tool icon" data-tool="matrix" aria-pressed="false" aria-label="Matrix brackets" title="Matrix brackets: circle the numbers and the brackets are drawn around them">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 4.5h-3v15h3M15.5 4.5h3v15h-3" /><path d="M10 9.5h.01M14 9.5h.01M10 14.5h.01M14 14.5h.01" /></svg>
     </button>
+    <button type="button" class="tool icon" id="imageBtn" aria-label="Add a photo" title="Add a photo: from Photos, Files or the camera. You can also paste or drop one.">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2.5" /><circle cx="9" cy="10" r="1.6" /><path d="m4 17 5-4.5 3.5 3 3-2.5 4.5 4" /></svg>
+    </button>
     <span class="sep" aria-hidden="true"></span>
     <button type="button" class="tool icon" id="undoBtn" disabled aria-label="Undo" title="Undo (three-finger tap)">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7L4.5 11.5 9 16M5 11.5h9.5a5 5 0 010 10H12" /></svg>
@@ -98,6 +101,7 @@
       <i class="lasso-end" data-end="a"></i><i class="lasso-end" data-end="b"></i>
       <div class="lasso-bar" id="lassoBar" role="toolbar" aria-label="Selection">
         <button type="button" class="side-btn" id="lassoColor" title="Colour" aria-label="Colour"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 4v16M4 12h8"/></svg><span>Colour</span></button>
+        <button type="button" class="side-btn" id="lassoLock" title="Lock" aria-label="Lock" hidden><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span>Lock</span></button>
         <button type="button" class="side-btn" id="lassoBrackets" title="Brackets" aria-label="Brackets"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H6v16h3M15 4h3v16h-3"/></svg><span>Brackets</span></button>
         <button type="button" class="side-btn" id="lassoDuplicate" title="Copy" aria-label="Copy"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg><span>Copy</span></button>
         <button type="button" class="side-btn" id="lassoEdit" title="Edit text" aria-label="Edit text" hidden><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg><span>Edit text</span></button>
@@ -494,6 +498,7 @@
 
   <div class="corner-pill" id="cornerPill">
     <button type="button" class="zoom-pill" id="zoomPill" hidden aria-label="Back to the start at 100%"></button>
+    <input type="file" id="imageFile" accept="image/*" multiple hidden>
     <button type="button" class="zoom-pill new-page" id="newPageBtn" aria-label="New notebook" title="New notebook"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg></button>
   </div>
 
@@ -521,6 +526,7 @@
   <script src="./marks.js"></script>
   <script src="./practice.js"></script>
   <script src="./homework.js"></script>
+  <script src="./images.js"></script>
   <script src="./pad.js"></script>
   <script src="./export.js"></script>
 </body>

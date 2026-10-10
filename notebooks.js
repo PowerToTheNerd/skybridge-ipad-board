@@ -13,12 +13,13 @@
   const DB_NAME = "skybridge-board";
   const META = "books";
   const DATA = "ink";
+  const PICS = "pics"; // photos placed on pages: { id, data (a data: URL), w, h }, kept apart from the strokes so saving ink stays light
   const CURRENT_KEY = "skybridge-board-current";
   const FORMAT = 1;
 
   let db = null;
   // If IndexedDB is unavailable (a private window), notebooks live in memory for this visit.
-  const memory = { books: new Map(), ink: new Map() };
+  const memory = { books: new Map(), ink: new Map(), pics: new Map() };
   let persistent = true;
 
   const request = (req) => new Promise((resolve, reject) => {
@@ -43,10 +44,12 @@
     if (db || !persistent) return;
     try {
       db = await new Promise((resolve, reject) => {
-        const opening = indexedDB.open(DB_NAME, 1);
+        const opening = indexedDB.open(DB_NAME, 2);
         opening.onupgradeneeded = () => {
-          opening.result.createObjectStore(META, { keyPath: "id" });
-          opening.result.createObjectStore(DATA, { keyPath: "id" });
+          const names = opening.result.objectStoreNames;
+          if (!names.contains(META)) opening.result.createObjectStore(META, { keyPath: "id" });
+          if (!names.contains(DATA)) opening.result.createObjectStore(DATA, { keyPath: "id" });
+          if (!names.contains(PICS)) opening.result.createObjectStore(PICS, { keyPath: "id" });
         };
         opening.onsuccess = () => resolve(opening.result);
         opening.onerror = () => reject(opening.error);
@@ -187,7 +190,7 @@
       const pts = stroke.points || [];
       const first = pts[0] || [];
       const last = pts[pts.length - 1] || [];
-      feed(`${stroke.id}|${pts.length}|${first[0]},${first[1]}|${last[0]},${last[1]}|${stroke.color}|${stroke.width}|${stroke.eraser ? 1 : 0}${stroke.hl ? 1 : 0}${stroke.text ? "|" + stroke.text : ""};`);
+      feed(`${stroke.id}|${pts.length}|${first[0]},${first[1]}|${last[0]},${last[1]}|${stroke.color}|${stroke.width}|${stroke.eraser ? 1 : 0}${stroke.hl ? 1 : 0}${stroke.text ? "|" + stroke.text : ""}${stroke.img ? "|img" + stroke.img : ""};`);
     }
     return (h >>> 0).toString(36);
   }
@@ -221,9 +224,31 @@
     return meta;
   }
 
+  async function putPic(pic) {
+    await open();
+    if (!persistent) { memory.pics.set(pic.id, pic); return; }
+    const tx = db.transaction(PICS, "readwrite");
+    tx.objectStore(PICS).put(pic);
+    await done(tx);
+  }
+
+  async function getPics(ids) {
+    await open();
+    const out = new Map();
+    for (const id of new Set(ids)) {
+      const pic = persistent ? await request(db.transaction(PICS).objectStore(PICS).get(id)) : memory.pics.get(id);
+      if (pic) out.set(id, pic);
+    }
+    return out;
+  }
+
+  const picIds = (strokes) => [...new Set((strokes || []).filter((stroke) => stroke.img).map((stroke) => stroke.img))];
+
   async function remove(id) {
     const found = await load(id);
     if (!found) return null;
+    // The photos go with the page; the record carries them so Undo can bring them back.
+    found.pics = [...(await getPics(picIds(found.strokes))).values()];
     if (!persistent) {
       memory.books.delete(id);
       memory.ink.delete(id);
@@ -232,17 +257,24 @@
       tx.objectStore(META).delete(id);
       tx.objectStore(DATA).delete(id);
       await done(tx);
+      if (found.pics.length) {
+        const gone = db.transaction(PICS, "readwrite");
+        for (const pic of found.pics) gone.objectStore(PICS).delete(pic.id);
+        await done(gone);
+      }
     }
+    if (!persistent) for (const pic of found.pics) memory.pics.delete(pic.id);
     return found;
   }
 
   async function restore(found) {
     if (!found) return;
+    for (const pic of found.pics || []) await putPic(pic);
     await putBoth(found.meta, { id: found.meta.id, strokes: found.strokes, view: found.view });
   }
 
   window.SkybridgeNotebooks = {
-    open, list, listFolders, pagesOf, createFolder, renameFolder, removeFolder, restoreFolder, setDone, create, load, save, rename, remove, restore, hashOf,
+    open, putPic, getPics, list, listFolders, pagesOf, createFolder, renameFolder, removeFolder, restoreFolder, setDone, create, load, save, rename, remove, restore, hashOf,
     current: () => storage("get", CURRENT_KEY),
     setCurrent: (id) => storage("set", CURRENT_KEY, id),
     isPersistent: () => persistent,

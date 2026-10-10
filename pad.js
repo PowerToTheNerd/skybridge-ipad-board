@@ -39,6 +39,10 @@
     lassoBox: document.getElementById("lassoBox"),
     lassoBar: document.getElementById("lassoBar"),
     lassoColor: document.getElementById("lassoColor"),
+    lassoLock: document.getElementById("lassoLock"),
+    lassoBar: document.getElementById("lassoBar"),
+    imageBtn: document.getElementById("imageBtn"),
+    imageFile: document.getElementById("imageFile"),
     lassoDelete: document.getElementById("lassoDelete"),
     lassoBrackets: document.getElementById("lassoBrackets"),
     lassoTextTools: document.getElementById("lassoTextTools"),
@@ -353,6 +357,7 @@
     const points = stroke.points;
     if (!points.length) return;
     if (stroke.text && points.length >= 2) { drawText(target, stroke); return; }
+    if (stroke.img && points.length >= 2) { window.SkybridgeImages?.draw(target, stroke); return; }
     target.save();
     target.globalCompositeOperation = stroke.eraser ? "destination-out" : "source-over";
     target.strokeStyle = stroke.eraser ? "#000" : strokeColor(stroke.color);
@@ -394,17 +399,69 @@
     baseCtx.setTransform(1, 0, 0, 1, 0, 0);
     baseCtx.clearRect(0, 0, base.width, base.height);
     toScreen(baseCtx);
+    // Photos sit under everything. The ink goes on its own layer first, so an eraser stroke rubs out ink and never the photo.
+    const photos = strokes.filter((stroke) => stroke.img);
+    hasPhotos = photos.length > 0;
+    const target = hasPhotos ? inkLayerFor() : baseCtx;
+    if (hasPhotos) {
+      const under = sizedCanvas(photoBase);
+      const underCtx = under.getContext("2d");
+      underCtx.setTransform(1, 0, 0, 1, 0, 0);
+      underCtx.clearRect(0, 0, under.width, under.height);
+      toScreen(underCtx);
+      photos.forEach((stroke) => drawStroke(underCtx, stroke));
+      baseCtx.setTransform(1, 0, 0, 1, 0, 0);
+      baseCtx.drawImage(under, 0, 0);
+    }
     // Highlighters sit under the ink, whenever they were drawn.
-    layered(strokes).forEach((stroke) => { if (!live.has(stroke.id)) drawStroke(baseCtx, stroke); });
+    layered(strokes).forEach((stroke) => { if (!stroke.img && !live.has(stroke.id)) drawStroke(target, stroke); });
+    if (hasPhotos) {
+      baseCtx.setTransform(1, 0, 0, 1, 0, 0);
+      baseCtx.drawImage(target.canvas, 0, 0);
+    }
+  }
+  // With photos on the page the base is kept in two parts (the photos, and the ink over them), so an eraser
+  // being dragged rubs out ink and never the photo underneath.
+  let hasPhotos = false;
+  const photoBase = { canvas: null };
+  const liveMix = { canvas: null };
+  function sizedCanvas(holder) {
+    if (!holder.canvas) holder.canvas = document.createElement("canvas");
+    if (holder.canvas.width !== base.width || holder.canvas.height !== base.height) { holder.canvas.width = base.width; holder.canvas.height = base.height; }
+    return holder.canvas;
+  }
+  let inkScratch = null;
+  function inkLayerFor() {
+    if (!inkScratch) inkScratch = document.createElement("canvas");
+    if (inkScratch.width !== base.width || inkScratch.height !== base.height) { inkScratch.width = base.width; inkScratch.height = base.height; }
+    const layer = inkScratch.getContext("2d");
+    layer.setTransform(1, 0, 0, 1, 0, 0);
+    layer.clearRect(0, 0, inkScratch.width, inkScratch.height);
+    toScreen(layer);
+    return layer;
   }
 
   function paint() {
     frame = 0;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, el.canvas.width, el.canvas.height);
-    ctx.drawImage(base, 0, 0);
-    toScreen(ctx);
-    strokes.forEach((stroke) => { if (live.has(stroke.id)) drawStroke(ctx, withTail(stroke)); });
+    const rubbing = hasPhotos && strokes.some((stroke) => stroke.eraser && live.has(stroke.id));
+    if (rubbing) {
+      // Photos first, then the ink and the live strokes together on a layer of their own.
+      ctx.drawImage(sizedCanvas(photoBase), 0, 0);
+      const mix = sizedCanvas(liveMix).getContext("2d");
+      mix.setTransform(1, 0, 0, 1, 0, 0);
+      mix.clearRect(0, 0, base.width, base.height);
+      mix.drawImage(inkScratch, 0, 0);
+      toScreen(mix);
+      strokes.forEach((stroke) => { if (live.has(stroke.id)) drawStroke(mix, withTail(stroke)); });
+      ctx.drawImage(liveMix.canvas, 0, 0);
+      toScreen(ctx);
+    } else {
+      ctx.drawImage(base, 0, 0);
+      toScreen(ctx);
+      strokes.forEach((stroke) => { if (live.has(stroke.id)) drawStroke(ctx, withTail(stroke)); });
+    }
     if (lasso.path && lasso.path.length > 1) {
       ctx.save();
       ctx.setLineDash([6 / view.zoom, 5 / view.zoom]);
@@ -440,7 +497,7 @@
     const stroke = strokes.find((item) => item.id === id);
     if (stroke) stroke.done = true;
     // Strokes finish in order almost always; when one overtakes another, rebuild to keep layering right.
-    if (stroke && !stroke.hl && strokes[strokes.length - 1] === stroke && live.size === 0) {
+    if (stroke && !stroke.hl && !hasPhotos && strokes[strokes.length - 1] === stroke && live.size === 0) {
       toScreen(baseCtx);
       drawStroke(baseCtx, stroke);
     } else {
@@ -514,6 +571,12 @@
       // Written while the PC is out of reach: the whole notebook is sent when it comes back.
       if (!online && nb) nb.unsynced = true;
       contentChanged();
+    }
+    // Photos stay on the iPad: they are heavy, and the PC's board has no use for them.
+    if (Array.isArray(message.strokes) && message.t === "put") {
+      const lean = message.strokes.filter((stroke) => !stroke.img);
+      if (!lean.length) return;
+      if (lean.length !== message.strokes.length) message = { ...message, strokes: lean };
     }
     if (online) socket.send(JSON.stringify(message));
     else if (!mine && !["send", "paper", "check", "control"].includes(message.t)) outbox.push(message);
@@ -913,8 +976,10 @@
     // The notebook on this iPad is the master copy. Say which way it goes with the PC's.
     const plan = syncPlan(message);
     if (plan.adopt) {
+      const photos = strokes.filter((stroke) => stroke.img); // the PC never had them
       strokes.length = 0;
       live.clear();
+      strokes.push(...photos);
       for (const stroke of message.strokes || []) strokes.push({ ...stroke, done: true });
     } else if (plan.union) {
       const have = new Set(strokes.map((stroke) => stroke.id));
@@ -973,7 +1038,7 @@
 
   function pushNotebook() {
     if (!nb || !socket || socket.readyState !== WebSocket.OPEN) return;
-    socket.send(JSON.stringify({ t: "load", id: nb.id, name: nb.name, strokes: strokes.filter((stroke) => stroke.points?.length).map(copyStroke) }));
+    socket.send(JSON.stringify({ t: "load", id: nb.id, name: nb.name, strokes: strokes.filter((stroke) => stroke.points?.length && !stroke.img).map(copyStroke) }));
     nb.unsynced = false;
     nb.seen = 0;
     queueSave();
@@ -2554,7 +2619,7 @@
     const Ink = window.SkybridgeInk;
     if (!Ink || stroke.eraser || stroke.hl || stroke.clean || !Ink.scribble(stroke.points)) return false;
     const board = boards[name];
-    const hits = Ink.crossed(stroke.points, board.list, stroke).filter((other) => !live.has(other.id));
+    const hits = Ink.crossed(stroke.points, board.list.filter((other) => !other.img), stroke).filter((other) => !live.has(other.id));
     if (!hits.length) return false;
     const before = hits.map((hit) => itemOf(board.list, hit));
     board.remove(stroke.id);
@@ -2586,6 +2651,7 @@
     Object.assign(el.lassoBox.style, { left: `${left}px`, top: `${top}px`, width: `${(x1 - x0) * view.zoom}px`, height: `${(y1 - y0) * view.zoom}px` });
     el.lassoEdit.hidden = !(lasso.selected.length === 1 && lasso.selected[0].text);
     renderTextTools();
+    renderPhotoTools();
     // One straight line selected: its two ends become handles to pull, instead of the corners.
     const ends = lasso.selected.length === 1 ? lineEnds(lasso.selected[0]) : null;
     el.lassoBox.dataset.line = String(Boolean(ends));
@@ -2680,7 +2746,15 @@
         }
       }
     }
-    return found;
+    if (found) return found;
+    // Nothing written there: a photo under the finger (locked ones too, so they can be unlocked).
+    for (let i = strokes.length - 1; i >= 0; i -= 1) {
+      const photo = strokes[i];
+      if (!photo.img || photo.points.length < 2) continue;
+      const [[ax, ay], [bx, by]] = photo.points;
+      if (point[0] >= Math.min(ax, bx) && point[0] <= Math.max(ax, bx) && point[1] >= Math.min(ay, by) && point[1] <= Math.max(ay, by)) return photo;
+    }
+    return null;
   }
 
   function finishLasso() {
@@ -2695,7 +2769,8 @@
     } else if (box && Math.hypot(box[2] - box[0], box[3] - box[1]) * view.zoom > 30) {
       lasso.selected = strokes.filter((stroke) => {
         if (stroke.eraser || live.has(stroke.id) || !stroke.points.length) return false;
-        if (stroke.text) {
+        if (stroke.img && stroke.lock) return false; // a locked photo is left alone by a loop
+        if (stroke.text || stroke.img) {
           const [[ax, ay], [bx, by]] = stroke.points;
           const spots = [[ax, ay], [bx, by], [(ax + bx) / 2, (ay + by) / 2]];
           return spots.filter((spot) => Ink().inside(spot, path)).length >= 2;
@@ -3077,7 +3152,7 @@
   function recolorSelection(color) {
     if (!lasso.selected.length) return;
     const before = lasso.selected.map((stroke) => itemOf(strokes, stroke));
-    lasso.selected.forEach((stroke) => { stroke.color = color; });
+    lasso.selected.forEach((stroke) => { if (!stroke.img) stroke.color = color; });
     const after = lasso.selected.map((stroke) => itemOf(strokes, stroke));
     record("mine", before, after);
     send({ t: "put", strokes: after.map(({ s, i }) => ({ ...s, i })) });
@@ -3112,7 +3187,7 @@
   async function markWork({ verdict, box }) {
     const Marks = window.SkybridgeMarks;
     if (!Marks || (verdict !== "correct" && !(verdict === "wrong" && box))) return;
-    const work = strokes.filter((stroke) => !stroke.eraser && !stroke.hl && !stroke.pin && !markIds.includes(stroke.id) && stroke.points.length);
+    const work = strokes.filter((stroke) => !stroke.eraser && !stroke.hl && !stroke.pin && !stroke.img && !markIds.includes(stroke.id) && stroke.points.length);
     if (verdict === "correct" && !work.length) return;
     let made;
     if (verdict === "correct") {
@@ -3290,6 +3365,7 @@
     updateButtons();
     renderNotebookUi();
     showPracticeCard(nb.problem);
+    window.SkybridgeImages?.ensure(strokes); // photos on this page arrive from storage; each one repaints the page
   }
 
   // A practice problem belongs to its notebook: its card goes when you leave, and comes back when you return.
@@ -4607,6 +4683,100 @@
     mul.check.addEventListener("click", runMulCheck);
   } else {
     mul.btn.hidden = true;
+  }
+
+
+  // ---- Photos on the page: import, lock and unlock, move and resize with the selection box ----------------
+  const Images = window.SkybridgeImages;
+  if (Images) Images.onLoad(() => { rebuildBase(); schedulePaint(); });
+  const photosSelected = () => lasso.selected.filter((stroke) => stroke.img);
+
+  // The selection sidebar for photos: Lock first (so you can write over it), and no colour or text tools.
+  function renderPhotoTools() {
+    const photos = photosSelected();
+    const only = photos.length > 0 && photos.length === lasso.selected.length;
+    const locked = only && photos.every((stroke) => stroke.lock);
+    el.lassoBox.dataset.locked = String(locked);
+    el.lassoLock.hidden = !only;
+    if (only) {
+      el.lassoLock.querySelector("span").textContent = locked ? "Unlock" : "Lock";
+      el.lassoLock.title = el.lassoLock.ariaLabel = locked ? "Unlock the photo" : "Lock the photo so you can write over it";
+    }
+    for (const button of [el.lassoColor, el.lassoBrackets, el.lassoText]) button.hidden = only;
+    // A locked photo only offers Unlock (and Done): nothing can move or delete it by accident.
+    for (const button of [el.lassoDuplicate, el.lassoDelete]) button.hidden = locked;
+  }
+
+  function setPhotoLock(value) {
+    const photos = photosSelected();
+    if (!photos.length) return;
+    const before = photos.map((stroke) => itemOf(strokes, stroke));
+    photos.forEach((stroke) => { stroke.lock = value; });
+    const after = photos.map((stroke) => itemOf(strokes, stroke));
+    record("mine", before, after);
+    send({ t: "put", strokes: after.map(({ s, i }) => ({ ...s, i })) });
+    if (value) {
+      clearSelection();
+      toast("Locked. Write over it. To unlock, pick the lasso and tap it.", { label: "Undo", run: undoAction });
+    } else {
+      positionLasso();
+      toast("Unlocked. Drag to move, pull a corner to resize.");
+    }
+  }
+  el.lassoLock.addEventListener("click", () => setPhotoLock(!photosSelected().every((stroke) => stroke.lock)));
+
+  async function addPhoto(file) {
+    if (!Images || !nb) return;
+    let pic;
+    try {
+      pic = await Images.prepare(file);
+    } catch (error) {
+      toast(error.message || "That picture couldn't be opened.");
+      return;
+    }
+    await Notebooks.putPic(pic);
+    await Images.add(pic);
+    const rect = el.canvas.getBoundingClientRect();
+    const vw = rect.width / view.zoom;
+    const vh = rect.height / view.zoom;
+    const fit = Math.min((vw * 0.6) / pic.w, (vh * 0.7) / pic.h);
+    const w = Math.round(pic.w * fit);
+    const h = Math.round(pic.h * fit);
+    const nudge = (strokes.filter((stroke) => stroke.img).length % 5) * 28;
+    const x = Math.round(view.x + (vw - w) / 2 + nudge);
+    const y = Math.round(view.y + (vh - h) / 2 + nudge);
+    const photo = { id: newId(), color: "ink", eraser: false, hl: false, width: 0, sim: false, clean: true, img: pic.id, lock: false, points: [[x, y], [x + w, y + h]] };
+    const item = { s: photo, i: strokes.length };
+    boards.mine.put([item]);
+    record("mine", [], [item]);
+    lastBoard = "mine";
+    lasso.selected = strokes.filter((stroke) => stroke.id === photo.id);
+    rebuildBase();
+    positionLasso();
+    schedulePaint();
+    toast("Photo added. Move it, then tap Lock to write over it.", { label: "Undo", run: undoAction });
+  }
+  async function addPhotos(files) {
+    const pictures = [...files].filter((file) => /^image\//.test(file.type) || /\.(jpe?g|png|heic|heif|webp|gif)$/i.test(file.name || ""));
+    if (!pictures.length) return;
+    if (pictures.length > 6) toast("Adding the first 6 photos");
+    for (const file of pictures.slice(0, 6)) await addPhoto(file);
+  }
+  if (Images) {
+    el.imageBtn.addEventListener("click", () => el.imageFile.click());
+    el.imageFile.addEventListener("change", async () => { const files = [...el.imageFile.files]; el.imageFile.value = ""; await addPhotos(files); });
+    window.addEventListener("paste", (event) => {
+      if (event.target.closest?.("input, textarea")) return;
+      const files = [...(event.clipboardData?.files || [])].filter((file) => file.type.startsWith("image/"));
+      if (files.length) { event.preventDefault(); addPhotos(files); }
+    });
+    el.stage.addEventListener("dragover", (event) => { if ([...(event.dataTransfer?.types || [])].includes("Files")) event.preventDefault(); });
+    el.stage.addEventListener("drop", (event) => {
+      const files = [...(event.dataTransfer?.files || [])];
+      if (files.length) { event.preventDefault(); addPhotos(files); }
+    });
+  } else {
+    el.imageBtn.hidden = true;
   }
 
   window.SkybridgePad = { flush: saveNow, pinnedStrokes, strokes, lasso, settings, cssColor, drawStroke, toast, stage: el.stage, geminiBoard: el.geminiBoard, geminiPane: el.geminiPane, fitGemini: fitGeminiBoard, geminiSize: () => geminiSize || { w: 640, pad: [16, 24, 16, 24] } };

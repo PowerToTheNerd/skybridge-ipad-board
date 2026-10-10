@@ -86,7 +86,18 @@
     const layer = makeCanvas(width, height);
     const ctx = layer.getContext("2d");
     ctx.setTransform(scale, 0, 0, scale, -box.x0 * scale, -box.y0 * scale);
-    (window.SkybridgeInk?.layered ? window.SkybridgeInk.layered(strokes) : strokes).forEach((stroke) => pad.drawStroke(ctx, stroke));
+    // Photos go under the writing, which is on its own layer so an eraser stroke never cuts a photo.
+    const photos = strokes.filter((stroke) => stroke.img);
+    const ink = strokes.filter((stroke) => !stroke.img);
+    const lay = (list) => (window.SkybridgeInk?.layered ? window.SkybridgeInk.layered(list) : list);
+    photos.forEach((stroke) => pad.drawStroke(ctx, stroke));
+    if (!photos.length) { lay(ink).forEach((stroke) => pad.drawStroke(ctx, stroke)); return layer; }
+    const top = makeCanvas(width, height);
+    const topCtx = top.getContext("2d");
+    topCtx.setTransform(scale, 0, 0, scale, -box.x0 * scale, -box.y0 * scale);
+    lay(ink).forEach((stroke) => pad.drawStroke(topCtx, stroke));
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(top, 0, 0);
     return layer;
   }
 
@@ -203,6 +214,7 @@
   // { withCard: false } leaves Gemini's problem card off (a page being read in the background).
   async function renderBoard(options = {}) {
     const strokes = (options.strokes || pad.strokes).filter((stroke) => stroke.points.length);
+    await window.SkybridgeImages?.ensure(strokes); // photos from another page come from storage
     const box = extent(strokes);
     const card = options.withCard === false ? null : await problemPicture();
     if (!box && !card) throw new Error("There is nothing on the board yet.");

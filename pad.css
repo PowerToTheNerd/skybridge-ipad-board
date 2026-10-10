@@ -1185,3 +1185,8 @@ input[type="range"] {
 .mul-sheet { left: 50%; right: auto; top: auto; bottom: calc(84px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(560px, calc(100vw - 24px)); }
 .hsv-row .eyedropper { margin-left: auto; padding: 6px 10px; }
 .hsv-row .eyedropper[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+
+/* Photos on the page: a locked photo's box lets the pen through; only the sidebar takes taps */
+.lasso-box[data-locked="true"] { pointer-events: none; border-style: dashed; }
+.lasso-box[data-locked="true"] .lasso-handle { display: none; }
+.lasso-box[data-locked="true"] .lasso-bar { pointer-events: auto; }
