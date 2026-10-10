@@ -26,7 +26,7 @@
   // the paper keep their own colours.
   const THEMES = { black: "Black", white: "White", green: "Green", purple: "Purple", custom: "Your colour" };
   const THEME_HUES = { black: 210, white: 215, green: 156, purple: 265 };
-  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], palette: [], rail: true, paper: "night", theme: "green", accent: "#7c5cd6", paperColor: "#2d3b57", fxs: {}, card: {}, page: "pen", finger: "move", grid: "dots", gridSize: 24, grain: true, layout: "mine" };
+  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], palette: [], rail: true, paper: "night", theme: "green", accent: "#7c5cd6", paperColor: "#2d3b57", fxs: {}, card: {}, page: "pen", finger: "move", palm: true, penSeen: false, grid: "dots", gridSize: 24, grain: true, layout: "mine" };
   const LAYOUTS = ["mine", "both", "gemini"];
 
   const el = {
@@ -103,6 +103,7 @@
     pages: document.getElementById("settingsPages"),
     tabs: document.querySelectorAll("#settingsTabs [data-page]"),
     fingerModes: [...document.querySelectorAll("[data-finger]")],
+    palmModes: [...document.querySelectorAll("[data-palm]")],
     recenter: document.getElementById("recenterBtn"),
     gridStyles: [...document.querySelectorAll("#gridStyles [data-grid]")],
     gridSizeInput: document.getElementById("gridSizeInput"),
@@ -864,7 +865,7 @@
 
   geminiCanvas.addEventListener("pointerdown", (event) => {
     setSettingsOpen(false);
-    if (event.pointerType === "pen") lastPenAt = performance.now();
+    if (event.pointerType === "pen") notePen();
     if (event.pointerType === "touch") {
       if (geminiCurrent?.pen || isPalm(event)) return;
       if (settings.finger === "move" || geminiTouches.size) {
@@ -913,7 +914,7 @@
   });
 
   geminiCanvas.addEventListener("pointermove", (event) => {
-    if (event.pointerType === "pen") lastPenAt = performance.now();
+    if (event.pointerType === "pen") notePen();
     const last = geminiTouches.get(event.pointerId);
     if (last) {
       const dx = event.clientX - last[0];
@@ -948,7 +949,7 @@
       }
       return;
     }
-    if (event.pointerType === "pen") lastPenAt = performance.now();
+    if (event.pointerType === "pen") notePen();
     if (!geminiCurrent || event.pointerId !== geminiPointer) return;
     holdGemini?.stop();
     if (geminiFlushFrame) cancelAnimationFrame(geminiFlushFrame);
@@ -1262,7 +1263,23 @@
   const PALM_WIDTH = 50; // contact wider than this (CSS px) is a palm, not a fingertip
   const PALM_GUARD = 600; // ms after the Pencil last touched or hovered when a finger is taken for a palm
   let lastPenAt = -1e9;
-  const isPalm = (event) => Math.max(event.width || 0, event.height || 0) >= PALM_WIDTH || performance.now() - lastPenAt < PALM_GUARD;
+  // Palm rejection only judges contact size once a Pencil has been seen on this iPad (before that a wide
+  // contact is only taken for a palm when it is huge), and it can be switched off in Pen & paper.
+  let palmHinted = false;
+  const isPalm = (event) => {
+    if (!settings.palm) return false;
+    const wide = Math.max(event.width || 0, event.height || 0) >= (settings.penSeen ? PALM_WIDTH : PALM_WIDTH * 3);
+    const palm = wide || (settings.penSeen && performance.now() - lastPenAt < PALM_GUARD);
+    if (palm && !palmHinted && event.pointerType === "touch" && !current?.pen) {
+      palmHinted = true;
+      toast("A touch was ignored as a resting palm. If your finger isn't moving the board, turn Palm rejection off in Pen & paper.");
+    }
+    return palm;
+  };
+  const notePen = () => {
+    lastPenAt = performance.now();
+    if (!settings.penSeen) { settings.penSeen = true; saveSettings(); }
+  };
 
   function pointFrom(event) {
     const rect = el.canvas.getBoundingClientRect();
@@ -1373,7 +1390,7 @@
 
   el.canvas.addEventListener("pointerdown", (event) => {
     if (event.pointerType === "pen") {
-      lastPenAt = performance.now();
+      notePen();
       tap = null;
       clearTimeout(twoTapTimer);
       twoTapTimer = 0;
@@ -1426,7 +1443,7 @@
   });
 
   el.canvas.addEventListener("pointermove", (event) => {
-    if (event.pointerType === "pen") lastPenAt = performance.now();
+    if (event.pointerType === "pen") notePen();
     if (movePan(event)) return;
     if (lasso.path && event.pointerId === lasso.pointer) {
       const samples = event.getCoalescedEvents?.() || [event];
@@ -1449,7 +1466,7 @@
 
   function endStroke(event) {
     endPan(event);
-    if (event.pointerType === "pen") lastPenAt = performance.now();
+    if (event.pointerType === "pen") notePen();
     if (lasso.path && event.pointerId === lasso.pointer) {
       finishLasso();
       return;
@@ -2322,6 +2339,7 @@
     el.themePicker.hidden = settings.theme !== "custom";
     paintThemePicker();
     el.fingerModes.forEach((button) => button.setAttribute("aria-checked", String(button.dataset.finger === settings.finger)));
+    el.palmModes.forEach((button) => button.setAttribute("aria-checked", String(button.dataset.palm === (settings.palm ? "on" : "off"))));
     if (!el.settings.hidden) renderPreview();
   }
 
@@ -2455,6 +2473,13 @@
     settings.pressure = Number(el.pressureInput.value);
     saveSettings();
     renderSettings();
+  });
+  el.palmModes.forEach((button) => {
+    button.addEventListener("click", () => {
+      settings.palm = button.dataset.palm === "on";
+      saveSettings();
+      renderSettings();
+    });
   });
   el.fingerModes.forEach((button) => {
     button.addEventListener("click", () => {
