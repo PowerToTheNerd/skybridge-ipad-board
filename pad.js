@@ -187,6 +187,7 @@
     hsvChip: document.getElementById("hsvChip"),
     hsvHex: document.getElementById("hsvHex"),
     hsvRecent: document.getElementById("hsvRecent"),
+    eyedropper: document.getElementById("eyedropper"),
     palette: document.getElementById("palette"),
     paletteNote: document.getElementById("paletteNote"),
     eraserInput: document.getElementById("eraserInput"),
@@ -1656,6 +1657,91 @@
     el.colorSheet.hidden = !open;
     el.colorBtn.setAttribute("aria-expanded", String(open));
     paintColors();
+  });
+
+
+  // ---- Eyedropper: tap any colour already on the page (ink, a pinned problem, the paper) to write with it ----
+  // Safari on iPad has no EyeDropper API, so the colour is read from the drawn page itself.
+  const cssToHex = (css) => {
+    const c = document.createElement("canvas").getContext("2d");
+    c.fillStyle = "#000";
+    c.fillStyle = css;
+    const v = c.fillStyle;
+    if (/^#[0-9a-f]{6}$/i.test(v)) return v.toLowerCase();
+    const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(v);
+    return m ? "#" + [m[1], m[2], m[3]].map((x) => Number(x).toString(16).padStart(2, "0")).join("") : "#000000";
+  };
+  // The colour under a point: the most solid ink pixel within a few pixels (a thin line is hard to hit exactly),
+  // or the paper where nothing is written.
+  function colorAt(clientX, clientY) {
+    const rect = el.canvas.getBoundingClientRect();
+    const sx = base.width / rect.width;
+    const sy = base.height / rect.height;
+    const cx = Math.round((clientX - rect.left) * sx);
+    const cy = Math.round((clientY - rect.top) * sy);
+    const reach = Math.max(2, Math.round(7 * ratio));
+    const x0 = Math.max(0, cx - reach);
+    const y0 = Math.max(0, cy - reach);
+    const w = Math.min(base.width, cx + reach + 1) - x0;
+    const h = Math.min(base.height, cy + reach + 1) - y0;
+    let best = null;
+    if (w > 0 && h > 0) {
+      const data = baseCtx.getImageData(x0, y0, w, h).data;
+      for (let j = 0; j < h; j += 1) {
+        for (let i = 0; i < w; i += 1) {
+          const k = (j * w + i) * 4;
+          const alpha = data[k + 3];
+          if (alpha < 40) continue;
+          const dist = (x0 + i - cx) ** 2 + (y0 + j - cy) ** 2;
+          const score = alpha * 1000 - dist;
+          if (!best || score > best.score) best = { score, r: data[k], g: data[k + 1], b: data[k + 2] };
+        }
+      }
+    }
+    if (!best) return { hex: cssToHex(cssColor("paper")), paper: true };
+    return { hex: "#" + [best.r, best.g, best.b].map((x) => x.toString(16).padStart(2, "0")).join("") };
+  }
+  let dropping = false;
+  function stopDropper() {
+    dropping = false;
+    el.eyedropper.setAttribute("aria-pressed", "false");
+    el.stage.style.cursor = "";
+  }
+  function pickColorFromPage(event) {
+    const { hex, paper } = colorAt(event.clientX, event.clientY);
+    Object.assign(hsv, hexToHsv(hex));
+    slot = -1; // the picked colour is added, not swapped over a saved one
+    chooseColor(hex);
+    settings.recent = [hex, ...settings.recent.filter((c) => c !== hex)].slice(0, 8);
+    if (!settings.palette.includes(hex)) {
+      if (settings.palette.length < PALETTE_MAX) settings.palette = [...settings.palette, hex];
+      else settings.palette = [...settings.palette.slice(1), hex];
+    }
+    slot = settings.palette.indexOf(hex);
+    saveSettings();
+    paintPicker();
+    renderRecent();
+    renderPalette();
+    toast(paper ? `Picked the paper colour ${hex}` : `Picked ${hex} and saved it to your colours`);
+  }
+  // The next tap on the page picks a colour; it is swallowed so it doesn't draw.
+  el.stage.addEventListener("pointerdown", (event) => {
+    if (!dropping) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    stopDropper();
+    pickColorFromPage(event);
+    const swallow = (later) => { if (later.pointerId === event.pointerId) { later.stopImmediatePropagation(); if (later.type !== "pointermove") { el.stage.removeEventListener("pointermove", swallow, true); el.stage.removeEventListener("pointerup", swallow, true); el.stage.removeEventListener("pointercancel", swallow, true); } } };
+    for (const type of ["pointermove", "pointerup", "pointercancel"]) el.stage.addEventListener(type, swallow, true);
+  }, true);
+  el.eyedropper.addEventListener("click", () => {
+    if (dropping) { stopDropper(); return; }
+    dropping = true;
+    el.eyedropper.setAttribute("aria-pressed", "true");
+    el.stage.style.cursor = "crosshair";
+    el.colorSheet.hidden = true;
+    el.colorBtn.setAttribute("aria-expanded", "false");
+    toast("Tap a colour on the page");
   });
 
   function toggleEraser() {

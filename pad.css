@@ -1183,3 +1183,5 @@ input[type="range"] {
 .mul-result[data-state="correct"] { color: #34c38f; }
 .mul-result[data-state="wrong"], .mul-result[data-state="error"] { color: #ef5350; }
 .mul-sheet { left: 50%; right: auto; top: auto; bottom: calc(84px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(560px, calc(100vw - 24px)); }
+.hsv-row .eyedropper { margin-left: auto; padding: 6px 10px; }
+.hsv-row .eyedropper[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
