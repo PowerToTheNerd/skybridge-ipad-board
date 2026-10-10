@@ -619,5 +619,5 @@
     };
   }
 
-  return { run, runChecks, verdict, hideAnswer, evaluate, parseMatrix, fmt, fmtMatrix };
+  return { run, runChecks, verdict, hideAnswer, evaluate, parseMatrix, multiply, fmt, fmtMatrix };
 });

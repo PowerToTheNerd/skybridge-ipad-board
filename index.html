@@ -41,6 +41,7 @@
     </div>
 
     <button type="button" class="tool check" id="checkBtn" disabled>Check<span class="long"> my work</span></button>
+    <button type="button" class="tool" id="mulBtn" aria-label="Check by multiplying" aria-expanded="false" title="Check by multiplying: no internet needed"><svg viewBox="0 0 20 20" aria-hidden="true" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
     <button type="button" class="send" id="sendBtn" disabled>Send<span class="long"> to Gemini</span></button>
   </header>
 
@@ -440,6 +441,18 @@
     </div>
   </section>
 
+  <section class="settings mul-sheet" id="mulSheet" role="dialog" aria-label="Check by multiplying" hidden>
+    <p class="text-head">Check by multiplying <small>Exact, and no internet needed</small></p>
+    <select id="mulPreset" aria-label="What to check"></select>
+    <div id="mulSlots" class="mul-slots"></div>
+    <p class="mul-result" id="mulResult" role="status"></p>
+    <div class="text-actions">
+      <button type="button" class="nb-btn hw-open" id="mulCheck">Check</button>
+      <button type="button" class="nb-btn" id="mulClose">Done</button>
+    </div>
+    <p class="nb-fine">Type each matrix with one row per line, or pick a handwritten one with the lasso and tap Read selection (needs Gemini or your PC, once). Fix anything it misread. It says where the first wrong entry is, never what the value should be.</p>
+  </section>
+
   <section class="settings export-sheet" id="exportSheet" role="dialog" aria-label="Export the board" hidden>
     <div class="setting">
       <span class="setting-head">Export the whole board</span>
@@ -487,6 +500,7 @@
   <script src="./inkstroke.js"></script>
   <script src="./notebooks.js"></script>
   <script src="./mathcheck.js"></script>
+  <script src="./matcheck.js"></script>
   <script src="./engine.js"></script>
   <script src="./localllm.js"></script>
   <script src="./live.js"></script>

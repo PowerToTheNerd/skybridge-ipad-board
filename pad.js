@@ -4394,6 +4394,125 @@
   }
 
   // What export.js needs to render the whole board.
+  // ---- Check by multiplying: exact and offline (matcheck.js). The matrices are typed or read once, and confirmed here. ----
+  const MatCheck = window.SkybridgeMatCheck;
+  const mul = {
+    btn: document.getElementById("mulBtn"),
+    sheet: document.getElementById("mulSheet"),
+    preset: document.getElementById("mulPreset"),
+    slots: document.getElementById("mulSlots"),
+    result: document.getElementById("mulResult"),
+    check: document.getElementById("mulCheck"),
+    close: document.getElementById("mulClose"),
+  };
+  const mulDrafts = new Map(); // notebook id -> { preset, text: { U: "...", ... } }
+  const mulSides = (preset) => [...new Set([...preset.left, ...preset.right])].filter((name) => name !== "I");
+  const mulDraft = () => {
+    const key = nb?.id || "";
+    if (!mulDrafts.has(key)) mulDrafts.set(key, { preset: storage("get", "skybridge.mulPreset") || MatCheck.PRESETS[0].id, text: {} });
+    return mulDrafts.get(key);
+  };
+  const mulPreset = () => MatCheck.PRESETS.find((item) => item.id === mulDraft().preset) || MatCheck.PRESETS[0];
+  const gridText = (rows) => rows.map((row) => row.map((value) => window.SkybridgeMath.fmt(value)).join(" ")).join("\n");
+
+  function renderMulSlots() {
+    const preset = mulPreset();
+    const draft = mulDraft();
+    mul.preset.value = preset.id;
+    mul.result.textContent = "";
+    mul.result.dataset.state = "";
+    const problemMatrices = nb?.problem ? MatCheck.fromProblem(nb.problem) : [];
+    mul.slots.replaceChildren(...mulSides(preset).map((name) => {
+      const box = document.createElement("div");
+      box.className = "mul-slot";
+      const label = document.createElement("b");
+      label.textContent = name;
+      const area = document.createElement("textarea");
+      area.rows = 4;
+      area.spellcheck = false;
+      area.autocapitalize = "off";
+      area.setAttribute("aria-label", `Matrix ${name}`);
+      area.placeholder = "1 2\n3 4";
+      area.value = draft.text[name] || "";
+      area.addEventListener("input", () => { draft.text[name] = area.value; area.removeAttribute("aria-invalid"); });
+      box.append(label, area);
+      const given = problemMatrices.find((item) => item.name === name) || (name === "A" && problemMatrices.length === 1 ? problemMatrices[0] : null);
+      if (given) {
+        const fill = document.createElement("button");
+        fill.type = "button";
+        fill.className = "nb-link";
+        fill.textContent = `Use ${given.name || name} from the problem`;
+        fill.addEventListener("click", () => { area.value = draft.text[name] = gridText(given.rows); });
+        box.append(fill);
+      }
+      const read = document.createElement("button");
+      read.type = "button";
+      read.className = "nb-link";
+      read.textContent = "Read selection";
+      read.addEventListener("click", async () => {
+        const picked = lasso.selected.filter((stroke) => !stroke.text);
+        if (!picked.length) { toast("Lasso the handwritten matrix first"); return; }
+        read.disabled = true;
+        read.textContent = "Reading…";
+        try {
+          const result = await window.SkybridgeSmart.convert(picked);
+          if (!result.ok) { toast(result.error); return; }
+          let rows = null;
+          try { rows = MatCheck.matricesIn(result.text)[0]?.rows || MatCheck.parseEntries(result.text); } catch {}
+          if (!rows) { area.value = draft.text[name] = result.text || ""; toast("Couldn't make a grid of that. Fix the numbers by hand."); return; }
+          area.value = draft.text[name] = gridText(rows);
+          toast("Read it. Check each number before you tap Check.");
+        } finally {
+          read.disabled = false;
+          read.textContent = "Read selection";
+        }
+      });
+      if (window.SkybridgeSmart?.convert) box.append(read);
+      return box;
+    }));
+  }
+
+  function runMulCheck() {
+    const preset = mulPreset();
+    const draft = mulDraft();
+    const matrices = {};
+    for (const name of mulSides(preset)) {
+      const area = mul.slots.querySelector(`textarea[aria-label="Matrix ${name}"]`);
+      try {
+        matrices[name] = MatCheck.parseEntries(draft.text[name] || "");
+      } catch (error) {
+        area?.setAttribute("aria-invalid", "true");
+        mul.result.dataset.state = "error";
+        mul.result.textContent = `${name}: ${error.message}. Type one row per line, numbers separated by spaces.`;
+        return;
+      }
+    }
+    const out = MatCheck.check(preset, matrices);
+    mul.result.dataset.state = out.ok ? out.verdict : "error";
+    mul.result.textContent = out.ok ? out.text : out.error;
+    // A correct answer gets what Check my work gives: a green Correct! beside the work, and the done tick.
+    if (out.ok && out.verdict === "correct") {
+      showVerdict({ ok: true, live: false, text: out.text, verdict: "correct", box: null });
+      mul.sheet.hidden = true;
+      mul.btn.setAttribute("aria-expanded", "false");
+    }
+  }
+
+  if (MatCheck && window.SkybridgeMath) {
+    mul.preset.replaceChildren(...MatCheck.PRESETS.map((item) => Object.assign(document.createElement("option"), { value: item.id, textContent: item.label })));
+    const setMul = (open) => {
+      mul.sheet.hidden = !open;
+      mul.btn.setAttribute("aria-expanded", String(open));
+      if (open) renderMulSlots();
+    };
+    mul.btn.addEventListener("click", () => setMul(mul.sheet.hidden));
+    mul.close.addEventListener("click", () => setMul(false));
+    mul.preset.addEventListener("change", () => { mulDraft().preset = mul.preset.value; storage("set", "skybridge.mulPreset", mul.preset.value); renderMulSlots(); });
+    mul.check.addEventListener("click", runMulCheck);
+  } else {
+    mul.btn.hidden = true;
+  }
+
   window.SkybridgePad = { flush: saveNow, pinnedStrokes, strokes, lasso, settings, cssColor, drawStroke, toast, stage: el.stage, geminiBoard: el.geminiBoard, geminiPane: el.geminiPane, fitGemini: fitGeminiBoard, geminiSize: () => geminiSize || { w: 640, pad: [16, 24, 16, 24] } };
 
   renderSettings();

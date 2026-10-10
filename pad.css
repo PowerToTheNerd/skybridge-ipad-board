@@ -1170,3 +1170,16 @@ input[type="range"] {
 .nb-tick[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .nb-folder-foot { display: flex; align-items: center; gap: 8px; margin: 6px 0 4px 20px; }
 .nb-folder-foot small { color: var(--text-2); }
+
+/* Check by multiplying */
+.mul-sheet { display: grid; gap: 10px; max-height: min(78vh, 640px); overflow: auto; }
+.mul-slots { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.mul-slot { display: grid; gap: 6px; }
+.mul-slot b { font-size: 15px; }
+.mul-slot textarea { font: 15px/1.4 ui-monospace, "SF Mono", Menlo, monospace; min-height: 84px; resize: vertical; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: rgba(var(--wash-rgb), 0.05); color: var(--text); }
+.mul-slot textarea[aria-invalid="true"] { border-color: #ef5350; }
+.mul-slot .nb-link { justify-self: start; font-size: 13px; }
+.mul-result { margin: 0; min-height: 1.4em; }
+.mul-result[data-state="correct"] { color: #34c38f; }
+.mul-result[data-state="wrong"], .mul-result[data-state="error"] { color: #ef5350; }
+.mul-sheet { left: 50%; right: auto; top: auto; bottom: calc(84px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(560px, calc(100vw - 24px)); }
