@@ -1190,3 +1190,8 @@ input[type="range"] {
 .lasso-box[data-locked="true"] { pointer-events: none; border-style: dashed; }
 .lasso-box[data-locked="true"] .lasso-handle { display: none; }
 .lasso-box[data-locked="true"] .lasso-bar { pointer-events: auto; }
+
+#touchTest { position: fixed; inset: 0; z-index: 99999; background: var(--bg, #fff); color: var(--text, #111); touch-action: none; user-select: none; -webkit-user-select: none; padding: 16px; }
+#touchTest[hidden] { display: none; }
+#touchTest pre { margin: 0 0 12px; font: 15px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; }
+#touchTest button { min-height: 44px; margin-right: 10px; padding: 0 16px; font: inherit; border: 1px solid var(--line-strong, #888); border-radius: 10px; background: transparent; color: inherit; }

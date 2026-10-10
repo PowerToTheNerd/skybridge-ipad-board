@@ -435,6 +435,7 @@
         </div>
       </details>
       <p class="nb-fine" id="bgReads"></p>
+      <button type="button" class="nb-link" id="testTouch">Test touch (finger, pinch and Pencil)</button>
       <button type="button" class="nb-link" id="updateApp">Get the latest version of this app</button>
         </div>
       </div>
@@ -518,6 +519,11 @@
     <button type="button" class="tool" id="gateClose">Keep working without the PC</button>
   </section>
 
+    <div id="touchTest" hidden>
+    <pre id="touchOut"></pre>
+    <button type="button" id="touchReset">Reset touch settings</button>
+    <button type="button" id="touchClose">Close</button>
+  </div>
   <script src="./vendor/rough.js"></script>
   <script src="./vendor/katex/katex.min.js"></script>
   <script src="./whiteboard.js"></script>

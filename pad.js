@@ -410,12 +410,12 @@
       underCtx.setTransform(1, 0, 0, 1, 0, 0);
       underCtx.clearRect(0, 0, under.width, under.height);
       toScreen(underCtx);
-      photos.forEach((stroke) => drawStroke(underCtx, stroke));
+      photos.forEach((stroke) => { if (!(dragging && dragging.has(stroke.id))) drawStroke(underCtx, stroke); });
       baseCtx.setTransform(1, 0, 0, 1, 0, 0);
       baseCtx.drawImage(under, 0, 0);
     }
     // Highlighters sit under the ink, whenever they were drawn.
-    layered(strokes).forEach((stroke) => { if (!stroke.img && !live.has(stroke.id)) drawStroke(target, stroke); });
+    layered(strokes).forEach((stroke) => { if (!stroke.img && !live.has(stroke.id) && !(dragging && dragging.has(stroke.id))) drawStroke(target, stroke); });
     if (hasPhotos) {
       baseCtx.setTransform(1, 0, 0, 1, 0, 0);
       baseCtx.drawImage(target.canvas, 0, 0);
@@ -424,6 +424,9 @@
   // With photos on the page the base is kept in two parts (the photos, and the ink over them), so an eraser
   // being dragged rubs out ink and never the photo underneath.
   let hasPhotos = false;
+  // While a selection is being dragged or resized, everything else stays in the cached layers and only the
+  // selected strokes are redrawn each frame (photos under the ink, as always), so a photo moves smoothly.
+  let dragging = null;
   const photoBase = { canvas: null };
   const liveMix = { canvas: null };
   function sizedCanvas(holder) {
@@ -446,8 +449,19 @@
     frame = 0;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, el.canvas.width, el.canvas.height);
+    if (dragging) {
+      const moved = strokes.filter((stroke) => dragging.has(stroke.id));
+      if (hasPhotos) ctx.drawImage(sizedCanvas(photoBase), 0, 0);
+      toScreen(ctx);
+      moved.forEach((stroke) => { if (stroke.img) drawStroke(ctx, stroke); });
+      if (hasPhotos) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(inkScratch, 0, 0); toScreen(ctx); }
+      else { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(base, 0, 0); toScreen(ctx); }
+      moved.forEach((stroke) => { if (!stroke.img) drawStroke(ctx, stroke); });
+    }
     const rubbing = hasPhotos && strokes.some((stroke) => stroke.eraser && live.has(stroke.id));
-    if (rubbing) {
+    if (dragging) {
+      // drawn above
+    } else if (rubbing) {
       // Photos first, then the ink and the live strokes together on a layer of their own.
       ctx.drawImage(sizedCanvas(photoBase), 0, 0);
       const mix = sizedCanvas(liveMix).getContext("2d");
@@ -3074,6 +3088,7 @@
     const dy = (event.clientY - lassoDrag.from[1]) / view.zoom;
     if (!lassoDrag.moved && Math.hypot(dx, dy) * view.zoom < 3) return;
     lassoDrag.moved = true;
+    if (!dragging) { dragging = new Set(lasso.selected.map((stroke) => stroke.id)); rebuildBase(); }
     const [x0, y0, x1, y1] = lassoDrag.box;
     let map = ([x, y]) => [x + dx, y + dy];
     guides = [];
@@ -3109,7 +3124,6 @@
         return point.length > 2 ? [Math.round(x * 10) / 10, Math.round(y * 10) / 10, point[2]] : [Math.round(x * 10) / 10, Math.round(y * 10) / 10];
       });
     });
-    rebuildBase();
     schedulePaint();
     positionLasso();
   });
@@ -3154,7 +3168,6 @@
       line.push(pressure === null ? [px, py] : [px, py, pressure]);
     }
     lasso.selected[0].points = first ? line.reverse() : line;
-    rebuildBase();
     schedulePaint();
     positionLasso();
   }
@@ -3164,6 +3177,7 @@
     const drag = lassoDrag;
     lassoDrag = null;
     guides = [];
+    if (dragging) { dragging = null; rebuildBase(); }
     schedulePaint();
     if (!drag.moved) return;
     const after = lasso.selected.map((stroke) => itemOf(strokes, stroke));
@@ -3937,6 +3951,60 @@
   }
   window.SkybridgeSmart?.onStatus?.(renderBgReads);
   el.notebookBtn.addEventListener("click", renderBgReads);
+
+  // "Test touch": a plain full-screen pad that shows what this iPad sends when you touch it, so a finger or
+  // pinch that does nothing on the board can be told apart from a setting that is ignoring it.
+  (() => {
+    const box = document.getElementById("touchTest");
+    const out = document.getElementById("touchOut");
+    const open = document.getElementById("testTouch");
+    if (!box || !open) return;
+    const live = new Map();
+    let pinch = "", maxFingers = 0, penSeenNow = false, widest = 0, gestures = 0;
+    const draw = () => {
+      const standalone = !!(navigator.standalone || matchMedia("(display-mode: standalone)").matches);
+      const lines = [
+        "Put one finger, then two, then the Pencil on this screen.",
+        "",
+        `Fingers down now: ${[...live.values()].filter((p) => p.type === "touch").length}   (most at once: ${maxFingers})`,
+        `Pencil seen here: ${penSeenNow ? "yes" : "no"}   (remembered: ${settings.penSeen ? "yes" : "no"})`,
+        `Widest finger contact: ${Math.round(widest)} px   (palm rejection ignores 50+ once a Pencil is known)`,
+        `Pinch: ${pinch || "-"}`,
+        `Safari gesture events: ${gestures}`,
+        "",
+        `Setting Finger: ${settings.finger === "draw" ? "Draws" : "Moves the board"}`,
+        `Setting Palm rejection: ${settings.palm === false ? "Off" : "On"}`,
+        `Home Screen app: ${standalone ? "yes" : "no (opened in Safari)"}`,
+        `Touch points reported: ${navigator.maxTouchPoints}`,
+        `Pointer events: ${window.PointerEvent ? "yes" : "NO"}`,
+        "",
+        ...[...live.values()].map((p) => `  ${p.type}: ${Math.round(p.x)},${Math.round(p.y)}  size ${Math.round(Math.max(p.w, p.h))}px`),
+      ];
+      out.textContent = lines.join("\n");
+    };
+    const track = (event) => {
+      if (event.target.closest?.("button")) return;
+      event.preventDefault();
+      if (event.type === "pointerup" || event.type === "pointercancel") live.delete(event.pointerId);
+      else live.set(event.pointerId, { type: event.pointerType, x: event.clientX, y: event.clientY, w: event.width || 0, h: event.height || 0 });
+      if (event.pointerType === "pen") penSeenNow = true;
+      if (event.pointerType === "touch") widest = Math.max(widest, event.width || 0, event.height || 0);
+      const fingers = [...live.values()].filter((p) => p.type === "touch");
+      maxFingers = Math.max(maxFingers, fingers.length);
+      if (fingers.length >= 2) pinch = `two fingers ${Math.round(Math.hypot(fingers[0].x - fingers[1].x, fingers[0].y - fingers[1].y))} px apart`;
+      draw();
+    };
+    for (const type of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) box.addEventListener(type, track, { passive: false });
+    for (const type of ["gesturestart", "gesturechange"]) box.addEventListener(type, (event) => { event.preventDefault(); gestures += 1; draw(); });
+    open.addEventListener("click", () => { live.clear(); maxFingers = 0; widest = 0; pinch = ""; gestures = 0; penSeenNow = false; box.hidden = false; draw(); });
+    document.getElementById("touchClose").addEventListener("click", () => { box.hidden = true; });
+    document.getElementById("touchReset").addEventListener("click", () => {
+      settings.finger = "move"; settings.palm = false; saveSettings(); renderSettings();
+      toast("Finger moves the board and Palm rejection is off.");
+      draw();
+    });
+  })();
+
   el.updateApp.addEventListener("click", async () => {
     try {
       for (const registration of await navigator.serviceWorker.getRegistrations()) await registration.unregister();
