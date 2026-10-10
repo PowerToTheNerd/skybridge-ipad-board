@@ -32,15 +32,18 @@
 
   // ---- a canvas on each theme surface ------------------------------------------------------------
   const surfaces = [];
-  for (const host of document.querySelectorAll(".bar, .rail")) {
+  function makeSurface(host) {
     const wrap = document.createElement("i");
     wrap.className = "fx-chrome";
     wrap.setAttribute("aria-hidden", "true");
     const cv = document.createElement("canvas");
     wrap.appendChild(cv);
     host.prepend(wrap);
-    surfaces.push({ host, wrap, cv, g: cv.getContext("2d"), w: 0, h: 0, beads: [], leaves: [], gusts: [], next: 0 });
+    const surface = { host, wrap, cv, g: cv.getContext("2d"), w: 0, h: 0, beads: [], leaves: [], gusts: [], next: 0 };
+    surfaces.push(surface);
+    return surface;
   }
+  for (const host of document.querySelectorAll(".bar, .rail")) makeSurface(host);
   if (!surfaces.length) return;
   function size(s) {
     const w = s.host.clientWidth, h = s.host.clientHeight;
@@ -295,5 +298,14 @@
   surfaces.forEach(size);
   paint();
   sync();
-  window.SkybridgeFx = { get mode() { return state.mode; }, set: (mode) => choose(LOOKS.some(([id]) => id === mode) ? mode : "off"), setIntensity(v) { state.k = Math.min(1, Math.max(0.1, v)); save(); paint(); } };
+  // A panel made later (the help sheets) joins the same weather; it is sized once it is on screen.
+  let watcher = null;
+  function addSurface(host) {
+    if (!host || surfaces.some((s) => s.host === host)) return;
+    const s = makeSurface(host);
+    if (window.ResizeObserver) { watcher = watcher || new ResizeObserver(later); watcher.observe(host); }
+    size(s);
+    sync();
+  }
+  window.SkybridgeFx = { addSurface, get mode() { return state.mode; }, set: (mode) => choose(LOOKS.some(([id]) => id === mode) ? mode : "off"), setIntensity(v) { state.k = Math.min(1, Math.max(0.1, v)); save(); paint(); } };
 })();

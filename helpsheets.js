@@ -705,8 +705,10 @@
     const canvas = makeCanvas(layout.width * scale, height * scale);
     const ctx = canvas.getContext("2d");
     ctx.scale(scale, scale);
-    ctx.fillStyle = st.pal.bg;
-    ctx.fillRect(0, 0, layout.width, height);
+    if (st.pal.bg) {
+      ctx.fillStyle = st.pal.bg;
+      ctx.fillRect(0, 0, layout.width, height);
+    }
     let y = st.F * 1.4;
     list.forEach((item) => {
       y += item.before || 0;
@@ -725,10 +727,11 @@
 
   const itemHeight = (item) => (item.before || 0) + item.h + (item.after || 0);
 
-  // render(id, { width, font, scale, pal: "app" | "light", pageHeight }) -> { pages: [canvas], width, height }
+  // render(id, { width, font, scale, pal: "app" | "light", clear, pageHeight }) -> { pages: [canvas], width, height }
+  // clear: leave the background see-through, so the panel behind it shows (the side panel does this).
   function render(id, opts = {}) {
     const sheet = SHEETS.find((s) => s.id === id) || SHEETS[0];
-    const pal = opts.pal === "app" ? appPalette() : LIGHT;
+    const pal = opts.pal === "app" ? { ...appPalette(), ...(opts.clear ? { bg: null } : {}) } : LIGHT;
     const st = style({ font: opts.font, pal });
     const width = opts.width || 800;
     const scale = opts.scale || 1;
@@ -803,6 +806,13 @@
     dock.addEventListener("click", onClick);
     observer = new ResizeObserver(() => draw());
     observer.observe(dock.querySelector(".hd-scroll"));
+    // A new theme or paper colour repaints the sheet in the new colours (the panel itself follows by CSS).
+    let queued = 0;
+    new MutationObserver(() => {
+      if (queued) return;
+      queued = requestAnimationFrame(() => { queued = 0; draw(); });
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ["style", "data-theme", "data-paper"] });
+    window.SkybridgeFx?.addSurface?.(dock);
     return dock;
   }
 
@@ -812,19 +822,22 @@
   }
 
   function applyWidth() {
-    document.documentElement.style.setProperty("--dock-w", `${dockWidth()}px`);
+    const width = dockWidth();
+    document.documentElement.style.setProperty("--dock-w", `${width}px`);
+    dock?.classList.toggle("narrow", width < 400);
   }
 
   function draw(force) {
     if (!dock || dock.hidden) return;
     const holder = dock.querySelector(".hd-scroll");
     const width = Math.max(240, Math.floor(holder.clientWidth));
-    const key = `${state.sheet}|${width}|${document.documentElement.dataset.paper || ""}|${document.documentElement.dataset.theme || ""}`;
+    const pal = appPalette();
+    const key = `${state.sheet}|${width}|${pal.text}|${pal.muted}|${pal.accent}|${pal.rule}`;
     if (!force && key === drawn) return;
     drawn = key;
     const scale = Math.min(3, window.devicePixelRatio || 1);
     const font = width < 380 ? 14 : width < 520 ? 15 : 16;
-    const out = render(state.sheet, { width, font, scale, pal: "app" });
+    const out = render(state.sheet, { width, font, scale, pal: "app", clear: true });
     const target = dock.querySelector(".hd-canvas");
     target.width = out.pages[0].width;
     target.height = out.pages[0].height;

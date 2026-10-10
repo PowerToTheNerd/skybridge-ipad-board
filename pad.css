@@ -1012,7 +1012,7 @@ input[type="range"] {
 /* Theme effects: a slow drift of soft light across the toolbar and rail. The paper stays still, it is
    off unless switched on, it stops while a pen is down, and it respects reduced motion. */
 @property --fx-x { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
-:root[data-fxlight="on"] :is(.bar, .rail)::after {
+:root[data-fxlight="on"] :is(.bar, .rail, .help-dock)::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -1024,9 +1024,9 @@ input[type="range"] {
   animation: fx-drift 26s ease-in-out infinite alternate;
 }
 @keyframes fx-drift { from { --fx-x: 0%; } to { --fx-x: 100%; } }
-:root[data-writing="on"] :is(.bar, .rail)::after { animation-play-state: paused; }
+:root[data-writing="on"] :is(.bar, .rail, .help-dock)::after { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) {
-  :root[data-fxlight="on"] :is(.bar, .rail)::after { animation: none; --fx-x: 30%; }
+  :root[data-fxlight="on"] :is(.bar, .rail, .help-dock)::after { animation: none; --fx-x: 30%; }
 }
 .page-tabs button[aria-selected="true"] { background: var(--line-strong); color: var(--text); }
 
@@ -1252,10 +1252,18 @@ input[type="range"] {
 /* Help sheets: a column beside the board; the board narrows to make room. */
 :root[data-help="on"] .stage { right: var(--dock-w, 0px); }
 :root[data-help="on"] .corner-pill { right: calc(max(14px, env(safe-area-inset-right)) + var(--dock-w, 0px)); }
+/* The panel is cut from the same glass as the top bar, so toolbar and panel read as one frame around the
+   board; the sheet sits on a card made like the tool rail and the settings panels. */
 .help-dock {
   position: fixed; top: calc(var(--bar-h) + env(safe-area-inset-top)); right: 0; bottom: 0; z-index: 2;
   width: var(--dock-w, 460px); display: flex; flex-direction: column;
-  background: var(--surface, var(--bg)); border-left: 1px solid var(--line-strong); box-shadow: -10px 0 30px -18px rgba(0, 0, 0, 0.6);
+  background:
+    linear-gradient(180deg, rgba(var(--acc-rgb), 0.06), transparent 70%),
+    rgba(var(--bar-rgb), 0.88);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  backdrop-filter: blur(16px) saturate(1.3);
+  border-left: 1px solid var(--edge);
+  box-shadow: -1px 0 0 rgba(var(--acc-rgb), 0.05), -10px 0 30px -18px rgba(0, 0, 0, 0.9);
 }
 .help-dock[hidden] { display: none; }
 .hd-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px 6px 16px; }
@@ -1263,12 +1271,25 @@ input[type="range"] {
 .hd-spacer { flex: 1; }
 .hd-icon { min-width: 40px; height: 40px; padding: 0; display: grid; place-items: center; }
 .hd-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.hd-tabs { display: flex; gap: 6px; padding: 4px 12px 8px; overflow-x: auto; scrollbar-width: none; flex: none; }
+.hd-tabs { display: flex; gap: 6px; padding: 4px 12px 10px; overflow-x: auto; scrollbar-width: none; flex: none; }
 .hd-tabs::-webkit-scrollbar { display: none; }
-.hd-tabs button { flex: none; height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 14px; white-space: nowrap; }
-.hd-tabs button[aria-selected="true"] { background: var(--line-strong); color: var(--text); border-color: var(--accent); }
-.hd-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
-.hd-canvas { display: block; }
-.hd-foot { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
-.hd-foot .tool { flex: 1 1 auto; height: 40px; font-size: 14px; padding: 0 10px; }
+.hd-tabs button {
+  flex: none; height: 36px; padding: 0 14px; border-radius: 999px; white-space: nowrap; font-size: 14px;
+  border: 1px solid var(--edge); background: var(--sheen), var(--surface); box-shadow: var(--inner-hi); color: var(--text-2);
+}
+.hd-tabs button[aria-selected="true"] {
+  border-color: var(--accent); color: var(--text);
+  background: linear-gradient(180deg, rgba(var(--acc-rgb), 0.16), rgba(var(--acc-rgb), 0.04)), var(--surface-raised);
+  box-shadow: var(--inner-hi), 0 0 0 1px rgba(var(--acc-rgb), 0.25), 0 0 18px -4px var(--glow);
+}
+/* The sheet scrolls under a finger: the canvas must not carry the board's touch-action: none. */
+.hd-scroll {
+  flex: 1; min-height: 0; margin: 0 12px; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y;
+  border: 1px solid var(--edge); border-radius: 18px; background: var(--sheen), rgba(var(--panel-rgb), 0.94);
+  box-shadow: var(--inner-hi), var(--shadow-1);
+}
+.hd-canvas { display: block; touch-action: pan-y; }
+.hd-foot { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); }
+.help-dock.narrow .hd-foot { grid-template-columns: repeat(2, 1fr); }
+.hd-foot .tool { height: 40px; font-size: 14px; padding: 0 6px; white-space: nowrap; }
 .hw-help { display: grid; gap: 6px; margin-bottom: 10px; }
