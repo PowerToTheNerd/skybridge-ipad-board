@@ -342,6 +342,97 @@ button{font:inherit;padding:10px 16px;margin:0 0 12px;border-radius:10px;border:
     }
   }
 
+
+  // ---------------------------------------------------------------------------
+  // A homework folder: every page in problem order, as one combined PDF or as photos.
+  // ---------------------------------------------------------------------------
+  async function folderPages(folderId) {
+    const Notebooks = window.SkybridgeNotebooks;
+    const pages = await Notebooks.pagesOf(folderId);
+    const out = [];
+    for (const meta of pages) {
+      const found = await Notebooks.load(meta.id);
+      if (!found) continue;
+      let strokes = found.strokes.filter((stroke) => stroke.points?.length);
+      const problem = found.meta.problem;
+      // A problem that was never pinned isn't on the paper yet: write it above the work for the hand-in.
+      if (problem && !problem.pinned && !strokes.some((stroke) => stroke.pin)) {
+        const box = extent(strokes);
+        const made = await pad.pinnedStrokes(problem, 0, 0);
+        const top = extent(made);
+        if (top) {
+          const dx = (box ? box.x0 : 0) - top.x0;
+          const dy = (box ? box.y0 : 0) - top.y1 - GAP;
+          const moved = made.map((stroke) => ({ ...stroke, points: stroke.points.map(([x, y]) => [x + dx, y + dy]) }));
+          strokes = [...moved, ...strokes];
+        }
+      }
+      if (!strokes.length) continue;
+      const { canvas } = await renderBoard({ strokes, withCard: false });
+      out.push({ meta, canvas });
+    }
+    return out;
+  }
+
+  async function exportFolder(folderId, kind) {
+    const Notebooks = window.SkybridgeNotebooks;
+    const folder = (await Notebooks.listFolders()).find((item) => item.id === folderId);
+    if (!folder) throw new Error("That folder is gone.");
+    const total = (await Notebooks.pagesOf(folderId)).length;
+    // Open the window first: browsers only allow it straight after the tap.
+    const win = kind === "pdf" ? window.open("", "skybridge-export") : null;
+    if (kind === "pdf" && !win) throw new Error("Allow pop-ups for this page, then try again.");
+    win?.document.write("<!doctype html><title>Exporting…</title><body style='font:16px sans-serif;padding:24px'>Putting the pages together…</body>");
+    try {
+      const pages = await folderPages(folderId);
+      if (!pages.length) throw new Error("No page in this folder has anything on it yet.");
+      const skipped = total - pages.length;
+      const note = skipped ? ` (${skipped} empty ${skipped === 1 ? "page" : "pages"} left out)` : "";
+      if (kind === "pdf") {
+        const title = folder.name.replace(/[<>&]/g, "");
+        win.document.open();
+        win.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title><style>
+body{margin:0;padding:16px;font:16px -apple-system,sans-serif;background:#fff;color:#111}
+img{display:block;width:100%;height:auto;margin:0 0 12px;border:1px solid #ccc}
+button{font:inherit;padding:10px 16px;margin:0 0 12px;border-radius:10px;border:1px solid #888;background:#f3f3f3}
+@page{margin:10mm}
+@media print{button{display:none}body{padding:0}img{border:0;margin:0;width:auto;max-width:100%;max-height:270mm;object-fit:contain;break-after:page;break-inside:avoid}img:last-of-type{break-after:auto}}
+</style></head><body><button onclick="print()">Save as PDF</button>${pages.map(({ meta, canvas }) => `<img src="${canvas.toDataURL("image/png")}" alt="${meta.name.replace(/["<>&]/g, "")}">`).join("")}</body></html>`);
+        win.document.close();
+        win.focus();
+        return `Tap Save as PDF in the new window${note}`;
+      }
+      const files = [];
+      for (const { meta, canvas } of pages) {
+        files.push(new File([await toBlob(canvas)], `${folder.name} - ${meta.name.replace(folder.name, "").trim() || meta.name}.png`.replace(/[\\/:*?"<>|]+/g, "-"), { type: "image/png" }));
+      }
+      if (navigator.canShare?.({ files })) {
+        try {
+          await navigator.share({ files, title: folder.name });
+          return `Saved ${files.length} photos${note}`;
+        } catch (error) {
+          if (error?.name === "AbortError") return "";
+        }
+      }
+      for (const file of files) {
+        const url = URL.createObjectURL(file);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = file.name;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+      return `Saved ${files.length} photos${note}`;
+    } catch (error) {
+      win?.close();
+      throw error;
+    }
+  }
+
   async function run(button, task) {
     const label = button.textContent;
     el.png.disabled = el.pdf.disabled = true;
@@ -377,5 +468,5 @@ button{font:inherit;padding:10px 16px;margin:0 0 12px;border-radius:10px;border:
   el.png.addEventListener("click", () => run(el.png, savePng));
   el.pdf.addEventListener("click", () => run(el.pdf, savePdf));
   pad.stage.addEventListener("pointerdown", () => setSheet(false), true);
-  window.SkybridgeExport = { renderBoard, geminiPicture, savePng, savePdf };
+  window.SkybridgeExport = { renderBoard, geminiPicture, savePng, savePdf, exportFolder, folderPages };
 })();

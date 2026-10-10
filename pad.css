@@ -1154,3 +1154,19 @@ input[type="range"] {
 .hw-card #homeworkOut { color: var(--muted); font-size: 13px; }
 
 .card-tools .my-board-problem-hide svg { width: 20px; height: 20px; }
+
+/* Homework folders: a row with a progress bar, its pages indented below, and the hand-in buttons */
+.hw-folder { margin-top: 10px; width: 100%; }
+.nb-folder { display: flex; align-items: center; gap: 6px; padding: var(--row-pad) 10px var(--row-pad) 8px; border-radius: 12px; background: rgba(var(--acc-rgb), 0.06); margin-top: 6px; }
+.nb-folder-main { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; text-align: left; }
+.nb-chevron { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms; color: var(--text-2); }
+.nb-folder[data-open="true"] .nb-chevron { transform: rotate(90deg); }
+.nb-folder-text { display: grid; gap: 4px; min-width: 0; flex: 1; }
+.nb-bar { display: block; height: 6px; border-radius: 3px; background: rgba(var(--wash-rgb), 0.12); overflow: hidden; }
+.nb-bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width 240ms; }
+.nb-page { margin-left: 20px; }
+.nb-tick { flex: none; width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid var(--line); background: transparent; color: transparent; display: grid; place-items: center; padding: 0; }
+.nb-tick svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.nb-tick[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.nb-folder-foot { display: flex; align-items: center; gap: 8px; margin: 6px 0 4px 20px; }
+.nb-folder-foot small { color: var(--text-2); }

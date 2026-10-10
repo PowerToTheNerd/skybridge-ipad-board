@@ -71,9 +71,63 @@
     return request(db.transaction(META).objectStore(META).getAll());
   }
 
+  // Folders are records in the same store (kind: "folder"); they are not notebooks, so list() skips them.
   async function list() {
-    const books = await all();
+    const books = (await all()).filter((book) => book.kind !== "folder");
     return books.sort((a, b) => b.updated - a.updated);
+  }
+
+  async function listFolders() {
+    const folders = (await all()).filter((book) => book.kind === "folder");
+    return folders.sort((a, b) => b.updated - a.updated);
+  }
+
+  // The pages in a folder, in problem order.
+  async function pagesOf(folderId) {
+    const books = (await all()).filter((book) => book.kind !== "folder" && book.folder === folderId);
+    return books.sort((a, b) => (a.order || 0) - (b.order || 0) || a.created - b.created);
+  }
+
+  async function createFolder(name, extra = {}) {
+    const meta = { id: newId(), kind: "folder", name: cleanName(name) || "Folder", created: Date.now(), updated: Date.now(), count: 0, ...extra, v: FORMAT };
+    await putBoth(meta);
+    return meta;
+  }
+
+  async function renameFolder(id, name) {
+    const found = (await all()).find((book) => book.id === id && book.kind === "folder");
+    const clean = cleanName(name);
+    if (!found || !clean) return null;
+    const meta = { ...found, name: clean, updated: Date.now() };
+    await putBoth(meta);
+    return meta;
+  }
+
+  // Take a folder and its pages away; the result puts them all back with restoreFolder().
+  async function removeFolder(id) {
+    const folder = (await all()).find((book) => book.id === id && book.kind === "folder");
+    if (!folder) return null;
+    const pages = [];
+    for (const page of await pagesOf(id)) pages.push(await remove(page.id));
+    await open();
+    if (!persistent) memory.books.delete(id);
+    else {
+      const tx = db.transaction(META, "readwrite");
+      tx.objectStore(META).delete(id);
+      await done(tx);
+    }
+    return { folder, pages: pages.filter(Boolean) };
+  }
+
+  async function restoreFolder(removed) {
+    if (!removed) return;
+    await putBoth(removed.folder);
+    for (const page of removed.pages) await restore(page);
+  }
+
+  // A page in a folder is done (a finished problem) or not.
+  async function setDone(id, finished) {
+    return save(id, { meta: { done: !!finished }, touch: false });
   }
 
   async function putBoth(meta, data) {
@@ -90,7 +144,7 @@
   }
 
   async function create(name) {
-    const books = await all();
+    const books = (await all()).filter((book) => book.kind !== "folder");
     const meta = {
       id: newId(),
       name: cleanName(name) || `Notebook ${books.length + 1}`,
@@ -188,7 +242,7 @@
   }
 
   window.SkybridgeNotebooks = {
-    open, list, create, load, save, rename, remove, restore, hashOf,
+    open, list, listFolders, pagesOf, createFolder, renameFolder, removeFolder, restoreFolder, setDone, create, load, save, rename, remove, restore, hashOf,
     current: () => storage("get", CURRENT_KEY),
     setCurrent: (id) => storage("set", CURRENT_KEY, id),
     isPersistent: () => persistent,

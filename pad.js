@@ -3069,6 +3069,9 @@
     el.verdictText.textContent = ok ? (live ? "Gemini is reading your board. Listen for the answer." : text || "Checked.") : error || "The check failed.";
     updateButtons();
     if (ok && !live) markWork({ verdict, box });
+    if (ok && !live && verdict === "correct" && nb?.folder && !nb.done) {
+      setPageDone(nb.id, true).then(() => { toast("Marked done in the folder"); renderNotebookList(); });
+    }
   }
 
   async function checkWithoutPc() {
@@ -3390,6 +3393,13 @@
     return out;
   }
 
+  // The problem written as pinned text at (x, y), for pages whose problem was never pinned (folder export).
+  async function pinnedStrokes(problem, x, y) {
+    const style = pinStyle();
+    try { await document.fonts.load(`${style.size}px ${TEXT_FAMILIES[style.font] || TEXT_FAMILIES.hand}`); } catch {}
+    return pinStrokes(problem, style, x, y, newId());
+  }
+
   async function pinProblem() {
     const problem = nb?.problem;
     if (!problem || problem.pinned) return;
@@ -3527,6 +3537,7 @@
     preview: document.getElementById("homeworkPreview"),
     info: document.getElementById("homeworkInfo"),
     go: document.getElementById("homeworkGo"),
+    folder: document.getElementById("homeworkFolder"),
     pick: document.getElementById("homeworkPick"),
     out: document.getElementById("homeworkOut"),
     file: document.getElementById("homeworkFile"),
@@ -3599,6 +3610,11 @@
     const set = await Homework.get(problem.set);
     if (!set) { toast("That homework was removed from this iPad."); return; }
     if (problem.index + 1 >= set.problems.length) { toast(`That was the last problem in ${set.name}.`); return; }
+    if (nb.folder) {
+      // In a homework folder the next problem already has its own page.
+      const next = (await Notebooks.pagesOf(nb.folder)).find((page) => (page.order || 0) === problem.index + 1);
+      if (next) { await openNotebook(next.id); return; }
+    }
     const worked = strokes.filter((stroke) => !stroke.eraser && !stroke.pin).length >= 3;
     await placeHomework(set.id, problem.index + 1, worked ? "new" : "page");
   };
@@ -3615,6 +3631,7 @@
     hw.next.addEventListener("click", () => step(1));
     window.SkybridgeEngine?.onChange(renderHomeworkStep);
     hw.go.addEventListener("click", () => placeHomework(hw.set.value, Number(hw.problem.value) || 0, whereValue()));
+    hw.folder.addEventListener("click", () => makeHomeworkFolder(hw.set.value));
     hw.importBtn.addEventListener("click", () => hw.file.click());
     hw.file.addEventListener("change", async () => {
       const file = hw.file.files?.[0];
@@ -3738,6 +3755,222 @@
     location.reload();
   });
 
+  function makeNotebookRow(book, snippet, query) {
+    const open = nb && nb.id === book.id;
+    if (open) Object.assign(book, { name: nb.name, count: strokes.filter((stroke) => !stroke.eraser).length, updated: Math.max(book.updated, nb.updated || 0) });
+    const row = document.createElement("li");
+    row.className = "nb-item";
+    if (open) row.setAttribute("aria-current", "true");
+    const main = document.createElement("button");
+    main.type = "button";
+    main.className = "nb-open";
+    const title = document.createElement("b");
+    title.textContent = book.name;
+    const note = document.createElement("small");
+    note.textContent = `${ago(book.updated)} · ${book.count} ${book.count === 1 ? "stroke" : "strokes"}`;
+    main.append(title, note);
+    if (book.tags?.length) {
+      const tags = document.createElement("span");
+      tags.className = "nb-tags";
+      for (const tag of book.tags) {
+        const chip = document.createElement("i");
+        chip.textContent = tag;
+        tags.append(chip);
+      }
+      main.append(tags);
+    }
+    if (query && snippet) {
+      const found = document.createElement("small");
+      found.className = "nb-snippet";
+      found.textContent = snippet;
+      main.append(found);
+    }
+    main.addEventListener("click", async () => { await openNotebook(book.id); el.notebookSheet.hidden = true; el.notebookBtn.setAttribute("aria-expanded", "false"); });
+    const rename = document.createElement("button");
+    rename.type = "button";
+    rename.className = "nb-act";
+    iconButton(rename, "Rename", ICON_PENCIL);
+    rename.addEventListener("click", () => editName(row, main, rename, book));
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "nb-act danger";
+    iconButton(remove, "Delete", ICON_TRASH);
+    remove.addEventListener("click", () => deleteNotebook(book.id));
+    const reread = document.createElement("button");
+    reread.type = "button";
+    reread.className = "nb-act";
+    iconButton(reread, "Read this page again", ICON_REFRESH);
+    reread.addEventListener("click", async () => {
+      reread.disabled = true;
+      try { toast(await window.SkybridgeSmart.reread(book.id)); } finally { reread.disabled = false; renderNotebookList(); }
+    });
+    const actions = document.createElement("span");
+    actions.className = "nb-acts";
+    actions.append(rename, ...(window.SkybridgeSmart?.reread ? [reread] : []), remove);
+    if (book.folder) {
+      row.classList.add("nb-page");
+      row.dataset.done = String(!!book.done);
+      const tick = document.createElement("button");
+      tick.type = "button";
+      tick.className = "nb-tick";
+      tick.setAttribute("role", "checkbox");
+      tick.setAttribute("aria-checked", String(!!book.done));
+      iconButton(tick, book.done ? "Done. Tap to undo" : "Mark done", ICON_CHECK);
+      tick.addEventListener("click", async () => { await setPageDone(book.id, !book.done); renderNotebookList(); });
+      row.append(tick);
+    }
+    row.append(main, actions);
+    return row;
+
+  }
+
+  // ---- homework folders: a folder per homework, one page per problem, a bar of how many are done ----
+  const openFolders = new Set();
+  const closedFolders = new Set();
+  const ICON_CHEVRON = '<path d="m7 4.5 5.5 5.5L7 15.5"/>';
+
+  async function setPageDone(id, finished) {
+    const meta = await Notebooks.setDone(id, finished);
+    if (meta && nb && nb.id === id) nb.done = meta.done;
+    return meta;
+  }
+
+  function makeFolderRows(folder, kids) {
+    const total = kids.length;
+    const finished = kids.filter((page) => page.done).length;
+    const expanded = openFolders.has(folder.id);
+    const head = document.createElement("li");
+    head.className = "nb-folder";
+    head.dataset.open = String(expanded);
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "nb-open nb-folder-main";
+    toggle.setAttribute("aria-expanded", String(expanded));
+    toggle.innerHTML = `<svg class="nb-chevron" viewBox="0 0 20 20" aria-hidden="true">${ICON_CHEVRON}</svg>`;
+    const text = document.createElement("span");
+    text.className = "nb-folder-text";
+    const title = document.createElement("b");
+    title.textContent = folder.name;
+    const note = document.createElement("small");
+    note.textContent = total ? `${finished} of ${total} problems done` : "No problems";
+    const bar = document.createElement("span");
+    bar.className = "nb-bar";
+    bar.setAttribute("role", "progressbar");
+    bar.setAttribute("aria-valuemin", "0");
+    bar.setAttribute("aria-valuemax", String(total));
+    bar.setAttribute("aria-valuenow", String(finished));
+    const fill = document.createElement("i");
+    fill.style.width = total ? `${Math.round((finished / total) * 100)}%` : "0%";
+    bar.append(fill);
+    text.append(title, note, bar);
+    toggle.append(text);
+    toggle.addEventListener("click", () => {
+      if (expanded) { openFolders.delete(folder.id); closedFolders.add(folder.id); } else { openFolders.add(folder.id); closedFolders.delete(folder.id); }
+      renderNotebookList();
+    });
+    const rename = document.createElement("button");
+    rename.type = "button";
+    rename.className = "nb-act";
+    iconButton(rename, "Rename folder", ICON_PENCIL);
+    rename.addEventListener("click", async () => {
+      const name = prompt("Folder name", folder.name);
+      if (name && await Notebooks.renameFolder(folder.id, name)) renderNotebookList();
+    });
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "nb-act danger";
+    iconButton(remove, "Delete folder and its pages", ICON_TRASH);
+    remove.addEventListener("click", () => deleteFolder(folder.id));
+    const actions = document.createElement("span");
+    actions.className = "nb-acts";
+    actions.append(rename, remove);
+    head.append(toggle, actions);
+    const rows = [head];
+    if (expanded) {
+      for (const page of kids) rows.push(makeNotebookRow(page, "", ""));
+      const foot = document.createElement("li");
+      foot.className = "nb-folder-foot";
+      const label = document.createElement("small");
+      label.textContent = "Hand it in:";
+      const pdf = document.createElement("button");
+      pdf.type = "button";
+      pdf.className = "nb-btn";
+      pdf.textContent = "Combined PDF";
+      const photos = document.createElement("button");
+      photos.type = "button";
+      photos.className = "nb-btn";
+      photos.textContent = "Photos";
+      for (const [button, kind] of [[pdf, "pdf"], [photos, "photos"]]) {
+        button.disabled = !total || !window.SkybridgeExport?.exportFolder;
+        button.addEventListener("click", async () => {
+          const was = button.textContent;
+          pdf.disabled = photos.disabled = true;
+          button.textContent = "Working…";
+          try {
+            await saveNow();
+            const message = await window.SkybridgeExport.exportFolder(folder.id, kind);
+            if (message) toast(message);
+          } catch (error) {
+            toast(error?.message || "Couldn't export");
+          } finally {
+            button.textContent = was;
+            pdf.disabled = photos.disabled = false;
+          }
+        });
+      }
+      foot.append(label, pdf, photos);
+      rows.push(foot);
+    }
+    return rows;
+  }
+
+  async function deleteFolder(id) {
+    if (nb?.folder === id) await saveNow();
+    const removed = await Notebooks.removeFolder(id);
+    if (!removed) return;
+    if (nb && removed.pages.some((page) => page.meta.id === nb.id)) {
+      const rest = await Notebooks.list();
+      showNotebook(await Notebooks.load(rest.length ? rest[0].id : (await Notebooks.create()).id));
+      if (connected) pushNotebook();
+    }
+    renderNotebookList();
+    toast(`Deleted ${removed.folder.name} and its ${removed.pages.length} pages`, {
+      label: "Undo",
+      run: async () => { await Notebooks.restoreFolder(removed); renderNotebookList(); },
+    });
+  }
+
+  // One page per problem, in order, each with the problem ready to pin. Made from the Homework tab.
+  async function makeHomeworkFolder(setId) {
+    const set = await Homework.get(setId);
+    if (!set) return;
+    const folders = await Notebooks.listFolders();
+    const existing = folders.find((folder) => folder.set === set.id);
+    if (existing) {
+      openFolders.add(existing.id);
+      closedFolders.delete(existing.id);
+      toast(`${set.name} already has a folder`);
+      showNbPage("books", true);
+      renderNotebookList();
+      return;
+    }
+    await saveNow();
+    const folder = await Notebooks.createFolder(set.name, { set: set.id });
+    let first = null;
+    for (let i = 0; i < set.problems.length; i += 1) {
+      const problem = Homework.problemOf(set, i);
+      const made = await Notebooks.create(`${set.name} ${problem.title}`.slice(0, 60));
+      await Notebooks.save(made.id, { meta: { problem, folder: folder.id, order: i, done: false, named: true }, touch: false });
+      first = first || made.id;
+    }
+    openFolders.add(folder.id);
+    closedFolders.delete(folder.id);
+    if (first) showNotebook(await Notebooks.load(first));
+    if (connected) pushNotebook();
+    renderNotebookList();
+    toast(`Made a folder for ${set.name}: ${set.problems.length} pages`);
+  }
+
   async function renderNotebookList() {
     if (el.notebookSheet.hidden) return;
     const Smart = window.SkybridgeSmart;
@@ -3750,61 +3983,20 @@
       el.notebookList.replaceChildren(none);
       return;
     }
-    const rows = results.map(({ meta: book, snippet }) => {
-      const open = nb && nb.id === book.id;
-      if (open) Object.assign(book, { name: nb.name, count: strokes.filter((stroke) => !stroke.eraser).length, updated: Math.max(book.updated, nb.updated || 0) });
-      const row = document.createElement("li");
-      row.className = "nb-item";
-      if (open) row.setAttribute("aria-current", "true");
-      const main = document.createElement("button");
-      main.type = "button";
-      main.className = "nb-open";
-      const title = document.createElement("b");
-      title.textContent = book.name;
-      const note = document.createElement("small");
-      note.textContent = `${ago(book.updated)} · ${book.count} ${book.count === 1 ? "stroke" : "strokes"}`;
-      main.append(title, note);
-      if (book.tags?.length) {
-        const tags = document.createElement("span");
-        tags.className = "nb-tags";
-        for (const tag of book.tags) {
-          const chip = document.createElement("i");
-          chip.textContent = tag;
-          tags.append(chip);
-        }
-        main.append(tags);
+    const rows = [];
+    if (query) {
+      rows.push(...results.map(({ meta: book, snippet }) => makeNotebookRow(book, snippet, query)));
+    } else {
+      const folders = await Notebooks.listFolders();
+      const pages = await Notebooks.list();
+      for (const folder of folders) {
+        const kids = pages.filter((page) => page.folder === folder.id).sort((a, b) => (a.order || 0) - (b.order || 0));
+        if (kids.some((page) => nb && page.id === nb.id) && !closedFolders.has(folder.id)) openFolders.add(folder.id);
+        rows.push(...makeFolderRows(folder, kids));
       }
-      if (query && snippet) {
-        const found = document.createElement("small");
-        found.className = "nb-snippet";
-        found.textContent = snippet;
-        main.append(found);
-      }
-      main.addEventListener("click", async () => { await openNotebook(book.id); el.notebookSheet.hidden = true; el.notebookBtn.setAttribute("aria-expanded", "false"); });
-      const rename = document.createElement("button");
-      rename.type = "button";
-      rename.className = "nb-act";
-      iconButton(rename, "Rename", ICON_PENCIL);
-      rename.addEventListener("click", () => editName(row, main, rename, book));
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.className = "nb-act danger";
-      iconButton(remove, "Delete", ICON_TRASH);
-      remove.addEventListener("click", () => deleteNotebook(book.id));
-      const reread = document.createElement("button");
-      reread.type = "button";
-      reread.className = "nb-act";
-      iconButton(reread, "Read this page again", ICON_REFRESH);
-      reread.addEventListener("click", async () => {
-        reread.disabled = true;
-        try { toast(await window.SkybridgeSmart.reread(book.id)); } finally { reread.disabled = false; renderNotebookList(); }
-      });
-      const actions = document.createElement("span");
-      actions.className = "nb-acts";
-      actions.append(rename, ...(window.SkybridgeSmart?.reread ? [reread] : []), remove);
-      row.append(main, actions);
-      return row;
-    });
+      const byId = new Map(results.map(({ meta, snippet }) => [meta.id, { meta, snippet }]));
+      for (const { meta: book, snippet } of byId.values()) if (!book.folder || !folders.some((f) => f.id === book.folder)) rows.push(makeNotebookRow(book, snippet, query));
+    }
     el.notebookList.replaceChildren(...rows);
   }
 
@@ -4202,7 +4394,7 @@
   }
 
   // What export.js needs to render the whole board.
-  window.SkybridgePad = { strokes, lasso, settings, cssColor, drawStroke, toast, stage: el.stage, geminiBoard: el.geminiBoard, geminiPane: el.geminiPane, fitGemini: fitGeminiBoard, geminiSize: () => geminiSize || { w: 640, pad: [16, 24, 16, 24] } };
+  window.SkybridgePad = { flush: saveNow, pinnedStrokes, strokes, lasso, settings, cssColor, drawStroke, toast, stage: el.stage, geminiBoard: el.geminiBoard, geminiPane: el.geminiPane, fitGemini: fitGeminiBoard, geminiSize: () => geminiSize || { w: 640, pad: [16, 24, 16, 24] } };
 
   renderSettings();
   renderLayout();
