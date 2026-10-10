@@ -17,14 +17,23 @@
     { id: "gemini-3.8-live", label: "Gemini 3.8 Live" },
     { id: "gemini-3.8-live-extended-thinking", label: "Gemini 3.8 Live Extended Thinking" },
   ];
-  const DEFAULTS = { on: false, model: MODELS[0].id, check: false };
+  // thinking: how hard the extended-thinking model may think (Off sends nothing). checkRead: let Live read the
+// page for Check my work, with the exact number check still done here.
+const THINKING = [
+    { id: "low", label: "Low" },
+    { id: "medium", label: "Medium" },
+    { id: "high", label: "High" },
+  ];
+  const DEFAULTS = { on: false, model: MODELS[0].id, check: false, thinking: "medium", checkRead: false };
   const SETUP_MS = 15000;
   const TURN_MS = 60000;
+  const THINK_TURN_MS = 180000; // a thinking model can take a few minutes before it says anything
+  let thinkingRefused = false; // Google didn't accept a thinking level this visit: stop sending it
   const listeners = new Set();
   let tail = Promise.resolve();
 
   class LiveError extends Error {
-    constructor(message, kind = "live") { super(message); this.kind = kind; }
+    constructor(message, kind = "live", early = false) { super(message); this.kind = kind; this.early = early; } // early: closed before the session was ready
   }
 
   const config = () => {
@@ -72,7 +81,7 @@
 
   const textOfFrame = async (data) => (typeof data === "string" ? data : data instanceof Blob ? data.text() : new TextDecoder().decode(data));
 
-  function session({ model, image, prompt }) {
+  function session({ model, image, prompt, thinking }) {
     return new Promise((resolve, reject) => {
       let socket;
       let said = "";
@@ -96,7 +105,7 @@
         socket.send(JSON.stringify({
           setup: {
             model: `models/${model}`,
-            generationConfig: { responseModalities: ["AUDIO"] },
+            generationConfig: { responseModalities: ["AUDIO"], ...(thinking ? { thinkingConfig: { thinkingLevel: thinking.toUpperCase() } } : {}) },
             outputAudioTranscription: {},
             systemInstruction: { parts: [{ text: "You read a student's handwriting from a picture and answer only with what was asked, in plain words. No greeting, no commentary." }] },
           },
@@ -108,7 +117,7 @@
         if (message.setupComplete && !ready) {
           ready = true;
           clearTimeout(timer);
-          timer = setTimeout(() => finish(new LiveError("Gemini Live took too long to answer.", "timeout")), TURN_MS);
+          timer = setTimeout(() => finish(new LiveError("Gemini Live took too long to answer.", "timeout")), thinking ? THINK_TURN_MS : TURN_MS);
           const parts = [...(image ? [{ inlineData: { mimeType: image.mime, data: image.data } }] : []), { text: prompt }];
           socket.send(JSON.stringify({ clientContent: { turns: [{ role: "user", parts }], turnComplete: true } }));
           return;
@@ -126,7 +135,7 @@
         if (done) return;
         const why = String(event.reason || "").slice(0, 200);
         const rejected = /api key|permission|invalid/i.test(why) || event.code === 1008;
-        finish(new LiveError(why || (ready ? "Gemini Live closed before it finished." : "Gemini Live closed the connection."), rejected ? "key" : "live"));
+        finish(new LiveError(why || (ready ? "Gemini Live closed before it finished." : "Gemini Live closed the connection."), rejected ? "key" : "live", !ready));
       };
     });
   }
@@ -136,7 +145,17 @@
     const run = tail.then(async () => {
       const cfg = config();
       const picture = image ? await toJpeg(image) : null;
-      const text = (await session({ model: cfg.model, image: picture, prompt })).trim();
+      const thinking = cfg.model === "gemini-3.8-live-extended-thinking" && !thinkingRefused && THINKING.some((t) => t.id === cfg.thinking) ? cfg.thinking : "";
+      let said;
+      try {
+        said = await session({ model: cfg.model, image: picture, prompt, thinking });
+      } catch (error) {
+        // The level wasn't accepted (closed before it began): ask once more without it, and remember.
+        if (!thinking || !error.early || error.kind === "key") throw error;
+        thinkingRefused = true;
+        said = await session({ model: cfg.model, image: picture, prompt, thinking: "" });
+      }
+      const text = said.trim();
       if (!text) throw new LiveError("Gemini Live said nothing.", "empty");
       count();
       return { model: MODELS.find((m) => m.id === cfg.model)?.label || cfg.model, text };
@@ -166,5 +185,5 @@
     }
   }
 
-  window.SkybridgeLive = { config, save, usable, ask, test, used, onUsage: (fn) => listeners.add(fn), MODELS, LiveError };
+  window.SkybridgeLive = { config, save, usable, ask, test, used, onUsage: (fn) => listeners.add(fn), MODELS, THINKING, LiveError };
 })();

@@ -130,6 +130,9 @@
     liveOn: document.getElementById("liveOn"),
     liveModel: document.getElementById("liveModel"),
     liveCheck: document.getElementById("liveCheck"),
+    liveCheckRead: document.getElementById("liveCheckRead"),
+    liveThinking: document.getElementById("liveThinking"),
+    liveThinkingRow: document.getElementById("liveThinkingRow"),
     liveTest: document.getElementById("liveTest"),
     liveResult: document.getElementById("liveResult"),
     localOut: document.getElementById("localOut"),
@@ -4108,6 +4111,9 @@
     el.liveOn.value = cfg.on ? "on" : "off";
     el.liveModel.value = cfg.model;
     el.liveCheck.value = cfg.check ? "on" : "off";
+    el.liveCheckRead.value = cfg.checkRead ? "on" : "off";
+    el.liveThinking.value = cfg.thinking;
+    el.liveThinkingRow.hidden = cfg.model !== "gemini-3.8-live-extended-thinking";
     const wanted = Engine ? (Engine.choice() === "live" || (Engine.live() && cfg.on)) : cfg.on;
     el.liveOut.textContent = !wanted ? (Engine && !Engine.live() ? "Not used (see What to use)" : "Off") : (window.SkybridgeAI.hasGeminiKey() ? "On" : "Needs a key");
     el.liveOut.dataset.state = wanted && window.SkybridgeAI.hasGeminiKey() ? "on" : "off";
@@ -4118,6 +4124,10 @@
     renderLive();
     el.liveOn.addEventListener("change", () => { Live.save({ on: el.liveOn.value === "on" }); renderLive(); });
     el.liveCheck.addEventListener("change", () => { Live.save({ check: el.liveCheck.value === "on" }); renderLive(); });
+    for (const level of Live.THINKING) el.liveThinking.append(Object.assign(document.createElement("option"), { value: level.id, textContent: level.label }));
+    el.liveThinking.value = Live.config().thinking;
+    el.liveCheckRead.addEventListener("change", () => { Live.save({ checkRead: el.liveCheckRead.value === "on" }); renderLive(); });
+    el.liveThinking.addEventListener("change", () => { Live.save({ thinking: el.liveThinking.value }); renderLive(); });
     el.liveModel.addEventListener("change", () => { Live.save({ model: el.liveModel.value }); renderLive(); });
     el.liveTest.addEventListener("click", async () => {
       if (!window.SkybridgeAI.hasGeminiKey()) { toast("Add your Gemini key first"); return; }

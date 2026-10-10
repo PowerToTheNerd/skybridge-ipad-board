@@ -491,10 +491,20 @@ Say each number as it is written, say "equals", "plus", "minus" and "times" for 
     return Boolean(Local && Local.endpoint(Local.config().url) && (!Engine || Engine.local()) && Local.usable({ image: true }));
   }
 
+  // Live answers by voice, so the reading is asked for as JSON text. Anything that isn't a usable reading throws,
+  // and Check carries on with Gemini: the exact number check always runs here, on whatever was read.
+  const LIVE_JSON = `Answer with ONLY one JSON object, written as plain text, using exactly the fields described above (transcription, checks, verdict, first_mistake, feedback). No speech before or after it, no code fence.`;
+  function liveReading(said) {
+    const data = parseJson(said);
+    if (!Array.isArray(data.checks) || typeof data.verdict !== "string") throw new AiError("Live didn't give a usable reading.", "format");
+    return JSON.stringify(data);
+  }
+
   async function readWork(image, { problem = "", mode = "practice" } = {}) {
     // A reasoning model on your own PC can think for minutes about a long prompt: tell it to be brief.
     const hurry = localWillRead() ? `\nBe quick: don't deliberate at length. Keep transcription to the essential lines and every other field to one short sentence.` : "";
-    const { model, text } = await generate(image, readPrompt(problem, mode) + hurry, READING_SCHEMA, {}, { feature: "check" });
+    const live = window.SkybridgeLive?.config().checkRead ? { prompt: `${readPrompt(problem, mode)}\n${LIVE_JSON}`, toJson: liveReading } : undefined;
+    const { model, text } = await generate(image, readPrompt(problem, mode) + hurry, READING_SCHEMA, {}, { feature: "check", live });
     return { model, reading: parseJson(text) };
   }
 

@@ -334,6 +334,18 @@
                 <span>Live model</span>
                 <select id="liveModel"></select>
               </label>
+              <label class="nb-address" id="liveThinkingRow">
+                <span>Thinking level</span>
+                <select id="liveThinking"></select>
+              </label>
+              <label class="nb-address">
+                <span>Check my work reading</span>
+                <select id="liveCheckRead">
+                  <option value="off">Gemini Flash first</option>
+                  <option value="on">Gemini Live first</option>
+                </select>
+              </label>
+              <p class="nb-fine">With Live first, Live reads your page as JSON and the numbers are still checked exactly here. If Live's answer can't be used, Flash does it. Extended Thinking is best for this, and may take a minute or two.</p>
               <label class="nb-address">
                 <span>When Flash is out, Check my work</span>
                 <select id="liveCheck">

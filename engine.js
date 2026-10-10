@@ -16,13 +16,13 @@
     { id: "hybrid", label: "Hybrid", hint: "Auto: your local model first when it can do the job, then Gemini Live if it is on, then Gemini. When one fails or is used up, the next one answers." },
     { id: "gemini", label: "Gemini", hint: "Only Gemini's free models. The local model and Live are not used." },
     { id: "local", label: "Local model", hint: "Only your local model. Nothing is sent to Gemini. Things it can't do are told so instead of failing quietly." },
-    { id: "live", label: "Gemini Live", hint: "Experimental. Live reads page names and To text (it has no daily limit). Check my work, practice and PDFs still use Gemini, because Live can't do them reliably." },
+    { id: "live", label: "Gemini Live", hint: "Experimental. Live reads page names and To text (it has no daily limit), and Check my work if you turn that on under Gemini Live. Practice and PDFs still use Gemini." },
   ];
   // What each feature needs: a picture, or only words, or a PDF.
   const FEATURES = [
     { id: "naming", label: "Page names", needs: "image", live: true },
     { id: "totext", label: "To text", needs: "image", live: true },
-    { id: "check", label: "Check my work", needs: "image", live: false },
+    { id: "check", label: "Check my work", needs: "image", live: true },
     { id: "practice", label: "Practice problems", needs: "text", live: false },
     { id: "homework", label: "Homework PDF", needs: "pdf", live: false },
   ];
@@ -83,7 +83,7 @@
       else if (wants.image && !Local.config().vision) { if (current === "local") notes.push("Turn on \"Can it read pictures\" for the local model"); else notes.push("local model can't read pictures"); }
       else steps.push("local");
     }
-    if (live() && spec.live) {
+    if (live() && spec.live && (spec.id !== "check" || Live?.config().checkRead)) {
       const configured = current === "live" || Boolean(Live?.config().on);
       if (configured && Live && AI?.hasGeminiKey()) steps.push("live");
     }
