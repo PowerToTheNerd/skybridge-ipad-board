@@ -1232,3 +1232,43 @@ input[type="range"] {
 .clock-wx { display: flex; align-items: center; gap: 4px; color: var(--muted); }
 .clock-wx svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .clock-wx b { font-weight: 500; }
+
+/* Top bar in three groups: where you are (left), the pen and paper settings (middle, centred), what you do with the page (right). */
+.bar { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; }
+.bar-left, .bar-mid, .bar-right { display: flex; align-items: center; }
+.bar-left { justify-self: start; gap: 8px; }
+.bar-mid { justify-self: center; gap: 8px; }
+.bar-right { justify-self: end; gap: 14px; margin-left: 0; }
+.bar-set { display: flex; align-items: center; gap: 6px; }
+.bar-right .send { margin-left: -4px; }
+.bar .tool, .bar .send, .bar .layout-btn { height: 44px; }
+.bar .status { height: 44px; padding: 0 14px; }
+@media (max-width: 1000px) {
+  .bar { gap: 10px; }
+  .bar-left, .bar-mid { gap: 6px; }
+  .bar-right { gap: 12px; }
+}
+
+/* Help sheets: a column beside the board; the board narrows to make room. */
+:root[data-help="on"] .stage { right: var(--dock-w, 0px); }
+:root[data-help="on"] .corner-pill { right: calc(max(14px, env(safe-area-inset-right)) + var(--dock-w, 0px)); }
+.help-dock {
+  position: fixed; top: calc(var(--bar-h) + env(safe-area-inset-top)); right: 0; bottom: 0; z-index: 2;
+  width: var(--dock-w, 460px); display: flex; flex-direction: column;
+  background: var(--surface, var(--bg)); border-left: 1px solid var(--line-strong); box-shadow: -10px 0 30px -18px rgba(0, 0, 0, 0.6);
+}
+.help-dock[hidden] { display: none; }
+.hd-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px 6px 16px; }
+.hd-head strong { font-size: 16px; font-weight: 600; }
+.hd-spacer { flex: 1; }
+.hd-icon { min-width: 40px; height: 40px; padding: 0; display: grid; place-items: center; }
+.hd-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.hd-tabs { display: flex; gap: 6px; padding: 4px 12px 8px; overflow-x: auto; scrollbar-width: none; flex: none; }
+.hd-tabs::-webkit-scrollbar { display: none; }
+.hd-tabs button { flex: none; height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 14px; white-space: nowrap; }
+.hd-tabs button[aria-selected="true"] { background: var(--line-strong); color: var(--text); border-color: var(--accent); }
+.hd-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
+.hd-canvas { display: block; }
+.hd-foot { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
+.hd-foot .tool { flex: 1 1 auto; height: 40px; font-size: 14px; padding: 0 10px; }
+.hw-help { display: grid; gap: 6px; margin-bottom: 10px; }

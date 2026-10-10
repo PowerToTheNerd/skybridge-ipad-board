@@ -51,6 +51,8 @@
     lassoBold: document.getElementById("lassoBold"),
     bgReads: document.getElementById("bgReads"),
     updateApp: document.getElementById("updateApp"),
+    helpBtn: document.getElementById("helpBtn"),
+    homeworkHelp: document.getElementById("homeworkHelp"),
     lassoDuplicate: document.getElementById("lassoDuplicate"),
     lassoText: document.getElementById("lassoText"),
     textSheet: document.getElementById("textSheet"),
@@ -538,7 +540,7 @@
   }
 
   function hasInk() {
-    return strokes.some((stroke) => !stroke.eraser);
+    return strokes.some((stroke) => !stroke.eraser && !stroke.help);
   }
 
   // Undo, Clear and Send act on the board in view; with both in view, on the one written on last.
@@ -4168,6 +4170,13 @@
     });
   })();
 
+  // Help sheets: a button on the tool rail and one in Notebooks > Homework (helpsheets.js builds the panel).
+  el.helpBtn.addEventListener("click", () => window.SkybridgeHelp?.toggle());
+  el.homeworkHelp.addEventListener("click", () => {
+    el.notebookBtn.getAttribute("aria-expanded") === "true" && el.notebookBtn.click();
+    window.SkybridgeHelp?.open();
+  });
+
   el.updateApp.addEventListener("click", async () => {
     try {
       for (const registration of await navigator.serviceWorker.getRegistrations()) await registration.unregister();
@@ -4981,7 +4990,7 @@
   }
   el.lassoLock.addEventListener("click", () => setPhotoLock(!photosSelected().every((stroke) => stroke.lock)));
 
-  async function addPhoto(file) {
+  async function addPhoto(file, opts = {}) {
     if (!Images || !nb) return;
     let pic;
     try {
@@ -4995,13 +5004,13 @@
     const rect = el.canvas.getBoundingClientRect();
     const vw = rect.width / view.zoom;
     const vh = rect.height / view.zoom;
-    const fit = Math.min((vw * 0.6) / pic.w, (vh * 0.7) / pic.h);
+    const fit = opts.help ? Math.min(vw * 0.5, 640) / pic.w : Math.min((vw * 0.6) / pic.w, (vh * 0.7) / pic.h); // a help sheet is tall: keep its text readable and let the page scroll
     const w = Math.round(pic.w * fit);
     const h = Math.round(pic.h * fit);
     const nudge = (strokes.filter((stroke) => stroke.img).length % 5) * 28;
     const x = Math.round(view.x + (vw - w) / 2 + nudge);
     const y = Math.round(view.y + (vh - h) / 2 + nudge);
-    const photo = { id: newId(), color: "ink", eraser: false, hl: false, width: 0, sim: false, clean: true, img: pic.id, lock: false, points: [[x, y], [x + w, y + h]] };
+    const photo = { id: newId(), color: "ink", eraser: false, hl: false, width: 0, sim: false, clean: true, img: pic.id, lock: false, ...(opts.help ? { help: true } : {}), points: [[x, y], [x + w, y + h]] };
     const item = { s: photo, i: strokes.length };
     boards.mine.put([item]);
     record("mine", [], [item]);
@@ -5010,7 +5019,7 @@
     rebuildBase();
     positionLasso();
     schedulePaint();
-    toast("Photo added. Move it, then tap Lock to write over it.", { label: "Undo", run: undoAction });
+    toast(opts.help ? "Help sheet pinned. Move it, then Lock it to write over it. It isn't sent or exported." : "Photo added. Move it, then tap Lock to write over it.", { label: "Undo", run: undoAction });
   }
   async function addPhotos(files) {
     const pictures = [...files].filter((file) => /^image\//.test(file.type) || /\.(jpe?g|png|heic|heif|webp|gif)$/i.test(file.name || ""));
@@ -5035,7 +5044,7 @@
     el.imageBtn.hidden = true;
   }
 
-  window.SkybridgePad = { flush: saveNow, pinnedStrokes, strokes, lasso, settings, cssColor, drawStroke, toast, stage: el.stage, geminiBoard: el.geminiBoard, geminiPane: el.geminiPane, fitGemini: fitGeminiBoard, geminiSize: () => geminiSize || { w: 640, pad: [16, 24, 16, 24] } };
+  window.SkybridgePad = { addHelpSheet: (file) => addPhoto(file, { help: true }), flush: saveNow, pinnedStrokes, strokes, lasso, settings, cssColor, drawStroke, toast, stage: el.stage, geminiBoard: el.geminiBoard, geminiPane: el.geminiPane, fitGemini: fitGeminiBoard, geminiSize: () => geminiSize || { w: 640, pad: [16, 24, 16, 24] } };
 
   renderSettings();
   renderLayout();

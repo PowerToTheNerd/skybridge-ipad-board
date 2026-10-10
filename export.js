@@ -213,7 +213,7 @@
   // The whole board as a picture. { strokes } draws another notebook's ink instead of the open one, and
   // { withCard: false } leaves Gemini's problem card off (a page being read in the background).
   async function renderBoard(options = {}) {
-    const strokes = (options.strokes || pad.strokes).filter((stroke) => stroke.points.length);
+    const strokes = (options.strokes || pad.strokes).filter((stroke) => stroke.points.length && !stroke.help); // a pinned help sheet is for reading, not for checking or handing in
     await window.SkybridgeImages?.ensure(strokes); // photos from another page come from storage
     const box = extent(strokes);
     const card = options.withCard === false ? null : await problemPicture();
