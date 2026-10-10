@@ -1,0 +1,9 @@
+/* Theme weather (effects.js): a canvas on the toolbar's and rail's glass, behind their buttons.
+   The paper is never touched. */
+.fx-chrome { position: absolute; inset: 0; z-index: -1; border-radius: inherit; overflow: hidden; pointer-events: none; }
+.fx-chrome canvas { display: block; width: 100%; height: 100%; touch-action: auto; }
+:root[data-fx="off"] .fx-chrome { display: none; }
+
+.fx-section { display: grid; gap: 10px; padding-bottom: 6px; }
+.fx-section h3 { margin: 0; font-size: 16px; font-weight: 600; }
+.fx-seg { grid-template-columns: repeat(3, 1fr); }
