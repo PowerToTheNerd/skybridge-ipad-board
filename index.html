@@ -293,7 +293,8 @@
           <details class="nb-fold" id="backupFold">
             <summary><span>Back up or move notebooks</span><output id="backupOut"></output></summary>
             <div class="nb-fold-body">
-              <p class="nb-hint">Chrome, Safari and the Home Screen app each keep their own notebooks. To move them, back up in one and restore in the other. Restoring only adds, and the file has no Gemini key.</p>
+              <p class="nb-hint">Chrome, Safari and the Home Screen app each keep their own notebooks. To move them, back up in one and restore in the other. Notebooks are only added, never deleted. Your Gemini key and other keys are never in the file, so type them in again on the other app.</p>
+              <label class="nb-check"><input type="checkbox" id="backupSettings" checked><span>Include my settings (theme, colours, pen and paper, layout)</span></label>
               <button type="button" class="nb-btn" id="backupMake">Back up everything</button>
               <button type="button" class="nb-btn" id="backupRestore">Restore from a backup</button>
               <input type="file" id="backupFile" accept="application/json,.json" hidden>

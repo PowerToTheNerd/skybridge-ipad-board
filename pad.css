@@ -1102,6 +1102,8 @@ input[type="range"] {
 .nb-pages .nb-folds { margin: 0 -18px; }
 .nb-backup-wrap { border-bottom: 1px solid var(--line); }
 .nb-backup-wrap .nb-fold-body { max-height: none; }
+.nb-check { display: flex; align-items: center; gap: 12px; font-size: 14.5px; color: var(--text-2); line-height: 1.35; }
+.nb-check input { flex: none; width: 22px; height: 22px; margin: 0; accent-color: var(--accent); }
 .nb-section { display: grid; gap: 12px; }
 .nb-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .nb-section-head h3 { margin: 0; font-size: 16px; font-weight: 600; }
