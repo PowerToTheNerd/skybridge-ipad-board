@@ -6,7 +6,8 @@
  * One shared loop at about 30 frames a second (20 while a pen is down, to leave the ink every spare
  * moment), stopped while the page is hidden and with reduced motion. Off by default.
  *
- *   Rain: drops bead on the glass, some grow heavy and run down, then dry off.
+ *   Rain: drops bead on the glass, some grow heavy and run down, then dry off. Optional distant
+ *   lightning lights the same glass; a quiet thunder rumble can be enabled separately.
  *   Wind: now and then a gust carries a leaf across; some hit the glass, flutter, and are blown away.
  */
 (() => {
@@ -15,13 +16,15 @@
   const LOOKS = [["off", "None"], ["rain", "Rain"], ["wind", "Wind"]];
   const HINTS = {
     off: "A little weather on the toolbar and tool rail. Your paper never changes.",
-    rain: "Drops bead on the toolbar and rail, and now and then one runs down.",
+    rain: "Drops bead on the toolbar and rail. Add distant lightning with Thunderstorm; sound is optional.",
     wind: "Now and then a gust blows a leaf across the toolbar and rail. Some catch for a moment.",
   };
-  const state = { mode: "off", k: 0.5 };
+  const state = { mode: "off", k: 0.5, thunder: false, sound: false };
   try { Object.assign(state, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch {}
   if (!LOOKS.some(([id]) => id === state.mode)) state.mode = "off";
   state.k = Math.min(1, Math.max(0.1, Number(state.k) || 0.5));
+  state.thunder = state.thunder === true;
+  state.sound = state.sound === true;
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} };
 
   const root = document.documentElement;
@@ -153,6 +156,86 @@
     s.g.globalAlpha = 1;
   }
 
+  // ---- distant thunderstorm, shared by every surface ---------------------------------------------------
+  // One soft pulse at a time, well apart. No full-page overlay, rapid flashes, or extra animation loop.
+  const storm = { next: 0, at: null, duration: 0.7, x: 0.5 };
+  const stormAllowed = () => state.mode === "rain" && state.thunder && !reduced?.matches && !document.hidden && root.dataset.writing !== "on";
+  let audio = null, noise = null;
+  const voices = new Set();
+  const audioSupported = Boolean(window.AudioContext || window.webkitAudioContext);
+  function unlockAudio() {
+    if (!audioSupported || !state.sound || !stormAllowed()) return;
+    try {
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      audio.resume().catch(() => {});
+    } catch { /* Sound is optional; lightning still works without Web Audio. */ }
+  }
+  function stopRumble() {
+    if (!audio) return;
+    for (const voice of voices) {
+      try {
+        voice.gain.gain.cancelScheduledValues(audio.currentTime);
+        voice.gain.gain.setTargetAtTime(0, audio.currentTime, 0.025);
+        voice.source.stop(audio.currentTime + 0.08);
+      } catch {}
+    }
+    voices.clear();
+  }
+  function rumble() {
+    if (!state.sound || !stormAllowed() || audio?.state !== "running") return;
+    try {
+      // A cached, low-pass noise buffer makes a low rumble without downloading an audio file.
+      if (!noise) {
+        noise = audio.createBuffer(1, Math.round(audio.sampleRate * 4), audio.sampleRate);
+        const data = noise.getChannelData(0);
+        let brown = 0;
+        for (let i = 0; i < data.length; i++) { brown = (brown + (rnd() * 2 - 1) * 0.04) / 1.04; data[i] = brown * 3; }
+      }
+      const source = audio.createBufferSource();
+      const filter = audio.createBiquadFilter();
+      const gain = audio.createGain();
+      source.buffer = noise;
+      source.playbackRate.value = between(0.9, 1.05);
+      filter.type = "lowpass"; filter.frequency.value = 180; filter.Q.value = 0.6;
+      const start = audio.currentTime + between(0.45, 0.9);
+      const volume = 0.04 + state.k * 0.035;
+      gain.gain.setValueAtTime(0, audio.currentTime);
+      gain.gain.setValueAtTime(0, start);
+      gain.gain.linearRampToValueAtTime(volume, start + 0.35);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 3.5);
+      source.connect(filter); filter.connect(gain); gain.connect(audio.destination);
+      const voice = { source, filter, gain };
+      voices.add(voice);
+      source.onended = () => { voices.delete(voice); source.disconnect(); filter.disconnect(); gain.disconnect(); };
+      source.start(start);
+      source.stop(start + 3.6);
+    } catch { stopRumble(); }
+  }
+  function resetStorm() { storm.next = 0; storm.at = null; stopRumble(); }
+  function stormStep(now) {
+    if (!stormAllowed()) { resetStorm(); return; }
+    if (storm.at !== null && now - storm.at >= storm.duration) storm.at = null;
+    if (!storm.next) storm.next = now + between(10, 22) / (0.75 + state.k * 0.5);
+    if (now < storm.next) return;
+    storm.at = now;
+    storm.x = between(0.2, 0.8);
+    storm.next = now + between(10, 22) / (0.75 + state.k * 0.5);
+    rumble();
+  }
+  function stormDraw(s, now) {
+    if (!stormAllowed() || storm.at === null) return;
+    const phase = (now - storm.at) / storm.duration;
+    if (phase < 0 || phase >= 1) return;
+    const alpha = Math.sin(Math.PI * phase) * (light ? 0.07 : 0.12) * (0.5 + state.k * 0.5);
+    const colour = light ? "70,100,135" : "185,215,250";
+    const gradient = s.g.createLinearGradient(0, 0, s.cv.width, 0);
+    gradient.addColorStop(0, `rgba(${colour},${alpha * 0.2})`);
+    gradient.addColorStop(storm.x, `rgba(${colour},${alpha})`);
+    gradient.addColorStop(1, `rgba(${colour},${alpha * 0.2})`);
+    s.g.fillStyle = gradient;
+    s.g.fillRect(0, 0, s.cv.width, s.cv.height);
+  }
+
   // ---- wind -------------------------------------------------------------------------------------------
   function windStep(s, dt, now) {
     if (!s.next) s.next = now + between(0.5, 3);
@@ -220,19 +303,21 @@
     const dt = Math.min(0.1, (t - last) / 1000);
     last = t;
     const now = t / 1000;
+    stormStep(now);
     for (const s of surfaces) {
       if (!s.w || !s.h) continue;
       if (state.mode === "rain") rainStep(s, dt, now); else windStep(s, dt, now);
       s.g.clearRect(0, 0, s.cv.width, s.cv.height);
-      if (state.mode === "rain") rainDraw(s, now); else windDraw(s);
+      if (state.mode === "rain") { rainDraw(s, now); stormDraw(s, now); } else windDraw(s);
     }
   }
   const canRun = () => state.mode !== "off" && !reduced?.matches && !document.hidden;
   function sync() {
     root.dataset.fx = state.mode;
+    if (!stormAllowed()) resetStorm();
     if (state.mode !== "rain") surfaces.forEach((s) => { s.beads = []; });
     if (state.mode !== "wind") surfaces.forEach((s) => { s.leaves = []; s.gusts = []; s.next = 0; });
-    if (state.mode === "off") surfaces.forEach((s) => s.g.clearRect(0, 0, s.cv.width, s.cv.height));
+    if (!canRun()) surfaces.forEach((s) => s.g.clearRect(0, 0, s.cv.width, s.cv.height));
     if (canRun()) {
       if (!frame) { last = performance.now(); frame = requestAnimationFrame(tick); }
     } else if (frame) { cancelAnimationFrame(frame); frame = 0; }
@@ -254,6 +339,13 @@
   if (window.ResizeObserver) { const ro = new ResizeObserver(later); surfaces.forEach((s) => ro.observe(s.host)); }
   document.addEventListener("visibilitychange", sync);
   reduced?.addEventListener?.("change", sync);
+  new MutationObserver(() => {
+    if (root.dataset.writing === "on") resetStorm();
+  }).observe(root, { attributes: true, attributeFilter: ["data-writing"] });
+  // A saved sound preference is resumed only by a new user gesture, never on page load.
+  document.addEventListener("pointerdown", (event) => {
+    if (event.isTrusted && !event.target.closest?.("canvas")) unlockAudio();
+  }, { passive: true });
 
   // ---- Settings > Effects ---------------------------------------------------------------------------------
   const host = document.getElementById("labList");
@@ -265,6 +357,13 @@
     ui.k.value = Math.round(state.k * 100);
     ui.kOut.textContent = `${Math.round(state.k * 100)}%`;
     ui.kRow.hidden = state.mode === "off";
+    ui.stormRow.hidden = state.mode !== "rain";
+    ui.thunder.setAttribute("aria-pressed", String(state.thunder));
+    ui.sound.hidden = !state.thunder || !audioSupported;
+    ui.sound.setAttribute("aria-pressed", String(state.sound));
+    ui.stormHint.textContent = reduced?.matches
+      ? "Thunderstorm pauses with reduced motion. Rain stays still."
+      : "Distant lightning on the controls only. Pauses while you write. Thunder sound starts after a tap and stays quiet.";
   }
   const choose = (mode) => { state.mode = mode; save(); readTheme(); surfaces.forEach(size); sync(); paint(); };
   if (host) {
@@ -289,7 +388,17 @@
     ui.kRow.innerHTML = '<span class="setting-head">How much <output></output></span><input type="range" min="10" max="100" step="5">';
     ui.k = ui.kRow.querySelector("input"); ui.kOut = ui.kRow.querySelector("output");
     ui.k.addEventListener("input", () => { state.k = Number(ui.k.value) / 100; save(); paint(); if (reduced?.matches) sync(); });
-    sec.append(title, ui.hint, row, ui.kRow);
+    ui.stormRow = document.createElement("div");
+    ui.stormRow.className = "fx-storm";
+    ui.thunder = document.createElement("button");
+    ui.thunder.type = "button"; ui.thunder.className = "tool"; ui.thunder.textContent = "Thunderstorm";
+    ui.thunder.addEventListener("click", () => setThunder(!state.thunder));
+    ui.sound = document.createElement("button");
+    ui.sound.type = "button"; ui.sound.className = "tool"; ui.sound.textContent = "Thunder sound";
+    ui.sound.addEventListener("click", () => setSound(!state.sound));
+    ui.stormHint = document.createElement("p"); ui.stormHint.className = "setting-hint";
+    ui.stormRow.append(ui.thunder, ui.sound, ui.stormHint);
+    sec.append(title, ui.hint, row, ui.kRow, ui.stormRow);
     const anchor = host.previousElementSibling;
     anchor ? anchor.after(sec) : host.before(sec);
   }
@@ -307,5 +416,12 @@
     size(s);
     sync();
   }
-  window.SkybridgeFx = { addSurface, get mode() { return state.mode; }, set: (mode) => choose(LOOKS.some(([id]) => id === mode) ? mode : "off"), setIntensity(v) { state.k = Math.min(1, Math.max(0.1, v)); save(); paint(); } };
+  function setThunder(value) { state.thunder = Boolean(value); resetStorm(); save(); sync(); paint(); }
+  function setSound(value) { state.sound = Boolean(value) && audioSupported; save(); if (state.sound) unlockAudio(); else stopRumble(); paint(); }
+  reduced?.addEventListener?.("change", paint);
+  window.SkybridgeFx = {
+    addSurface, get mode() { return state.mode; }, get thunder() { return state.thunder; }, get sound() { return state.sound; },
+    set: (mode) => choose(LOOKS.some(([id]) => id === mode) ? mode : "off"), setThunder, setSound,
+    setIntensity(v) { state.k = Math.min(1, Math.max(0.1, Number(v) || 0.5)); save(); paint(); if (reduced?.matches) sync(); },
+  };
 })();

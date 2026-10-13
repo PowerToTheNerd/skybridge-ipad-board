@@ -7,3 +7,5 @@
 .fx-section { display: grid; gap: 10px; padding-bottom: 6px; }
 .fx-section h3 { margin: 0; font-size: 16px; font-weight: 600; }
 .fx-seg { grid-template-columns: repeat(3, 1fr); }
+.fx-storm { display: flex; flex-wrap: wrap; gap: 8px; }
+.fx-storm .setting-hint { flex-basis: 100%; margin: 0; }
