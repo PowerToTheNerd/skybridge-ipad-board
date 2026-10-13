@@ -55,6 +55,10 @@
     homeworkHelp: document.getElementById("homeworkHelp"),
     lassoDuplicate: document.getElementById("lassoDuplicate"),
     lassoMove: document.getElementById("lassoMove"),
+    lassoLineTools: document.getElementById("lassoLineTools"),
+    lassoThinner: document.getElementById("lassoThinner"),
+    lassoThicker: document.getElementById("lassoThicker"),
+    lassoMatchPen: document.getElementById("lassoMatchPen"),
     lassoRotate: document.getElementById("lassoRotate"),
     lassoAngle: document.getElementById("lassoAngle"),
     lassoText: document.getElementById("lassoText"),
@@ -2717,6 +2721,7 @@
     Object.assign(el.lassoBox.style, { left: `${left}px`, top: `${top}px`, width: `${(x1 - x0) * view.zoom}px`, height: `${(y1 - y0) * view.zoom}px` });
     el.lassoEdit.hidden = !(lasso.selected.length === 1 && lasso.selected[0].text);
     renderTextTools();
+    renderLineTools();
     renderPhotoTools();
     // One straight line selected: its two ends become handles to pull, instead of the corners.
     const ends = lasso.selected.length === 1 ? lineEnds(lasso.selected[0]) : null;
@@ -2972,6 +2977,28 @@
     positionLasso();
     schedulePaint();
   }
+  // Selection sidebar, Line section: thinner, thicker, or the pen's own width for the selected ink.
+  const PEN_WIDTHS = [1, 1.6, 2.6, 4, 6, 9, 13];
+  const lineSelected = () => lasso.selected.filter((stroke) => !stroke.text && !stroke.img && !stroke.eraser && !stroke.hl);
+  function renderLineTools() {
+    el.lassoLineTools.hidden = !lineSelected().length;
+  }
+  function styleLines(pick) {
+    const picked = lineSelected();
+    if (!picked.length) return;
+    const before = picked.map((stroke) => itemOf(strokes, stroke));
+    for (const stroke of picked) stroke.width = Math.round(pick(stroke.width) * 100) / 100;
+    const after = picked.map((stroke) => itemOf(strokes, stroke));
+    if (after.every(({ s }, k) => s.width === before[k].s.width)) return;
+    record("mine", before, after);
+    send({ t: "put", strokes: after.map(({ s, i }) => ({ ...s, i })) });
+    rebuildBase();
+    positionLasso();
+    schedulePaint();
+  }
+  el.lassoThinner.addEventListener("click", () => styleLines((w) => [...PEN_WIDTHS].reverse().find((step) => step < w - 0.05) ?? PEN_WIDTHS[0]));
+  el.lassoThicker.addEventListener("click", () => styleLines((w) => PEN_WIDTHS.find((step) => step > w + 0.05) ?? PEN_WIDTHS[PEN_WIDTHS.length - 1]));
+  el.lassoMatchPen.addEventListener("click", () => styleLines(() => settings.width));
   el.lassoTextTools.querySelectorAll("[data-lfont]").forEach((button) => button.addEventListener("click", () => styleText({ font: button.dataset.lfont })));
   el.lassoSizeDown.addEventListener("click", () => styleText({ sizeBy: -2 }));
   el.lassoSizeUp.addEventListener("click", () => styleText({ sizeBy: 2 }));

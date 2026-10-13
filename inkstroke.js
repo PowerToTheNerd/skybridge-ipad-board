@@ -70,15 +70,13 @@
     const points = scale === 1
       ? stroke.points
       : stroke.points.map(([x, y, p]) => (p === undefined ? [x * scale, y * scale] : [x * scale, y * scale, p]));
-    // A snapped line or bracket is drawn evenly, but as thick as the handwriting it replaced:
-    // snap() leaves that stroke's mean pressure on its points.
-    let gain = 1;
-    if (stroke.clean && stroke.points[0]?.[2] !== undefined) gain = thickness(stroke.points[0][2]) / thickness(0.5);
+    // A snapped line or bracket is drawn evenly, at the pen's own width setting, so every straight line is the
+    // same thickness whatever pressure the hand happened to use (even lines saved with a pressure on them).
     const outline = freehand.getStroke(points, {
       ...OPTIONS,
       ...smoothOptions(),
       ...(stroke.clean ? CLEAN_OPTIONS : null),
-      size: stroke.width * SIZE_PER_WIDTH * scale * gain,
+      size: stroke.width * SIZE_PER_WIDTH * scale,
       simulatePressure: stroke.sim !== false,
       last: stroke.done !== false,
     });
@@ -239,11 +237,8 @@
     if (!points || points.length < 4) return null;
     const shape = snapLine(points) || snapBracket(points);
     if (!shape) return null;
-    // Keep the pen's feel: the stroke's mean pressure, so the shape is as thick as the writing.
-    const pressures = points.map((point) => point[2]).filter((value) => value !== undefined);
-    if (!pressures.length) return shape;
-    const mean = Math.round((pressures.reduce((sum, value) => sum + value, 0) / pressures.length) * 1000) / 1000;
-    return shape.map(([x, y]) => [x, y, mean]);
+    // Snapped shapes carry no pressure: they are as thick as the Width setting says, every time.
+    return shape.map(([x, y]) => [x, y]);
   }
 
   // ---------------------------------------------------------------------------
