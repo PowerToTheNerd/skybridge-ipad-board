@@ -1373,3 +1373,32 @@ input[type="range"] {
 .rotate-exact input:focus { outline: none; border-color: var(--accent); }
 .rotate-exact button { padding: 0 16px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; touch-action: manipulation; }
 .rotate-hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.35; }
+
+/* Round colour swatches: keep them true circles in Safari. Native button styling, a square outline
+   (older iPadOS draws outlines square), and a transform on a rounded box can all show a square fill
+   inside the circle, so these use no native look, a box-shadow ring, and a clipped round fill. */
+.palette-slot, .color-swatch, .paper, .hsv-chip, .dot, #colorBtn .dot {
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: 50%;
+  flex: none;
+  aspect-ratio: 1;
+  background-clip: border-box;
+  background-origin: border-box;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+.dot, .hsv-chip {
+  overflow: hidden;
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
+  mask-image: radial-gradient(circle, #000 99%, transparent 100%);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.palette-slot, .color-swatch, .paper {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.paper[aria-checked="true"] { outline: none; box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent), 0 0 16px -4px var(--glow); }
+.paper:active { box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5); }
+.paper[aria-checked="true"]:active { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }

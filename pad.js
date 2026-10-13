@@ -1579,10 +1579,18 @@
   const RAINBOW = "conic-gradient(#d03a30, #e8710a, #e6c229, #2f9e44, #2b6fd6, #8a4fd0, #d03a30)";
   const QUICK_PENS = [["mark-1", "Mint"], ["mark-2", "Yellow"], ["mark-3", "Rose"]];
 
+  // Fill a round swatch. Sets the colour or gradient without the `background` shorthand, which resets
+  // background-clip and size and can leave a square fill inside a round border in Safari.
+  function paintFill(node, value) {
+    const isImage = /gradient\(/.test(value || "");
+    node.style.backgroundImage = isImage ? value : "none";
+    node.style.backgroundColor = isImage ? "transparent" : (value || "transparent");
+  }
+
   function paintColors() {
-    el.colorDot.style.background = pen === "ink" ? RAINBOW : strokeColor(pen);
+    paintFill(el.colorDot, pen === "ink" ? RAINBOW : strokeColor(pen));
     el.colorGrid.querySelectorAll("[data-color]").forEach((swatch) => {
-      swatch.style.background = strokeColor(swatch.dataset.color);
+      paintFill(swatch, strokeColor(swatch.dataset.color));
       swatch.setAttribute("aria-checked", String(swatch.dataset.color === pen));
     });
   }
@@ -1630,7 +1638,7 @@
     el.hsvSVKnob.style.left = `${hsv.s * 100}%`;
     el.hsvSVKnob.style.top = `${(1 - hsv.v) * 100}%`;
     el.hsvHueKnob.style.left = `${(hsv.h / 360) * 100}%`;
-    el.hsvChip.style.background = hex;
+    paintFill(el.hsvChip, hex);
     el.hsvHex.textContent = hex;
     return hex;
   }
@@ -1639,7 +1647,7 @@
       const dot = document.createElement("button");
       dot.type = "button";
       dot.className = "color-swatch recent";
-      dot.style.background = hex;
+      paintFill(dot, hex);
       dot.setAttribute("aria-label", `Recent colour ${hex}`);
       dot.addEventListener("click", () => {
         Object.assign(hsv, hexToHsv(hex));
@@ -1659,7 +1667,7 @@
       const dot = document.createElement("button");
       dot.type = "button";
       dot.className = "palette-slot";
-      dot.style.background = strokeColor(value);
+      paintFill(dot, strokeColor(value));
       dot.dataset.value = value;
       dot.setAttribute("aria-label", `Palette colour ${index + 1}`);
       dot.setAttribute("aria-pressed", String(index === slot));
@@ -2022,7 +2030,7 @@
       button.title = text;
       button.dataset.value = value;
       button.textContent = value === "auto" ? "A" : "";
-      if (value !== "auto") button.style.background = value;
+      if (value !== "auto") paintFill(button, value);
       button.addEventListener("click", () => {
         settings.card[key] = value;
         saveSettings();
@@ -2043,7 +2051,7 @@
     button.setAttribute("aria-label", text);
     button.title = text;
     button.dataset.value = value;
-    if (value === "ink") button.textContent = "A"; else button.style.background = value;
+    if (value === "ink") button.textContent = "A"; else paintFill(button, value);
     button.addEventListener("click", () => { settings.pin.ink = value; saveSettings(); renderSettings(); });
     el.pinInk.append(button);
   }
@@ -2397,10 +2405,10 @@
     button.setAttribute("aria-label", label);
     button.title = label;
     // Each swatch shows its own paper colour (your own paper shows the colour wheel).
-    if (key === "custom") button.style.background = "conic-gradient(#f66, #fd6, #6d8, #6df, #86f, #f6c, #f66)";
+    if (key === "custom") paintFill(button, "conic-gradient(#f66, #fd6, #6d8, #6df, #86f, #f6c, #f66)");
     else {
       document.documentElement.dataset.paper = key;
-      button.style.background = cssColor("paper");
+      paintFill(button, cssColor("paper"));
     }
     button.addEventListener("click", () => {
       settings.paper = key;
@@ -2429,7 +2437,7 @@
     button.setAttribute("role", "radio");
     button.setAttribute("aria-label", THEMES[key]);
     button.title = THEMES[key];
-    button.style.background = themeSwatch(key);
+    paintFill(button, themeSwatch(key));
     button.addEventListener("click", () => {
       settings.theme = key;
       saveSettings();
