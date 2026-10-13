@@ -2081,6 +2081,7 @@
       button.textContent = value === "auto" ? "A" : "";
       if (value !== "auto") paintFill(button, value);
       button.addEventListener("click", () => {
+        beginCustomQuestionColors();
         settings.card[key] = value;
         saveSettings();
         renderSettings();
@@ -2101,7 +2102,7 @@
     button.title = text;
     button.dataset.value = value;
     if (value === "ink") button.textContent = "A"; else paintFill(button, value);
-    button.addEventListener("click", () => { settings.pin.ink = value; saveSettings(); renderSettings(); });
+    button.addEventListener("click", () => { beginCustomQuestionColors(); settings.pin.ink = value; saveSettings(); renderSettings(); });
     el.pinInk.append(button);
   }
   segmented(el.cardSize, CARD_SIZES, "size", "Card size");
@@ -2109,6 +2110,87 @@
   segmented(el.cardMath, [["textbook", "Textbook"], ["hand", "Handwritten"]], "math", "How maths looks");
   swatches(el.cardTitle, "title", "Card title colour");
   swatches(el.cardText, "text", "Card text colour");
+
+  // A question-only picker: it edits the preview/settings, never the pen, palette, or lasso selection.
+  let questionPicker = null, questionPickRole = "text", questionPickButton = null;
+  const questionHsv = { h: 215, s: 0.8, v: 0.84 };
+  const questionRoles = { text: "Question text", title: "Problem label", math: "Maths" };
+  function beginCustomQuestionColors() {
+    const colors = colorPreview || currentQuestionColors();
+    settings.card.text = colors.text; settings.card.title = colors.title; settings.pin.ink = colors.math;
+    customColors = true;
+    homeworkColorsUi?.custom();
+  }
+  function questionPickValue() { return questionPickRole === "math" ? settings.pin.ink : settings.card[questionPickRole]; }
+  function paintQuestionPicker() {
+    if (!questionPicker) return;
+    const hex = hsvToHex(questionHsv), q = questionPicker;
+    q.querySelector(".hsv-sv").style.background = `linear-gradient(to top, #080b0d, transparent), linear-gradient(to right, #faf9f5, hsl(${questionHsv.h} 100% 50%))`;
+    q.querySelector(".hsv-sv i").style.left = `${questionHsv.s * 100}%`;
+    q.querySelector(".hsv-sv i").style.top = `${(1 - questionHsv.v) * 100}%`;
+    q.querySelector(".hsv-hue i").style.left = `${questionHsv.h / 360 * 100}%`;
+    q.querySelector(".hsv-chip").style.background = hex;
+    q.querySelector("input").value = hex;
+    const name = questionRoles[questionPickRole];
+    const sv = q.querySelector(".hsv-sv"), hue = q.querySelector(".hsv-hue");
+    sv.setAttribute("aria-label", `${name} saturation and brightness`); sv.setAttribute("aria-valuenow", String(Math.round(questionHsv.v * 100)));
+    sv.setAttribute("aria-valuetext", `${Math.round(questionHsv.s * 100)}% saturation, ${Math.round(questionHsv.v * 100)}% brightness`);
+    hue.setAttribute("aria-label", `${name} hue`); hue.setAttribute("aria-valuenow", String(Math.round(questionHsv.h)));
+    q.querySelector(".question-picker-title").textContent = `${name}: any colour`;
+  }
+  function commitQuestionPicker() {
+    const hex = hsvToHex(questionHsv);
+    if (questionPickRole === "math") settings.pin.ink = hex; else settings.card[questionPickRole] = hex;
+    saveSettings(); renderSettings(); paintQuestionPicker();
+  }
+  function openQuestionPicker(role, button, container) {
+    beginCustomQuestionColors(); questionPickRole = role; questionPickButton = button;
+    Object.assign(questionHsv, hexToHsv(questionPickValue()) || hexToHsv(cssColor("ink")));
+    if (!questionPicker) {
+      questionPicker = document.createElement("div"); questionPicker.className = "hsv question-picker"; questionPicker.id = "questionPicker";
+      questionPicker.setAttribute("role", "group"); questionPicker.setAttribute("aria-label", "Any question colour");
+      questionPicker.innerHTML = '<p class="question-picker-title"></p><div class="hsv-sv" id="questionSV" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="100"><i></i></div><div class="hsv-hue" id="questionHue" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="360"><i></i></div><div class="hsv-row"><span class="hsv-chip"></span><label>Hex colour <input id="questionHex" maxlength="7" spellcheck="false" autocomplete="off" aria-describedby="questionColorError"></label><button type="button" class="tool" id="questionPickerDone">Done</button></div><p class="setting-hint" id="questionColorError" role="status"></p><p class="setting-hint">Choose any colour here, then use Apply colours to choose its pages.</p>';
+      const sv = questionPicker.querySelector(".hsv-sv"), hue = questionPicker.querySelector(".hsv-hue");
+      dragOn(sv, (event) => { const [x, y] = frac(event, sv); questionHsv.s = x; questionHsv.v = 1 - y; commitQuestionPicker(); }, commitQuestionPicker);
+      dragOn(hue, (event) => { questionHsv.h = frac(event, hue)[0] * 359.9; commitQuestionPicker(); }, commitQuestionPicker);
+      sv.addEventListener("keydown", (event) => {
+        if (!event.key.startsWith("Arrow")) return;
+        event.preventDefault();
+        if (["ArrowLeft", "ArrowRight"].includes(event.key)) questionHsv.s = Math.max(0, Math.min(1, questionHsv.s + (event.key === "ArrowRight" ? 0.02 : -0.02)));
+        else questionHsv.v = Math.max(0, Math.min(1, questionHsv.v + (event.key === "ArrowUp" ? 0.02 : -0.02)));
+        commitQuestionPicker();
+      });
+      hue.addEventListener("keydown", (event) => {
+        if (!event.key.startsWith("Arrow")) return;
+        event.preventDefault(); questionHsv.h = (questionHsv.h + (["ArrowRight", "ArrowUp"].includes(event.key) ? 3 : -3) + 360) % 360; commitQuestionPicker();
+      });
+      const input = questionPicker.querySelector("input");
+      const enterHex = () => {
+        const hex = input.value.trim(); const made = hexToHsv(hex);
+        questionPicker.querySelector("#questionColorError").textContent = made ? "" : "Use six hex digits, for example #284e73.";
+        if (made) { Object.assign(questionHsv, made); commitQuestionPicker(); }
+      };
+      input.addEventListener("change", enterHex); input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); enterHex(); } });
+      questionPicker.querySelector("button").addEventListener("click", () => { questionPicker.hidden = true; questionPickButton?.focus(); });
+    }
+    container.closest(".setting").after(questionPicker); questionPicker.hidden = false;
+    questionPicker.querySelector("#questionColorError").textContent = "";
+    paintQuestionPicker(); renderSettings(); questionPicker.scrollIntoView({ block: "nearest" });
+  }
+  function addQuestionWheel(container, role) {
+    const button = document.createElement("button"); button.type = "button"; button.className = "paper card-dot question-any";
+    button.dataset.value = "custom"; button.setAttribute("role", "radio"); button.setAttribute("aria-label", `${questionRoles[role]}: any colour`);
+    button.title = `${questionRoles[role]}: any colour`; button.setAttribute("aria-controls", "questionPicker");
+    paintFill(button, RAINBOW); button.textContent = "+";
+    button.addEventListener("click", () => openQuestionPicker(role, button, container)); container.append(button);
+  }
+  addQuestionWheel(el.cardText, "text"); addQuestionWheel(el.cardTitle, "title"); addQuestionWheel(el.pinInk, "math");
+  function renderQuestionWheel(container, value, choices) {
+    const button = container.querySelector(".question-any");
+    if (!button) return;
+    const custom = /^#[0-9a-f]{6}$/i.test(value) && !choices.some(([v]) => v === value);
+    button.setAttribute("aria-checked", String(custom)); paintFill(button, custom ? value : RAINBOW);
+  }
 
   // A chosen colour is nudged only as far as needed to read on this paper.
   const cardColor = (value) => (value === "auto" ? null : (window.SkybridgeInk?.colorOn ? window.SkybridgeInk.colorOn(value, cssColor("paper")) : value));
@@ -2142,6 +2224,7 @@
     for (const [container, key] of [[el.cardFont, "font"], [el.cardSize, "size"], [el.cardAnchor, "anchor"], [el.cardMath, "math"], [el.cardTitle, "title"], [el.cardText, "text"]]) {
       container.querySelectorAll("[data-value]").forEach((button) => button.setAttribute("aria-checked", String(button.dataset.value === look[key])));
     }
+    renderQuestionWheel(el.cardTitle, look.title, CARD_COLORS); renderQuestionWheel(el.cardText, look.text, CARD_COLORS);
     // Switching how maths looks redraws pinned problems and the card from the same saved problem.
     if (renderCardSettings.math === undefined) renderCardSettings.math = look.math;
     else if (renderCardSettings.math !== look.math) {
@@ -3916,6 +3999,7 @@
   // Put a loaded notebook on the board.
   function showNotebook(found) {
     customColors = false;
+    if (questionPicker) questionPicker.hidden = true;
     nb = found.meta;
     Notebooks.setCurrent(nb.id);
     strokes.length = 0;
@@ -4279,6 +4363,7 @@
       const key = container === el.pinWeight ? "weight" : "ink";
       container.querySelectorAll("[data-value]").forEach((button) => button.setAttribute("aria-checked", String(button.dataset.value === String(look[key]))));
     }
+    renderQuestionWheel(el.pinInk, look.ink, PIN_INKS);
     el.pinRestyle.hidden = !(nb?.problem?.pinned && strokes.some((stroke) => stroke.pin));
     // The preview is drawn again once the chosen font has loaded.
     const shown = { ...pinStyle(), ...(colorPreview ? { color: colorPreview.text, titleColor: colorPreview.title, ink: colorPreview.math } : {}) };
@@ -5700,20 +5785,26 @@
       return result;
     } finally { el.stage.inert = el.palette.inert = false; }
   }
+  function currentQuestionColors() {
+    if (customColors) {
+      const text = settings.card.text === "auto" ? cssColor("ink") : settings.card.text;
+      return { text: cssToHex(text), math: cssToHex(settings.pin.ink === "ink" ? text : settings.pin.ink), title: cssToHex(settings.card.title === "auto" ? "#8a94a0" : settings.card.title) };
+    }
+    const rich = strokes.find((s) => s.pin && s.rich);
+    const style = pinStyle();
+    const text = rich ? strokeColor(rich.color) : strokeColor(style.color);
+    const colors = {
+      text,
+      math: rich ? (rich.rich.ink && rich.rich.ink !== "ink" ? strokeColor(rich.rich.ink) : text) : (style.ink === "ink" ? text : strokeColor(style.ink)),
+      title: rich ? (rich.rich.titleColor ? strokeColor(rich.rich.titleColor) : text) : strokeColor(style.titleColor),
+    };
+    return Object.fromEntries(Object.entries(colors).map(([role, color]) => [role, cssToHex(color)]));
+  }
   homeworkColorsUi = window.SkybridgeHomeworkColors?.init({
     homework: Homework, notebooks: Notebooks, cssColor,
     currentProblem: () => nb?.problem,
     currentPageId: () => nb?.id,
-    currentColors: () => {
-      const rich = !customColors && strokes.find((s) => s.pin && s.rich);
-      const style = pinStyle();
-      const text = rich ? strokeColor(rich.color) : customColors ? (cardColor(settings.card.text) || cssColor("ink")) : strokeColor(style.color);
-      return {
-        text,
-        math: rich ? (rich.rich.ink && rich.rich.ink !== "ink" ? strokeColor(rich.rich.ink) : text) : customColors ? (settings.pin.ink === "ink" ? text : strokeColor(settings.pin.ink)) : (style.ink === "ink" ? text : strokeColor(style.ink)),
-        title: rich ? (rich.rich.titleColor ? strokeColor(rich.rich.titleColor) : text) : customColors ? (cardColor(settings.card.title) || "#8a94a0") : strokeColor(style.titleColor),
-      };
-    },
+    currentColors: currentQuestionColors,
     useCustomColors: () => { customColors = true; }, useCurrentColors: () => { customColors = false; },
     previewColors: (colors) => { colorPreview = colors; renderPinSettings(); }, applyColors: applyHomeworkColors,
   });

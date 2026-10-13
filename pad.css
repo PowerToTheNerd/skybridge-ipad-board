@@ -232,6 +232,16 @@ canvas {
 .combo-choice input { flex: none; width: 20px; height: 20px; accent-color: var(--accent); }
 .combo-choice:has(input:disabled) { color: var(--muted); }
 .question-custom[open] { display: grid; gap: 10px; }
+.question-custom > .setting-hint { margin: 0; }
+.question-any { font-size: 22px; font-weight: 600; color: var(--text); text-shadow: 0 1px 2px var(--bg); }
+.question-picker { min-width: 0; }
+.question-picker-title { margin: 0; font-size: 14px; font-weight: 600; }
+.question-picker .hsv-row { flex-wrap: wrap; gap: 8px; }
+.question-picker .hsv-row label { display: grid; gap: 4px; flex: 1; min-width: 120px; font-size: 12px; }
+.question-picker input { width: 100%; min-height: 44px; padding: 8px; border: 1px solid var(--edge-hi); border-radius: 8px; background: var(--surface-raised); color: var(--text); font: inherit; font-size: 16px; }
+.question-picker .hsv-hue { min-height: 32px; }
+.question-picker .hsv-sv:focus-visible, .question-picker .hsv-hue:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.question-picker .setting-hint { margin: 0; }
 .my-board-problem[data-question-colors] .wb-math, .my-board-problem[data-question-colors] .wb-inline-math, .my-board-problem[data-question-colors] .wb-matrix { --wb-ink: var(--question-math); color: var(--question-math); }
 .color-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; justify-items: center; }
 .color-swatch {
