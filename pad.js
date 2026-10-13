@@ -336,6 +336,8 @@
     inter: '"Skybridge Inter", Inter, "Segoe UI", sans-serif',
     jetbrains: '"Skybridge JetBrains Mono", "JetBrains Mono", Consolas, monospace',
   };
+  window.SkybridgeTypeset?.configure(TEXT_FAMILIES);
+  window.SkybridgeTypeset?.warm();
   const TEXT_LINE = 1.3;
   const measurer = document.createElement("canvas").getContext("2d");
   function textBox(text, size, font) {
@@ -366,9 +368,42 @@
     target.restore();
   }
 
+  // A pinned problem: typeset math, drawn from KaTeX's layout (mathcanvas.js), so it is sharp at any zoom.
+  const richWaiting = new Set();
+  function drawRich(target, stroke) {
+    const Math2 = window.SkybridgeTypeset;
+    if (!Math2) return;
+    const item = stroke.rich;
+    const lay = Math2.layout(item);
+    if (!lay.ok) {
+      // Fonts still arriving: draw it again when they are here.
+      if (!richWaiting.has(item.sig)) {
+        richWaiting.add(item.sig);
+        Math2.load(lay.missing).then(() => { richWaiting.delete(item.sig); rebuildBase(); schedulePaint(); });
+      }
+      return;
+    }
+    const [[x0, y0], [x1, y1]] = stroke.points;
+    const scale = Math.abs(y1 - y0) / (item.nat?.[1] || lay.h);
+    if (!(scale > 0.01)) return;
+    const text = strokeColor(stroke.color);
+    Math2.draw(target, lay, {
+      x: Math.min(x0, x1),
+      y: Math.min(y0, y1),
+      scale,
+      weight: Number.isInteger(stroke.weight) ? stroke.weight : 0,
+      colors: {
+        text,
+        title: item.titleColor ? strokeColor(item.titleColor) : text,
+        math: item.ink && item.ink !== "ink" ? strokeColor(item.ink) : text,
+      },
+    });
+  }
+
   function drawStroke(target, stroke) {
     const points = stroke.points;
     if (!points.length) return;
+    if (stroke.rich && points.length >= 2) { drawRich(target, stroke); return; }
     if (stroke.text && points.length >= 2) { drawText(target, stroke); return; }
     if (stroke.img && points.length >= 2) { window.SkybridgeImages?.draw(target, stroke); return; }
     target.save();
@@ -2042,7 +2077,7 @@
   segmented(el.cardFont, CARD_FONTS, "font", "Card font");
   const PIN_WEIGHTS = [[0, "Normal"], [1, "Medium"], [2, "Bold"], [3, "Heavy"]];
   segmented(el.pinWeight, PIN_WEIGHTS, "weight", "Pinned writing thickness", settings.pin);
-  const PIN_INKS = [["ink", "Auto (pencil)"], ["#2f6fd6", "Blue"], ["#2f8f4e", "Green"], ["#c0392b", "Red"], ["#8a94a0", "Grey"]];
+  const PIN_INKS = [["ink", "Auto (same as the text)"], ["#2f6fd6", "Blue"], ["#2f8f4e", "Green"], ["#c0392b", "Red"], ["#8a94a0", "Grey"]];
   for (const [value, text] of PIN_INKS) {
     const button = document.createElement("button");
     button.type = "button";
@@ -2747,7 +2782,7 @@
   // A stroke that is one straight line (a held-still line, or a drawn one that came out straight): its two ends.
   function lineEnds(stroke) {
     const pts = stroke.points;
-    if (stroke.eraser || stroke.text || pts.length < 2) return null;
+    if (stroke.eraser || stroke.text || stroke.rich || pts.length < 2) return null;
     const a = pts[0];
     const b = pts[pts.length - 1];
     const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
@@ -2808,7 +2843,7 @@
     for (let i = strokes.length - 1; i >= 0; i -= 1) {
       const stroke = strokes[i];
       if (stroke.eraser || live.has(stroke.id) || stroke.points.length < 2) continue;
-      if (stroke.text) {
+      if (stroke.text || stroke.rich) {
         const [[ax, ay], [bx, by]] = stroke.points;
         if (point[0] >= Math.min(ax, bx) - reach && point[0] <= Math.max(ax, bx) + reach && point[1] >= Math.min(ay, by) - reach && point[1] <= Math.max(ay, by) + reach) return stroke;
         continue;
@@ -2851,7 +2886,7 @@
       lasso.selected = strokes.filter((stroke) => {
         if (stroke.eraser || live.has(stroke.id) || !stroke.points.length) return false;
         if (stroke.img && stroke.lock) return false; // a locked photo is left alone by a loop
-        if (stroke.text || stroke.img) {
+        if (stroke.text || stroke.rich || stroke.img) {
           const [[ax, ay], [bx, by]] = stroke.points;
           const spots = [[ax, ay], [bx, by], [(ax + bx) / 2, (ay + by) / 2]];
           return spots.filter((spot) => Ink().inside(spot, path)).length >= 2;
@@ -2987,7 +3022,7 @@
   }
   // Selection sidebar, Line section: thinner, thicker, or the pen's own width for the selected ink.
   const PEN_WIDTHS = [1, 1.6, 2.6, 4, 6, 9, 13];
-  const lineSelected = () => lasso.selected.filter((stroke) => !stroke.text && !stroke.img && !stroke.eraser && !stroke.hl);
+  const lineSelected = () => lasso.selected.filter((stroke) => !stroke.text && !stroke.rich && !stroke.img && !stroke.eraser && !stroke.hl);
   function renderLineTools() {
     el.lassoLineTools.hidden = !lineSelected().length;
   }
@@ -3014,7 +3049,7 @@
   let textTarget = null; // the text item being edited, or null for a new one
   // To text: the selected writing is read (by the PC or by Gemini) and shown to copy.
   el.lassoText.addEventListener("click", async () => {
-    const picked = lasso.selected.filter((stroke) => !stroke.text);
+    const picked = lasso.selected.filter((stroke) => !stroke.text && !stroke.rich);
     if (!picked.length || !window.SkybridgeSmart) { if (lasso.selected.length) toast("That is already typed text"); return; }
     el.lassoText.disabled = true;
     el.lassoText.textContent = "Reading…";
@@ -3342,7 +3377,7 @@
   const SNAP_STEP = 15; // degrees
   const SNAP_REACH = 4; // how close counts as "on" a step
   let rotateSnap = storage("get", "skybridge.rotateSnap") !== "off";
-  const turnable = (stroke) => !stroke.img && !stroke.text;
+  const turnable = (stroke) => !stroke.img && !stroke.text && !stroke.rich;
 
   // Points turned by `radians` (clockwise on screen) around (cx, cy).
   function turnPoints(points, cx, cy, radians) {
@@ -3613,7 +3648,11 @@
   function recolorSelection(color) {
     if (!lasso.selected.length) return;
     const before = lasso.selected.map((stroke) => itemOf(strokes, stroke));
-    lasso.selected.forEach((stroke) => { if (!stroke.img) stroke.color = color; });
+    lasso.selected.forEach((stroke) => {
+      if (stroke.img) return;
+      stroke.color = color;
+      if (stroke.rich) stroke.rich = { ...stroke.rich, titleColor: null, ink: "ink" }; // one colour for all of a pinned problem
+    });
     const after = lasso.selected.map((stroke) => itemOf(strokes, stroke));
     record("mine", before, after);
     send({ t: "put", strokes: after.map(({ s, i }) => ({ ...s, i })) });
@@ -3949,6 +3988,35 @@
       ink: settings.pin.ink,
     };
   }
+  // The problem as ONE typeset item (mathcanvas.js): the words, with real fractions, subscripts and Greek, and
+  // every matrix or equation laid out by KaTeX with tall brackets. It carries pin (so Check my work never reads it)
+  // and pg (so it restyles as one). Returns null when KaTeX or the fonts aren't ready yet.
+  const PIN_WRAP = 620;
+  const richSpec = (problem, style) => window.SkybridgeTypeset.spec({
+    title: problem.title, text: problem.text, lines: problem.lines, font: style.font, size: style.size, wrap: PIN_WRAP, titleColor: style.titleColor, ink: style.ink,
+  });
+  function richStrokes(problem, style, x, y, pg) {
+    const Math2 = window.SkybridgeTypeset;
+    if (!Math2 || !window.katex) return null;
+    const item = richSpec(problem, style);
+    const lay = Math2.layout(item);
+    if (!lay.ok) return null;
+    item.nat = [lay.w, lay.h];
+    return [{ id: newId(), color: style.color, eraser: false, hl: false, width: 1, sim: false, clean: true, pin: true, pg, weight: style.weight, rich: item, points: [[x, y], [x + lay.w, y + lay.h]] }];
+  }
+  // Same, waiting for the fonts first; the plain-text version is only the fallback if typesetting isn't possible.
+  async function pinStrokesFor(problem, style, x, y, pg) {
+    const Math2 = window.SkybridgeTypeset;
+    if (Math2 && window.katex) {
+      try {
+        const lay = await Math2.ready(richSpec(problem, style));
+        const made = lay.ok ? richStrokes(problem, style, x, y, pg) : null;
+        if (made) return made;
+      } catch {}
+    }
+    return pinStrokes(problem, style, x, y, pg);
+  }
+
   function pinStrokes(problem, style, x, y, pg) {
     const Marks = window.SkybridgeMarks;
     const size = style.size;
@@ -4023,7 +4091,7 @@
   async function pinnedStrokes(problem, x, y) {
     const style = pinStyle();
     try { await document.fonts.load(`${style.size}px ${TEXT_FAMILIES[style.font] || TEXT_FAMILIES.hand}`); } catch {}
-    return pinStrokes(problem, style, x, y, newId());
+    return pinStrokesFor(problem, style, x, y, newId());
   }
 
   async function pinProblem() {
@@ -4033,7 +4101,7 @@
     try { await document.fonts.load(`${style.size}px ${TEXT_FAMILIES[style.font] || TEXT_FAMILIES.hand}`); } catch {}
     const x = view.x + 120 / view.zoom; // clear of the tool rail
     const y = view.y + 84 / view.zoom;
-    const made = pinStrokes(problem, style, x, y, newId());
+    const made = await pinStrokesFor(problem, style, x, y, newId());
     const items = made.map((s, k) => ({ s, i: strokes.length + k }));
     boards.mine.put(items);
     record("mine", [], items);
@@ -4050,15 +4118,17 @@
   }
 
   // Write the pinned problem again in the style chosen in Settings, where it sits now.
-  function restylePin() {
+  async function restylePin() {
     const old = strokes.filter((stroke) => stroke.pin);
     const problem = nb?.problem;
     if (!old.length || !problem?.pinned) { toast("No pinned problem on this page"); return; }
-    const anchor = (old.find((stroke) => stroke.text) || old[0]).points;
+    const anchor = (old.find((stroke) => stroke.text || stroke.rich) || old[0]).points;
     const x = Math.min(anchor[0][0], anchor[1][0]);
     const y = Math.min(anchor[0][1], anchor[1][1]);
     const before = old.map((stroke) => itemOf(strokes, stroke));
-    const made = pinStrokes(problem, pinStyle(), x, y, newId());
+    const style = pinStyle();
+    try { await document.fonts.load(`${style.size}px ${TEXT_FAMILIES[style.font] || TEXT_FAMILIES.hand}`); } catch {}
+    const made = await pinStrokesFor(problem, style, x, y, newId());
     before.forEach(({ s }) => boards.mine.remove(s.id));
     const items = made.map((s, k) => ({ s, i: strokes.length + k }));
     boards.mine.put(items);
@@ -4092,8 +4162,14 @@
       const canvas = el.pinPreview;
       const ctx = canvas.getContext("2d");
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const sample = { title: "1B", text: "Find the inverse of A.", lines: ["A = \\begin{bmatrix} 1 & 2 & 1 \\\\ 5 & 12 & -1 \\end{bmatrix}"] };
-      const made = pinStrokes(sample, shown, 0, 0, "preview");
+      const sample = { title: "1B", text: "Find the inverse of A.", lines: ["A = \\begin{bmatrix} 1 & 2 & 1 \\\\ 5 & 12 & -1 \\end{bmatrix}", "UAV = \\begin{bmatrix} I_r & 0 \\\\ 0 & 0 \\end{bmatrix}"] };
+      let made = richStrokes(sample, shown, 0, 0, "preview");
+      if (!made && window.SkybridgeTypeset && window.katex) {
+        // The typesetter's fonts are still arriving: draw the preview again when they are here.
+        window.SkybridgeTypeset.ready(richSpec(sample, shown)).then(() => renderPinSettings());
+        return;
+      }
+      if (!made) made = pinStrokes(sample, shown, 0, 0, "preview");
       const xs = made.flatMap((s) => s.points.map((p) => p[0]));
       const ys = made.flatMap((s) => s.points.map((p) => p[1]));
       const minX = Math.min(...xs);
@@ -5287,7 +5363,7 @@
       read.className = "nb-link";
       read.textContent = "Read selection";
       read.addEventListener("click", async () => {
-        const picked = lasso.selected.filter((stroke) => !stroke.text);
+        const picked = lasso.selected.filter((stroke) => !stroke.text && !stroke.rich);
         if (!picked.length) { toast("Lasso the handwritten matrix first"); return; }
         read.disabled = true;
         read.textContent = "Reading…";

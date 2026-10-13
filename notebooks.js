@@ -190,7 +190,7 @@
       const pts = stroke.points || [];
       const first = pts[0] || [];
       const last = pts[pts.length - 1] || [];
-      feed(`${stroke.id}|${pts.length}|${first[0]},${first[1]}|${last[0]},${last[1]}|${stroke.color}|${stroke.width}|${stroke.eraser ? 1 : 0}${stroke.hl ? 1 : 0}${stroke.text ? "|" + stroke.text : ""}${stroke.img ? "|img" + stroke.img : ""};`);
+      feed(`${stroke.id}|${pts.length}|${first[0]},${first[1]}|${last[0]},${last[1]}|${stroke.color}|${stroke.width}|${stroke.eraser ? 1 : 0}${stroke.hl ? 1 : 0}${stroke.text ? "|" + stroke.text : ""}${stroke.rich ? "|rich" + stroke.rich.sig : ""}${stroke.img ? "|img" + stroke.img : ""};`);
     }
     return (h >>> 0).toString(36);
   }

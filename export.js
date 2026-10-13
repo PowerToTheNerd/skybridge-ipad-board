@@ -222,6 +222,7 @@
   async function renderBoard(options = {}) {
     const strokes = (options.strokes || pad.strokes).filter((stroke) => stroke.points.length && !stroke.help); // a pinned help sheet is for reading, not for checking or handing in
     await window.SkybridgeImages?.ensure(strokes); // photos from another page come from storage
+    await window.SkybridgeTypeset?.prepare(strokes); // typeset problems need their fonts before they can be drawn
     const box = extent(strokes);
     const card = options.withCard === false ? null : await problemPicture();
     if (!box && !card) throw new Error("There is nothing on the board yet.");
