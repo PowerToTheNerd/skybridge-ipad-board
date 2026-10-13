@@ -254,10 +254,12 @@ Variety: ${Math.floor(Math.random() * 1e6)}.${avoid?.length ? ` Do not repeat th
   }
 
   // The packet the problem card draws (the same card Gemini uses on My board).
-  const items = (problem) => [
+  // Shown through the presentation layer (presentation.js): raw maths in the wording becomes real maths, and an
+  // expression that is also a given line is shown once. The saved problem itself is never changed.
+  const items = (problem) => (window.SkybridgePresent ? window.SkybridgePresent.items(problem) : [
     { kind: "text", text: problem.text },
     ...problem.lines.map((line) => ({ kind: "math", latex: line })),
-  ];
+  ]);
 
   const problemText = (problem) => (problem ? [problem.title, problem.text, ...problem.lines].join(". ") : "");
 

@@ -91,6 +91,7 @@
     cardTitle: document.getElementById("cardTitle"),
     cardText: document.getElementById("cardText"),
     cardAnchor: document.getElementById("cardAnchor"),
+    cardMath: document.getElementById("cardMath"),
     pinWeight: document.getElementById("pinWeight"),
     pinInk: document.getElementById("pinInk"),
     pinPreview: document.getElementById("pinPreview"),
@@ -250,7 +251,7 @@
   if (settings.fx === true && settings.fxs?.light === undefined) settings.fxs = { ...(settings.fxs || {}), light: true };
   settings.fxs = settings.fxs && typeof settings.fxs === "object" ? settings.fxs : {};
   // How a problem card looks and where it sits (Pen & paper > Card).
-  const CARD_DEFAULTS = { font: "inter", size: "l", title: "auto", text: "auto", anchor: "tl" };
+  const CARD_DEFAULTS = { font: "inter", size: "l", title: "auto", text: "auto", anchor: "tl", math: "textbook" };
   const PIN_DEFAULTS = { v: 4, weight: 1, ink: "ink" }; // font, size and colours come from the Card settings
   settings.pin = settings.pin && settings.pin.v === PIN_DEFAULTS.v ? { ...PIN_DEFAULTS, ...settings.pin } : { ...PIN_DEFAULTS }; // older looks are replaced once
   settings.card = { ...CARD_DEFAULTS, ...(settings.card && typeof settings.card === "object" ? settings.card : {}) };
@@ -370,9 +371,14 @@
 
   // A pinned problem: typeset math, drawn from KaTeX's layout (mathcanvas.js), so it is sharp at any zoom.
   const richWaiting = new Set();
+  const mathStyle = () => (settings.card.math === "hand" ? "hand" : "textbook");
   function drawRich(target, stroke) {
     const Math2 = window.SkybridgeTypeset;
     if (!Math2) return;
+    if (mathStyle() === "hand" && !Math2.handFontReady() && !richWaiting.has("hand")) {
+      richWaiting.add("hand");
+      document.fonts.ready.then(() => { richWaiting.delete("hand"); rebuildBase(); schedulePaint(); });
+    }
     const item = stroke.rich;
     const lay = Math2.layout(item);
     if (!lay.ok) {
@@ -392,6 +398,7 @@
       y: Math.min(y0, y1),
       scale,
       weight: Number.isInteger(stroke.weight) ? stroke.weight : 0,
+      style: mathStyle(),
       colors: {
         text,
         title: item.titleColor ? strokeColor(item.titleColor) : text,
@@ -2092,6 +2099,7 @@
   }
   segmented(el.cardSize, CARD_SIZES, "size", "Card size");
   segmented(el.cardAnchor, CARD_ANCHORS, "anchor", "Where the card sits");
+  segmented(el.cardMath, [["textbook", "Textbook"], ["hand", "Handwritten"]], "math", "How maths looks");
   swatches(el.cardTitle, "title", "Card title colour");
   swatches(el.cardText, "text", "Card text colour");
 
@@ -2120,8 +2128,17 @@
 
   function renderCardSettings() {
     const look = settings.card;
-    for (const [container, key] of [[el.cardFont, "font"], [el.cardSize, "size"], [el.cardAnchor, "anchor"], [el.cardTitle, "title"], [el.cardText, "text"]]) {
+    if (look.math !== "hand") look.math = "textbook";
+    for (const [container, key] of [[el.cardFont, "font"], [el.cardSize, "size"], [el.cardAnchor, "anchor"], [el.cardMath, "math"], [el.cardTitle, "title"], [el.cardText, "text"]]) {
       container.querySelectorAll("[data-value]").forEach((button) => button.setAttribute("aria-checked", String(button.dataset.value === look[key])));
+    }
+    // Switching how maths looks redraws pinned problems and the card from the same saved problem.
+    if (renderCardSettings.math === undefined) renderCardSettings.math = look.math;
+    else if (renderCardSettings.math !== look.math) {
+      renderCardSettings.math = look.math;
+      rebuildBase();
+      schedulePaint();
+      if (nb?.problem && !nb.problem.pinned) showPracticeCard(nb.problem);
     }
     renderPinSettings();
     // The next problem drawn uses the same font and size.
@@ -3866,6 +3883,8 @@
     renderNotebookUi();
     showPracticeCard(nb.problem);
     window.SkybridgeImages?.ensure(strokes); // photos on this page arrive from storage; each one repaints the page
+    syncRichBoxes();
+    upgradeFlatPin();
   }
 
   // A practice problem belongs to its notebook: its card goes when you leave, and comes back when you return.
@@ -3875,7 +3894,7 @@
     if (card?._practice) card.remove();
     if (!problem || !whiteboard || !window.SkybridgePractice) return;
     if (problem.pinned) return; // it is written on the page itself (Pin to page)
-    await whiteboard.draw({ board: "mine", clear: true, title: problem.title, items: window.SkybridgePractice.items(problem) });
+    await whiteboard.draw({ board: "mine", clear: true, title: problem.title, items: window.SkybridgePractice.items(problem), mathStyle: settings.card.math === "hand" ? "hand" : "textbook" });
     const fresh = el.stage.querySelector(".my-board-problem");
     if (fresh) {
       fresh._practice = true;
@@ -4002,8 +4021,68 @@
     const lay = Math2.layout(item);
     if (!lay.ok) return null;
     item.nat = [lay.w, lay.h];
+    item.lay = Math2.LAYOUT();
     return [{ id: newId(), color: style.color, eraser: false, hl: false, width: 1, sim: false, clean: true, pin: true, pg, weight: style.weight, rich: item, points: [[x, y], [x + lay.w, y + lay.h]] }];
   }
+  // A pinned problem remembers the size its box was measured at. When the way problems are laid out changes (the
+  // presentation layer now shows each expression once), the box is measured again at the same scale, so the
+  // problem keeps its size and place on the page. Nothing else about it changes, and nothing is added to Undo.
+  async function syncRichBoxes() {
+    const Math2 = window.SkybridgeTypeset;
+    if (!Math2 || !window.katex) return;
+    let changed = false;
+    for (const stroke of strokes.filter((s) => s.rich && s.rich.lay !== Math2.LAYOUT())) {
+      const item = { ...stroke.rich };
+      const lay = await Math2.ready(item);
+      if (!lay.ok || !strokes.includes(stroke)) continue;
+      const x0 = Math.min(stroke.points[0][0], stroke.points[1][0]);
+      const y0 = Math.min(stroke.points[0][1], stroke.points[1][1]);
+      const boxH = Math.abs(stroke.points[1][1] - stroke.points[0][1]);
+      const scale = boxH / (stroke.rich.nat?.[1] || lay.h);
+      stroke.points = [[x0, y0], [x0 + lay.w * scale, y0 + lay.h * scale]];
+      stroke.rich = item;
+      changed = true;
+    }
+    if (changed) {
+      rebuildBase();
+      positionLasso();
+      schedulePaint();
+      contentChanged();
+    }
+  }
+
+  // A problem pinned by an older version is a pile of flat text and drawn strokes with no way to restyle it. When
+  // its page opens, it is written again from the saved problem (same corner, same size), as one Undo step. Only the
+  // pinned strokes are replaced; the student's own writing and the saved problem are never touched.
+  async function upgradeFlatPin() {
+    const problem = nb?.problem;
+    const Math2 = window.SkybridgeTypeset;
+    if (!problem?.pinned || !Math2 || !window.katex) return;
+    const id = nb.id;
+    const old = strokes.filter((stroke) => stroke.pin && !stroke.rich);
+    if (!old.length || strokes.some((stroke) => stroke.pin && stroke.rich)) return;
+    const first = old.find((stroke) => stroke.text);
+    const xs = old.flatMap((stroke) => stroke.points.map((point) => point[0]));
+    const ys = old.flatMap((stroke) => stroke.points.map((point) => point[1]));
+    const style = pinStyle();
+    try { await document.fonts.load(`${style.size}px ${TEXT_FAMILIES[style.font] || TEXT_FAMILIES.hand}`); } catch {}
+    const made = await pinStrokesFor(problem, style, Math.min(...xs), Math.min(...ys), newId());
+    if (!made[0]?.rich || nb?.id !== id) return;
+    // keep the size it had: the title's height says how big the old copy was written
+    const title = first ? Math.abs(first.points[1][1] - first.points[0][1]) : 0;
+    const scale = title ? Math.min(4, Math.max(0.25, title / (style.size * 1.25 * TEXT_LINE))) : 1;
+    const [[x0, y0], [x1, y1]] = made[0].points;
+    made[0].points = [[x0, y0], [x0 + (x1 - x0) * scale, y0 + (y1 - y0) * scale]];
+    const before = old.map((stroke) => itemOf(strokes, stroke));
+    before.forEach(({ s }) => boards.mine.remove(s.id));
+    const items = made.map((s, k) => ({ s, i: strokes.length + k }));
+    boards.mine.put(items);
+    record("mine", before, items);
+    rebuildBase();
+    schedulePaint();
+    toast("Updated the pinned problem so it can switch between Textbook and Handwritten.", { label: "Undo", run: undoAction });
+  }
+
   // Same, waiting for the fonts first; the plain-text version is only the fallback if typesetting isn't possible.
   async function pinStrokesFor(problem, style, x, y, pg) {
     const Math2 = window.SkybridgeTypeset;
@@ -4012,7 +4091,7 @@
         const lay = await Math2.ready(richSpec(problem, style));
         const made = lay.ok ? richStrokes(problem, style, x, y, pg) : null;
         if (made) return made;
-      } catch {}
+      } catch (error) { console.error("typeset pin failed", error); }
     }
     return pinStrokes(problem, style, x, y, pg);
   }
@@ -4270,7 +4349,11 @@
     hw.prev.disabled = at <= 0;
     hw.next.disabled = at >= count - 1;
     const item = hwSet?.problems[at];
-    hw.preview.textContent = item ? [item.text, ...item.lines.slice(0, 1)].filter(Boolean).join(" ").replace(/\\begin\{[a-z]*matrix\}.*?\\end\{[a-z]*matrix\}/g, "[matrix]") : "";
+    // One line of the problem as the card shows it: wording, with each matrix as [matrix], nothing said twice.
+    const brief = (problem) => (window.SkybridgePresent
+      ? window.SkybridgePresent.present(problem).blocks.map((block) => (block.k === "d" ? block.src : block.src.replace(/\$/g, ""))).slice(0, 3).join(" ")
+      : [problem.text, ...problem.lines.slice(0, 1)].filter(Boolean).join(" "));
+    hw.preview.textContent = item ? brief(item).replace(/\\begin\{[a-z]*matrix\}.*?\\end\{[a-z]*matrix\}/g, "[matrix]") : "";
     const Engine = window.SkybridgeEngine;
     const by = hwSet ? { local: "your local model, page by page", gemini: "Gemini" }[hwSet.by] : "";
     hw.info.textContent = hwSet

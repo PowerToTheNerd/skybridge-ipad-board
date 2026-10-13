@@ -120,8 +120,12 @@
     return target;
   }
 
+  // "textbook": always typeset with KaTeX. "hand" (the original look): simple maths written by hand, brackets drawn.
+  // Set while a packet that names a style is built; everything else keeps the original look.
+  let buildStyle = "hand";
+
   function renderLatex(target, latex, displayMode) {
-    const hand = toHandParts(latex);
+    const hand = buildStyle === "hand" ? toHandParts(latex) : null;
     if (hand) {
       target.classList.add("wb-hand-math");
       return appendHand(target, hand);
@@ -341,7 +345,7 @@
 
   function buildMath(item) {
     const latex = item.latex || item.text || "";
-    const equation = latex.includes("\\begin{") ? buildMatrixEquation(item, latex) : null;
+    const equation = buildStyle === "hand" && latex.includes("\\begin{") ? buildMatrixEquation(item, latex) : null;
     if (equation) return equation;
     const node = make("div", "wb-item wb-math");
     if (item.label) node.append(make("span", "wb-label", item.label));
@@ -787,13 +791,15 @@
     applyCardStyle(card, packet.card || cardStyle);
     // The same card again (a resend, a reconnect, a style change) is left alone: rebuilding it
     // redrew every bracket and flickered, most on the iPad.
-    const key = JSON.stringify([packet.title || "", packet.items]);
+    const key = JSON.stringify([packet.title || "", packet.items, packet.mathStyle || ""]);
     if (card._key === key && card.querySelector(".wb-step")) {
       return true;
     }
     // Gemini adding to the same problem fills the card in place without redrawing what's there.
     const sameProblem = card._title === (packet.title || "") && !!card.querySelector(".wb-step");
-    const step = buildStep(packet, "wb-step wb-problem-step");
+    buildStyle = packet.mathStyle === "textbook" ? "textbook" : "hand";
+    let step;
+    try { step = buildStep(packet, "wb-step wb-problem-step"); } finally { buildStyle = "hand"; }
     if (!step._built.length) return true;
     card.querySelector(".wb-step")?.remove();
     card.append(step);

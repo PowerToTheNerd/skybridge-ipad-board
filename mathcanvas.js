@@ -12,7 +12,7 @@
  * Inline math is never broken across lines; a display equation wider than `wrap` is scaled down
  * evenly instead of being cut.
  *
- * window.SkybridgeTypeset = { warm, configure, spec, layout, ready, prepare, load, draw, normalize }
+ * window.SkybridgeTypeset = { LAYOUT, handFontReady, warm, configure, spec, layout, ready, prepare, load, draw, normalize }
  */
 (() => {
   "use strict";
@@ -92,6 +92,7 @@
   function collect(katexNode, origin, baseline, missing) {
     const ops = [];
     const rel = (rect) => [rect.left - origin, rect.top - baseline, rect.width, rect.height];
+    let variant = null; // "tb": only in the textbook style (the pieces of a bracket, which the handwritten style draws itself)
 
     function textOp(textNode, parent, clip) {
       const s = textNode.nodeValue.replace(/[\u200b\u200c\u200d\ufeff]/g, "");
@@ -101,26 +102,30 @@
       parent.insertBefore(probe, textNode);
       const at = probe.getBoundingClientRect();
       parent.removeChild(probe);
+      const range = document.createRange();
+      range.selectNodeContents(textNode);
+      const span = range.getBoundingClientRect();
       const cs = getComputedStyle(parent);
       const font = { style: cs.fontStyle, weight: cs.fontWeight, size: parseFloat(cs.fontSize), family: cs.fontFamily };
       const css = fontStringOf(font.style, font.weight, font.size, font.family);
       if (fontMissing(css, s)) missing.add(css);
-      ops.push({ k: "t", s, x: at.left - origin, y: at.bottom - baseline, font, color: ownColor(cs.color), clip });
+      ops.push({ k: "t", s, x: at.left - origin, y: at.bottom - baseline, w: span.width, font, color: ownColor(cs.color), clip, v: variant });
     }
 
     function boxOps(node, cs, rect, clip) {
       const [x, y, w, h] = rel(rect);
-      if (colorAlpha(cs.backgroundColor) > 0 && w > 0 && h > 0) ops.push({ k: "r", x, y, w, h, color: ownColor(cs.backgroundColor), clip });
+      const isRule = RULE_CLASSES.some((name) => node.classList.contains(name));
+      if (colorAlpha(cs.backgroundColor) > 0 && w > 0 && h > 0) ops.push({ k: "r", x, y, w, h, color: ownColor(cs.backgroundColor), clip, v: variant });
       for (const [side, name] of [["Top", "top"], ["Right", "right"], ["Bottom", "bottom"], ["Left", "left"]]) {
         const used = parseFloat(cs[`border${side}Width`]) || 0;
         const style = cs[`border${side}Style`];
         if (!used || style === "none" || style === "hidden" || colorAlpha(cs[`border${side}Color`]) === 0) continue;
         const t = ruleWidth(node, cs, side, used);
         const color = ownColor(cs[`border${side}Color`]);
-        if (name === "top") ops.push({ k: "r", x, y: y + used / 2 - t / 2, w, h: t, color, clip });
-        if (name === "bottom") ops.push({ k: "r", x, y: y + h - used / 2 - t / 2, w, h: t, color, clip });
-        if (name === "left") ops.push({ k: "r", x: x + used / 2 - t / 2, y, w: t, h, color, clip });
-        if (name === "right") ops.push({ k: "r", x: x + w - used / 2 - t / 2, y, w: t, h, color, clip });
+        if (name === "top") ops.push({ k: "r", x, y: y + used / 2 - t / 2, w, h: t, color, clip, rule: isRule, v: variant });
+        if (name === "bottom") ops.push({ k: "r", x, y: y + h - used / 2 - t / 2, w, h: t, color, clip, rule: isRule, v: variant });
+        if (name === "left") ops.push({ k: "r", x: x + used / 2 - t / 2, y, w: t, h, color, clip, v: variant });
+        if (name === "right") ops.push({ k: "r", x: x + w - used / 2 - t / 2, y, w: t, h, color, clip, v: variant });
       }
     }
 
@@ -145,7 +150,7 @@
       for (const child of svg.children) {
         if (child.localName === "path") {
           const d = child.getAttribute("d");
-          if (d) ops.push({ k: "p", d, m: [sx, 0, 0, sy, tx, ty], color, clip: inner });
+          if (d) ops.push({ k: "p", d, m: [sx, 0, 0, sy, tx, ty], color, clip: inner, box: rel(rect), v: variant });
         } else if (child.localName === "line") {
           const num = (name, size) => {
             const raw = child.getAttribute(name) || "0";
@@ -155,7 +160,7 @@
           ops.push({
             k: "l",
             x1: tx + num("x1", vb[2]) * sx, y1: ty + num("y1", vb[3]) * sy, x2: tx + num("x2", vb[2]) * sx, y2: ty + num("y2", vb[3]) * sy,
-            lw: parseFloat(ccs.strokeWidth) || 1, color: ownColor(ccs.stroke === "none" ? cs.color : ccs.stroke), clip: inner,
+            lw: parseFloat(ccs.strokeWidth) || 1, color: ownColor(ccs.stroke === "none" ? cs.color : ccs.stroke), clip: inner, v: variant,
           });
         }
       }
@@ -174,8 +179,42 @@
         }
         boxOps(child, cs, rect, clip);
         const hides = cs.overflowX !== "visible" || cs.overflowY !== "visible";
+        if (child.classList.contains("delimsizing") && variant === null) {
+          // A bracket: keep KaTeX's own pieces for the textbook style, and describe it once for the handwritten one.
+          const first = ops.length;
+          variant = "tb";
+          walk(child, hides ? intersect(clip, rel(rect)) : clip);
+          variant = null;
+          const delim = describeDelimiter(child, ops.slice(first), cs);
+          if (delim) ops.push(delim);
+          continue;
+        }
         walk(child, hides ? intersect(clip, rel(rect)) : clip);
       }
+    }
+
+    // What kind of bracket this is, which side it stands on, and the box its ink fills.
+    function describeDelimiter(node, made, cs) {
+      const parent = node.parentElement;
+      const side = parent?.classList.contains("mclose") ? "R" : "L";
+      let kind = "bar";
+      let box = null;
+      const grow = (x0, y0, x1, y1) => { box = box ? [Math.min(box[0], x0), Math.min(box[1], y0), Math.max(box[2], x1), Math.max(box[3], y1)] : [x0, y0, x1, y1]; };
+      for (const op of made) {
+        if (op.k === "t") {
+          const ch = op.s.trim();
+          if (/[\[\]⎡⎢⎣⎤⎥⎦]/.test(ch)) kind = "square";
+          else if (/[()⎛⎜⎝⎞⎟⎠]/.test(ch)) kind = "round";
+          measurer.font = fontStringOf(op.font.style, op.font.weight, op.font.size, op.font.family);
+          const m = measurer.measureText(ch);
+          grow(op.x, op.y - m.actualBoundingBoxAscent, op.x + m.width, op.y + m.actualBoundingBoxDescent);
+        } else if (op.k === "p") {
+          kind = /[cC]/.test(op.d.replace(/[MmLlHhVvZz]/g, "")) ? "round" : /[Hh]/.test(op.d) ? "square" : "bar";
+          grow(op.box[0], op.box[1], op.box[0] + op.box[2], op.box[1] + op.box[3]);
+        }
+      }
+      if (!box || box[3] - box[1] < 1) return null;
+      return { k: "d", kind, side, x: box[0], y: box[1], w: box[2] - box[0], h: box[3] - box[1], em: parseFloat(cs.fontSize) || BASE, v: "hd" };
     }
     walk(katexNode, null);
     return ops;
@@ -224,11 +263,12 @@
   function place(out, ops, f, dx, dy, role) {
     for (const op of ops) {
       const clip = moveClip(op.clip, f, dx, dy);
-      const common = { role, color: op.color || undefined, clip };
-      if (op.k === "t") out.push({ ...common, k: "t", s: op.s, x: op.x * f + dx, y: op.y * f + dy, font: { ...op.font, size: op.font.size * f } });
-      else if (op.k === "r") out.push({ ...common, k: "r", x: op.x * f + dx, y: op.y * f + dy, w: op.w * f, h: op.h * f });
+      const common = { role, color: op.color || undefined, clip, v: op.v || undefined };
+      if (op.k === "t") out.push({ ...common, k: "t", s: op.s, x: op.x * f + dx, y: op.y * f + dy, w: op.w * f, font: { ...op.font, size: op.font.size * f } });
+      else if (op.k === "r") out.push({ ...common, k: "r", x: op.x * f + dx, y: op.y * f + dy, w: op.w * f, h: op.h * f, rule: op.rule || undefined });
       else if (op.k === "p") out.push({ ...common, k: "p", d: op.d, m: [op.m[0] * f, 0, 0, op.m[3] * f, op.m[4] * f + dx, op.m[5] * f + dy] });
       else if (op.k === "l") out.push({ ...common, k: "l", x1: op.x1 * f + dx, y1: op.y1 * f + dy, x2: op.x2 * f + dx, y2: op.y2 * f + dy, lw: op.lw * f });
+      else if (op.k === "d") out.push({ ...common, k: "d", kind: op.kind, side: op.side, x: op.x * f + dx, y: op.y * f + dy, w: op.w * f, h: op.h * f, em: op.em * f });
     }
   }
 
@@ -293,7 +333,8 @@
 
   function layout(item) {
     const family = families[item.font] || families.inter || "sans-serif";
-    const key = `${item.sig}|${family}`;
+    const Present = window.SkybridgePresent;
+    const key = `${item.sig}|${family}|p${Present ? Present.VERSION : 0}`;
     if (layouts.has(key)) return layouts.get(key);
     const size = item.size;
     const missing = new Set();
@@ -372,14 +413,18 @@
       }
       flush();
     };
-    if (item.text) { paragraph(item.text); y += size * 0.5; }
+    // The problem as the presentation layer reads it: wording, and display equations. Nothing saved is changed; old
+    // pinned problems get the same treatment as new ones.
+    const blocks = Present
+      ? Present.present({ title: item.title, text: item.text, lines: item.lines }).blocks
+      : [...(item.text ? [{ k: "p", src: item.text }] : []), ...item.lines.map((src) => ({ k: "d", src }))];
 
-    // Display equations and matrices, one per line; too wide: scaled down evenly.
-    for (const raw of item.lines) {
-      const src = normalize(raw);
+    for (const block of blocks) {
+      if (block.k === "p") { paragraph(block.src); y += size * 0.5; continue; }
+      const src = normalize(block.src);
       if (!src) continue;
       const res = typeset(src, true);
-      if (res.failed) { paragraph(raw); y += size * 0.5; continue; }
+      if (res.failed) { paragraph(block.src); y += size * 0.5; continue; }
       (res.missing || []).forEach((f) => missing.add(f));
       let f = displayF;
       if (res.w * f > item.wrap) f = Math.max(displayF * 0.35, item.wrap / res.w);
@@ -396,6 +441,9 @@
     return done;
   }
 
+  // Which way of laying a problem out a measured size belongs to (pinned copies re-measure when it changes).
+  const LAYOUT = () => `p${window.SkybridgePresent ? window.SkybridgePresent.VERSION : 0}`;
+
   // Waits for the fonts a layout needs (the text font and any KaTeX faces it uses), then returns it.
   async function ready(item) {
     let lay = layout(item);
@@ -403,7 +451,7 @@
       await load(lay.missing);
       lay = layout(item);
     }
-    if (lay.ok) item.nat = [lay.w, lay.h];
+    if (lay.ok) { item.nat = [lay.w, lay.h]; item.lay = LAYOUT(); }
     return lay;
   }
   async function prepare(strokes) {
@@ -418,24 +466,97 @@
     return path;
   }
 
+  // ---- the handwritten style ------------------------------------------------------------------------
+  // The same layout, drawn the way the whiteboard draws maths: letters and digits in the hand font, brackets and
+  // fraction bars as loose pen lines. Symbols the hand font lacks (Greek, big sums, roots) keep KaTeX's own shapes.
+  const HAND_TEXT = /^[A-Za-z0-9.,;:()+\-=<>|/!?'*\u2212\u00b7\s]+$/;
+  const HAND_FACES = /KaTeX_(Main|Math)\b/;
+  function seeded(seed) {
+    let s = (Math.imul(Math.round(seed * 100) | 0, 2654435761) >>> 0) || 1;
+    return () => { s = (Math.imul(s ^ (s >>> 15), 2246822519) + 0x9e3779b9) >>> 0; return ((s >>> 8) / 8388608) - 1; };
+  }
+  function penLine(ctx, points, width, rand, shake) {
+    ctx.lineWidth = width;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    for (let pass = 0; pass < 2; pass += 1) {
+      ctx.globalAlpha = pass ? 0.55 : 1;
+      ctx.beginPath();
+      points.forEach(([x, y], i) => {
+        const px = x + rand() * shake;
+        const py = y + rand() * shake;
+        if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+      });
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+  function handBracket(ctx, op) {
+    const rand = seeded(op.x * 7 + op.y * 13 + op.h);
+    const lw = Math.max(0.8, op.em * 0.06);
+    const shake = op.em * 0.012;
+    const dir = op.side === "R" ? -1 : 1;
+    const spine = op.side === "R" ? op.x + op.w * 0.62 : op.x + op.w * 0.38;
+    const top = op.y + op.h * 0.015;
+    const bottom = op.y + op.h * 0.985;
+    if (op.kind === "square") {
+      const arm = Math.min(Math.max(op.em * 0.32, op.h * 0.1), op.em * 0.8);
+      penLine(ctx, [[spine + dir * arm, top], [spine, top], [spine, (top + bottom) / 2], [spine, bottom], [spine + dir * arm, bottom]], lw, rand, shake);
+    } else if (op.kind === "round") {
+      const bow = Math.min(Math.max(op.em * 0.3, op.h * 0.09), op.em * 0.7);
+      const base = spine - dir * bow * 0.5;
+      const pts = [];
+      for (let i = 0; i <= 14; i += 1) {
+        const t = i / 14;
+        pts.push([base + dir * bow * (2 * t - 1) ** 2, top + (bottom - top) * t]);
+      }
+      penLine(ctx, pts, lw, rand, shake);
+    } else {
+      penLine(ctx, [[spine, top], [spine, bottom]], lw, rand, shake);
+    }
+  }
+
   // colors: { text, title, math } as CSS colours. weight: 0..3 draws heavier, like typed text. scale: layout px to page px.
-  function draw(ctx, lay, { x, y, scale, colors, weight = 0 }) {
+  // style: "textbook" (KaTeX's own shapes) or "hand" (the whiteboard look).
+  function draw(ctx, lay, { x, y, scale, colors, weight = 0, style = "textbook" }) {
+    const hand = style === "hand";
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(scale, scale);
     ctx.textBaseline = "alphabetic";
     for (const op of lay.ops) {
+      if (op.v === "tb" && hand) continue;
+      if (op.v === "hd" && !hand) continue;
       ctx.save();
       if (op.clip) { ctx.beginPath(); ctx.rect(op.clip[0], op.clip[1], op.clip[2], op.clip[3]); ctx.clip(); }
       const color = op.color || colors[op.role] || colors.text;
       ctx.fillStyle = color;
       ctx.strokeStyle = color;
       if (op.k === "t") {
-        ctx.font = fontStringOf(op.font.style, op.font.weight, op.font.size, op.font.family);
-        ctx.fillText(op.s, op.x, op.y);
-        if (weight > 0) { ctx.lineWidth = op.font.size * 0.03 * weight; ctx.lineJoin = "round"; ctx.strokeText(op.s, op.x, op.y); }
+        const family = op.font.family;
+        if (hand && op.role === "math" && HAND_FACES.test(family) && HAND_TEXT.test(op.s)) {
+          const size = op.font.size * 1.08;
+          ctx.font = `400 ${size}px ${families.hand || "Virgil, cursive"}`;
+          const s = op.s.replace(/\u2212/g, "-");
+          const natural = ctx.measureText(s).width;
+          const fit = op.w > 0 && natural > op.w * 1.02 ? Math.max(0.72, op.w / natural) : 1;
+          const left = op.x + (op.w - natural * fit) / 2;
+          ctx.translate(left, op.y);
+          ctx.scale(fit, 1);
+          ctx.fillText(s, 0, 0);
+          if (weight > 0) { ctx.lineWidth = size * 0.03 * weight; ctx.lineJoin = "round"; ctx.strokeText(s, 0, 0); }
+        } else {
+          ctx.font = fontStringOf(op.font.style, op.font.weight, op.font.size, family);
+          ctx.fillText(op.s, op.x, op.y);
+          if (weight > 0) { ctx.lineWidth = op.font.size * 0.03 * weight; ctx.lineJoin = "round"; ctx.strokeText(op.s, op.x, op.y); }
+        }
       } else if (op.k === "r") {
-        ctx.fillRect(op.x, op.y, op.w, op.h);
+        if (hand && op.rule && op.w > op.h * 3) {
+          const rand = seeded(op.x * 5 + op.y * 11 + op.w);
+          penLine(ctx, [[op.x, op.y + op.h / 2], [op.x + op.w * 0.33, op.y + op.h / 2], [op.x + op.w * 0.66, op.y + op.h / 2], [op.x + op.w, op.y + op.h / 2]], Math.max(op.h * 1.15, 0.8), rand, Math.max(op.h * 0.35, 0.3));
+        } else {
+          ctx.fillRect(op.x, op.y, op.w, op.h);
+        }
       } else if (op.k === "p") {
         ctx.transform(op.m[0], 0, 0, op.m[3], op.m[4], op.m[5]);
         ctx.fill(pathOf(op.d));
@@ -445,14 +566,25 @@
         ctx.moveTo(op.x1, op.y1);
         ctx.lineTo(op.x2, op.y2);
         ctx.stroke();
+      } else if (op.k === "d") {
+        handBracket(ctx, op);
       }
       ctx.restore();
     }
     ctx.restore();
   }
 
+  // The hand font the handwritten style uses: false (and a load started) until it is there.
+  function handFontReady() {
+    const font = `400 20px ${families.hand || "Virgil"}`;
+    let ok = true;
+    try { ok = document.fonts.check(font); } catch {}
+    if (!ok) load([font]);
+    return ok;
+  }
+
   // Load the common KaTeX faces up front so the first pin doesn't wait.
   const warm = () => load(["normal 400 40px KaTeX_Main", "italic 400 40px KaTeX_Math", "normal 400 40px KaTeX_Size1", "normal 400 40px KaTeX_Size2", "normal 400 40px KaTeX_Size3", "normal 400 40px KaTeX_Size4", "normal 400 40px KaTeX_AMS", "italic 400 40px KaTeX_Main", "normal 700 40px KaTeX_Main"]);
 
-  window.SkybridgeTypeset = { warm, configure, spec, layout, ready, prepare, load, draw, normalize, typeset };
+  window.SkybridgeTypeset = { LAYOUT, handFontReady, warm, configure, spec, layout, ready, prepare, load, draw, normalize, typeset };
 })();
