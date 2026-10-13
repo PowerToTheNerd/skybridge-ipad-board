@@ -55,6 +55,8 @@
     homeworkHelp: document.getElementById("homeworkHelp"),
     lassoDuplicate: document.getElementById("lassoDuplicate"),
     lassoMove: document.getElementById("lassoMove"),
+    lassoRotate: document.getElementById("lassoRotate"),
+    lassoAngle: document.getElementById("lassoAngle"),
     lassoText: document.getElementById("lassoText"),
     textSheet: document.getElementById("textSheet"),
     textOut: document.getElementById("textOut"),
@@ -2772,6 +2774,7 @@
 
   function clearSelection() {
     document.getElementById("moveSheet")?.remove();
+    document.getElementById("rotateSheet")?.remove();
     lasso.selected = [];
     lasso.path = null;
     lasso.pointer = null;
@@ -3164,6 +3167,7 @@
 
   async function openMoveSheet() {
     if (!lasso.selected.length || !nb) return;
+    document.getElementById("rotateSheet")?.remove();
     if (document.getElementById("moveSheet")) { closeMoveSheet(); return; }
     const [books, folders] = await Promise.all([Notebooks.list(), Notebooks.listFolders()]);
     const folderName = new Map(folders.map((folder) => [folder.id, folder.name]));
@@ -3208,29 +3212,64 @@
 
     const list = document.createElement("ul");
     list.className = "move-list";
+    const pageRow = (book, nested) => {
+      const row = document.createElement("li");
+      if (nested) row.className = "move-nested";
+      const button = document.createElement("button");
+      button.type = "button";
+      const name = document.createElement("b");
+      name.textContent = book.name;
+      button.append(name);
+      const note = [book.title, ...(nested ? [] : [folderName.get(book.folder)])].filter(Boolean).join(" · ");
+      if (note) {
+        const sub = document.createElement("small");
+        sub.textContent = note;
+        button.append(sub);
+      }
+      button.addEventListener("click", () => sendSelection(book.id, copy, openAfter));
+      row.append(button);
+      return row;
+    };
     const renderList = () => {
       const query = search.value.trim().toLowerCase();
-      const rows = books
-        .filter((book) => book.id !== nb.id)
-        .filter((book) => !query || `${book.name} ${book.title || ""} ${folderName.get(book.folder) || ""}`.toLowerCase().includes(query))
-        .map((book) => {
-          const row = document.createElement("li");
-          const button = document.createElement("button");
-          button.type = "button";
+      const others = books.filter((book) => book.id !== nb.id);
+      const rows = [];
+      if (query) {
+        // Searching: a flat list of matches, like the notebook search.
+        for (const book of others) {
+          if (`${book.name} ${book.title || ""} ${(book.tags || []).join(" ")} ${folderName.get(book.folder) || ""}`.toLowerCase().includes(query)) rows.push(pageRow(book, false));
+        }
+      } else {
+        // The same order as the Notebooks dropdown: each folder with its pages in problem order, then the loose notes.
+        for (const folder of folders) {
+          const kids = books.filter((book) => book.folder === folder.id).sort((a, b) => (a.order || 0) - (b.order || 0));
+          const expanded = openFolders.has(folder.id) || (kids.some((book) => book.id === nb.id) && !closedFolders.has(folder.id));
+          const head = document.createElement("li");
+          head.className = "move-folder";
+          const toggle = document.createElement("button");
+          toggle.type = "button";
+          toggle.setAttribute("aria-expanded", String(expanded));
+          toggle.innerHTML = `<svg class="nb-chevron" viewBox="0 0 20 20" aria-hidden="true">${ICON_CHEVRON}</svg>`;
           const name = document.createElement("b");
-          name.textContent = book.name;
-          const sub = document.createElement("small");
-          sub.textContent = [folderName.get(book.folder), book.title].filter(Boolean).join(" · ");
-          button.append(name);
-          if (sub.textContent) button.append(sub);
-          button.addEventListener("click", () => sendSelection(book.id, copy, openAfter));
-          row.append(button);
-          return row;
-        });
+          name.textContent = folder.name;
+          const count = document.createElement("small");
+          count.textContent = String(kids.filter((book) => book.id !== nb.id).length);
+          toggle.append(name, count);
+          toggle.addEventListener("click", () => {
+            if (expanded) { openFolders.delete(folder.id); closedFolders.add(folder.id); } else { openFolders.add(folder.id); closedFolders.delete(folder.id); }
+            renderList();
+          });
+          head.dataset.open = String(expanded);
+          head.append(toggle);
+          rows.push(head);
+          if (expanded) for (const book of kids) if (book.id !== nb.id) rows.push(pageRow(book, true));
+        }
+        for (const book of others) if (!book.folder || !folderName.has(book.folder)) rows.push(pageRow(book, false));
+      }
       if (!rows.length) {
         const none = document.createElement("li");
         none.className = "move-none";
-        none.textContent = books.length > 1 ? "No note by that name" : "No other notes yet. Make a new one.";
+        none.textContent = others.length ? "No note by that name" : "No other notes yet. Make a new one.";
         rows.push(none);
       }
       list.replaceChildren(...rows);
@@ -3261,6 +3300,122 @@
   }
   el.lassoMove.addEventListener("click", openMoveSheet);
 
+  // ---------------------------------------------------------------------------
+  // Rotate the selection: drag the round handle above it (it snaps to 15 degrees), or use the Rotate panel
+  // for exact turns. Photos and typed text are boxes, so they stay as they are; only ink turns.
+  // ---------------------------------------------------------------------------
+  const SNAP_STEP = 15; // degrees
+  const SNAP_REACH = 4; // how close counts as "on" a step
+  let rotateSnap = storage("get", "skybridge.rotateSnap") !== "off";
+  const turnable = (stroke) => !stroke.img && !stroke.text;
+
+  // Points turned by `radians` (clockwise on screen) around (cx, cy).
+  function turnPoints(points, cx, cy, radians) {
+    const cos = Math.cos(radians);
+    const sin = Math.sin(radians);
+    return points.map((point) => {
+      const dx = point[0] - cx;
+      const dy = point[1] - cy;
+      const x = Math.round((cx + dx * cos - dy * sin) * 10) / 10;
+      const y = Math.round((cy + dx * sin + dy * cos) * 10) / 10;
+      return point.length > 2 ? [x, y, ...point.slice(2)] : [x, y];
+    });
+  }
+
+  const snapDegrees = (degrees) => {
+    const nearest = Math.round(degrees / SNAP_STEP) * SNAP_STEP;
+    return Math.abs(degrees - nearest) <= SNAP_REACH ? nearest : degrees;
+  };
+
+  // Turn the selection by an exact number of degrees as one undoable step.
+  function rotateSelection(degrees) {
+    const movable = lasso.selected.filter(turnable);
+    if (!movable.length) { toast("Photos and typed text can't be turned"); return; }
+    if (!degrees) return;
+    const before = lasso.selected.map((stroke) => itemOf(strokes, stroke));
+    const [x0, y0, x1, y1] = Ink().bounds(movable.flatMap((stroke) => stroke.points));
+    const cx = (x0 + x1) / 2;
+    const cy = (y0 + y1) / 2;
+    for (const stroke of movable) stroke.points = turnPoints(stroke.points, cx, cy, (degrees * Math.PI) / 180);
+    const after = lasso.selected.map((stroke) => itemOf(strokes, stroke));
+    record("mine", before, after);
+    send({ t: "put", strokes: after.map(({ s, i }) => ({ ...s, i })) });
+    rebuildBase();
+    positionLasso();
+    schedulePaint();
+  }
+
+  function openRotateSheet() {
+    if (!lasso.selected.length) return;
+    closeMoveSheet();
+    if (document.getElementById("rotateSheet")) { document.getElementById("rotateSheet").remove(); return; }
+    const sheet = document.createElement("div");
+    sheet.id = "rotateSheet";
+    sheet.className = "move-sheet rotate-sheet";
+    sheet.setAttribute("role", "dialog");
+    sheet.setAttribute("aria-label", "Rotate");
+    const head = document.createElement("div");
+    head.className = "move-head";
+    const title = document.createElement("b");
+    title.textContent = "Rotate";
+    const snap = document.createElement("button");
+    snap.type = "button";
+    snap.className = "rotate-snap";
+    const renderSnap = () => {
+      snap.textContent = rotateSnap ? `Snap ${SNAP_STEP}° on` : "Snap off";
+      snap.setAttribute("aria-pressed", String(rotateSnap));
+    };
+    snap.addEventListener("click", () => {
+      rotateSnap = !rotateSnap;
+      storage("set", "skybridge.rotateSnap", rotateSnap ? "on" : "off");
+      renderSnap();
+    });
+    head.append(title, snap);
+    const grid = document.createElement("div");
+    grid.className = "rotate-grid";
+    for (const [label, degrees] of [["↺ 90°", -90], ["↻ 90°", 90], ["↺ 15°", -15], ["↻ 15°", 15], ["↺ 1°", -1], ["↻ 1°", 1]]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.addEventListener("click", () => rotateSelection(degrees));
+      grid.append(button);
+    }
+    const exact = document.createElement("form");
+    exact.className = "rotate-exact";
+    const input = document.createElement("input");
+    input.type = "number";
+    input.step = "any";
+    input.inputMode = "decimal";
+    input.placeholder = "Degrees, e.g. 30 or -30";
+    input.setAttribute("aria-label", "Degrees to turn");
+    const go = document.createElement("button");
+    go.type = "submit";
+    go.textContent = "Turn";
+    exact.append(input, go);
+    exact.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const degrees = Number(input.value);
+      if (Number.isFinite(degrees)) rotateSelection(degrees);
+      input.value = "";
+    });
+    const hint = document.createElement("p");
+    hint.className = "rotate-hint";
+    hint.textContent = "Clockwise is positive. You can also drag the round handle above the selection.";
+    sheet.append(head, grid, exact, hint);
+    renderSnap();
+    document.body.append(sheet);
+    setTimeout(() => {
+      const away = (event) => {
+        if (!sheet.isConnected) { document.removeEventListener("pointerdown", away, true); return; }
+        if (sheet.contains(event.target) || event.target.closest?.("#lassoRotate")) return;
+        document.removeEventListener("pointerdown", away, true);
+        sheet.remove();
+      };
+      document.addEventListener("pointerdown", away, true);
+    }, 0);
+  }
+  el.lassoRotate.addEventListener("click", openRotateSheet);
+
   // Dragging the box moves the selection; a corner scales it around the opposite corner.
   let lassoDrag = null;
   el.lassoBox.addEventListener("pointerdown", (event) => {
@@ -3272,6 +3427,7 @@
       pointer: event.pointerId,
       corner: event.target.dataset?.corner || "",
       end: event.target.dataset?.end || "",
+      rotate: Boolean(event.target.dataset?.rotate),
       from: [event.clientX, event.clientY],
       box: selectionBounds(),
       raw: Ink().bounds(lasso.selected.flatMap((stroke) => stroke.points)),
@@ -3292,6 +3448,10 @@
     const [x0, y0, x1, y1] = lassoDrag.box;
     let map = ([x, y]) => [x + dx, y + dy];
     guides = [];
+    if (lassoDrag.rotate) {
+      turnByHandle(event);
+      return;
+    }
     if (lassoDrag.end) {
       pullEnd(dx, dy);
       return;
@@ -3327,6 +3487,31 @@
     schedulePaint();
     positionLasso();
   });
+
+  // Dragging the round handle: the selection turns around its centre, following the finger. Near a 15 degree
+  // step it clicks onto it (a single straight line snaps to level, upright and so on, not just by the turn).
+  function turnByHandle(event) {
+    const [rx0, ry0, rx1, ry1] = lassoDrag.raw;
+    const cx = (rx0 + rx1) / 2;
+    const cy = (ry0 + ry1) / 2;
+    const rect = el.canvas.getBoundingClientRect();
+    const at = (clientX, clientY) => Math.atan2(view.y + (clientY - rect.top) / view.zoom - cy, view.x + (clientX - rect.left) / view.zoom - cx);
+    let degrees = ((at(event.clientX, event.clientY) - at(lassoDrag.from[0], lassoDrag.from[1])) * 180) / Math.PI;
+    degrees = ((degrees + 540) % 360) - 180;
+    const ends = lasso.selected.length === 1 ? lineEnds({ ...lasso.selected[0], points: lassoDrag.origin[0] }) : null;
+    const base = ends ? (Math.atan2(ends[1][1] - ends[0][1], ends[1][0] - ends[0][0]) * 180) / Math.PI : 0;
+    if (rotateSnap) degrees = snapDegrees(degrees + base) - base;
+    degrees = Math.round(degrees * 10) / 10;
+    const radians = (degrees * Math.PI) / 180;
+    lasso.selected.forEach((stroke, index) => {
+      if (turnable(stroke)) stroke.points = turnPoints(lassoDrag.origin[index], cx, cy, radians);
+    });
+    lassoDrag.degrees = degrees;
+    el.lassoAngle.textContent = `${degrees > 0 ? "+" : ""}${degrees}°`;
+    el.lassoAngle.hidden = false;
+    schedulePaint();
+    positionLasso();
+  }
 
   // Pulling one end of a straight line: it stays straight, snaps level, upright or 45 degrees when
   // close, and lines up with other ink (pink guides).
@@ -3378,8 +3563,10 @@
     lassoDrag = null;
     guides = [];
     if (dragging) { dragging = null; rebuildBase(); }
+    el.lassoAngle.hidden = true;
     schedulePaint();
     if (!drag.moved) return;
+    if (drag.rotate && !lasso.selected.some(turnable)) { toast("Photos and typed text can't be turned"); return; }
     const after = lasso.selected.map((stroke) => itemOf(strokes, stroke));
     record("mine", drag.before, after);
     send({ t: "put", strokes: after.map(({ s, i }) => ({ ...s, i })) });

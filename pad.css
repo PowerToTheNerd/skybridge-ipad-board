@@ -1339,3 +1339,37 @@ input[type="range"] {
 .move-list small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .move-none { padding: 16px 8px; color: var(--muted); font-size: 14px; text-align: center; }
 .move-follow { display: flex; align-items: center; gap: 8px; color: var(--text-2, var(--muted)); font-size: 13px; }
+
+/* Move list: folders and pages in the same order as the Notebooks dropdown. */
+.move-folder button { display: flex; align-items: center; gap: 8px; padding: 9px 10px; }
+.move-folder b { flex: 1; min-width: 0; font-size: 14px; }
+.move-folder small { margin: 0; }
+.move-folder .nb-chevron { flex: none; width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: transform 160ms; }
+.move-folder[data-open="true"] .nb-chevron { transform: rotate(90deg); }
+.move-nested button { padding-left: 30px; }
+.move-nested b { font-weight: 500; }
+
+/* Rotate: the round handle above the selection, and the panel for exact turns. */
+.lasso-rotate {
+  position: absolute; left: 50%; top: -42px; width: 22px; height: 22px; margin-left: -11px;
+  border: 2px solid var(--accent); border-radius: 50%; background: var(--surface-raised); box-sizing: border-box;
+  cursor: grab; touch-action: none; display: block;
+}
+.lasso-rotate::before { content: ""; position: absolute; left: 50%; top: 100%; width: 2px; height: 20px; margin-left: -1px; background: var(--accent); opacity: 0.6; }
+.lasso-rotate::after { content: ""; position: absolute; inset: -14px; }
+.lasso-angle {
+  position: absolute; left: 50%; top: -72px; transform: translateX(-50%); padding: 3px 9px; border-radius: 8px;
+  background: var(--surface-raised); border: 1px solid var(--edge-hi, var(--edge)); color: var(--text);
+  font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; pointer-events: none; white-space: nowrap;
+}
+.lasso-angle[hidden] { display: none; }
+.rotate-snap { border: 0; border-radius: 9px; padding: 6px 11px; background: rgba(var(--wash-rgb), 0.07); color: var(--muted); font: inherit; font-size: 13px; font-weight: 600; touch-action: manipulation; }
+.rotate-snap[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.rotate-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.rotate-grid button { padding: 12px 6px; border: 1px solid var(--line); border-radius: 10px; background: rgba(var(--wash-rgb), 0.05); color: inherit; font: inherit; font-size: 15px; font-weight: 600; touch-action: manipulation; }
+.rotate-grid button:active { background: rgba(var(--acc-rgb), 0.2); }
+.rotate-exact { display: flex; gap: 6px; }
+.rotate-exact input { flex: 1; min-width: 0; height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: rgba(var(--wash-rgb), 0.05); color: inherit; font: inherit; font-size: 16px; }
+.rotate-exact input:focus { outline: none; border-color: var(--accent); }
+.rotate-exact button { padding: 0 16px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; touch-action: manipulation; }
+.rotate-hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.35; }
