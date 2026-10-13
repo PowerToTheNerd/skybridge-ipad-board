@@ -173,13 +173,14 @@
   }
 
   // Square brackets standing just outside a box [x0, y0, x1, y1]: a matrix's own lines.
-  // { left, right } say which sides to draw (one may already be there).
-  function brackets(box, sides = {}) {
+  // { left, right } say which sides to draw (one may already be there). Optional dimensions let
+  // typeset handwritten matrices use the same pen path inside their already measured bracket slots.
+  function brackets(box, sides = {}, dimensions = {}) {
     const [x0, y0, x1, y1] = box;
     const h = y1 - y0;
-    const gap = Math.max(14, Math.min(34, h * 0.14));
-    const lift = Math.max(8, Math.min(22, h * 0.07));
-    const arm = Math.max(10, Math.min(26, h * 0.13));
+    const gap = dimensions.gap ?? Math.max(14, Math.min(34, h * 0.14));
+    const lift = dimensions.lift ?? Math.max(8, Math.min(22, h * 0.07));
+    const arm = dimensions.arm ?? Math.max(10, Math.min(26, h * 0.13));
     const top = y0 - lift;
     const bottom = y1 + lift;
     const lines = [];

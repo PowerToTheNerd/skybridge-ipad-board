@@ -516,6 +516,17 @@
   </section>
 
   <section class="settings color-sheet" id="colorSheet" role="dialog" aria-label="Pen colours" hidden>
+    <div id="selectionColorTools" hidden>
+      <label class="selection-color-target" for="selectionColorTarget">Colour
+        <select id="selectionColorTarget" aria-describedby="selectionColorHint">
+          <option value="all">All selected content</option>
+          <option value="text">Question text</option>
+          <option value="math">Maths</option>
+          <option value="title">Title</option>
+        </select>
+      </label>
+      <p class="setting-hint" id="selectionColorHint">Text, maths and title apply only to selected pinned questions.</p>
+    </div>
     <div class="color-grid" id="colorGrid" role="radiogroup" aria-label="Pen colour"></div>
     <!-- Any colour: an in-page picker (the browser's own colour popover misbehaves on iPad). -->
     <div class="hsv" id="hsv" aria-label="Any colour">
