@@ -32,6 +32,20 @@ function fixture() {
     for (const role of ["text", "math", "title"]) assert.ok(C.contrast(shaded[role], paper) >= 4.5, `${preset.id}/${role} unreadable on ${paper}`);
   }
   console.log("ok - coordinated presets and matching maths remain readable on light, dark and custom paper");
+  for (const paper of ["#0d1613", "#e6e3dc"]) for (const preset of C.PRESETS) {
+    const c = C.combo(preset.id, "contrast", paper);
+    assert.equal(new Set([c.text, c.math, c.title]).size, 3);
+    for (const role of ["text", "math", "title"]) assert.ok(C.contrast(c[role], paper) >= 4.5);
+    const shaded = C.combo(preset.id, "shade", paper);
+    const rgb = (hex) => [1,3,5].map(i=>parseInt(hex.slice(i,i+2),16));
+    assert.ok(Math.hypot(...rgb(shaded.text).map((v,i)=>v-rgb(shaded.math)[i])) > 35, "text and maths shades should be visibly distinct");
+  }
+  for (const id of ["ink", "chalk"]) {
+    const sum = (hex) => [1,3,5].reduce((n,i)=>n+parseInt(hex.slice(i,i+2),16),0);
+    assert.ok(sum(C.combo(id,"shade","#0d1613").text)>650, "chalk should be light on dark paper");
+    assert.ok(sum(C.combo(id,"shade","#e6e3dc").text)<150, "ink should be dark on light paper");
+  }
+  console.log("ok - paper-aware neutrals, distinct harmonious colours and clearer text/maths shades");
   const colors = C.combo("ocean", "shade");
   {
     const { pages, sets, env } = fixture(); const original = copy(pages.get("p0"));

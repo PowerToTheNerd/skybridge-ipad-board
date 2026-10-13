@@ -2,10 +2,12 @@
 ((root) => {
   "use strict";
   const PRESETS = [
-    { id: "ocean", name: "Ocean & amber", hue: 250, accent: 65 },
-    { id: "meadow", name: "Meadow & plum", hue: 160, accent: 320 },
-    { id: "plum", name: "Plum & gold", hue: 300, accent: 90 },
-    { id: "clay", name: "Clay & blue", hue: 40, accent: 235 },
+    { id: "ocean", name: "Indigo & amber", hue: 265, accent: 65, mathHue: 180 },
+    { id: "meadow", name: "Teal & coral", hue: 180, accent: 30, mathHue: 260 },
+    { id: "plum", name: "Violet & lime", hue: 300, accent: 115, mathHue: 20 },
+    { id: "clay", name: "Terracotta & sky", hue: 45, accent: 235, mathHue: 305 },
+    { id: "ink", name: "Ink / chalk & copper", hue: 255, accent: 50, mathHue: 235, neutral: true },
+    { id: "chalk", name: "Graphite / pearl & teal", hue: 255, accent: 175, mathHue: 275, neutral: true },
   ];
   const valid = (c) => c && [c.text, c.math, c.title].every((v) => /^#[0-9a-f]{6}$/i.test(v));
   const luminance = (hex) => {
@@ -27,18 +29,20 @@
     const preset = PRESETS.find((p) => p.id === id) || PRESETS[0];
     const dark = luminance(paper) < 0.18;
     const colour = (l, c, h) => {
-      const made = () => hexFrom(l, l > 0.9 ? c * (1 - l) * 10 : c, h);
+      const made = () => hexFrom(l, c * (l > 0.9 ? (1 - l) * 10 : l < 0.2 ? l / 0.2 : 1), h);
       let hex = made();
       for (let i = 0; contrast(hex, paper) < 4.5 && i < 40; i++) {
-        l = Math.max(0.08, Math.min(0.98, l + (dark ? 0.015 : -0.015)));
+        l = Math.max(0.04, Math.min(0.99, l + (dark ? 0.015 : -0.015)));
         hex = made();
       }
+      if (contrast(hex, paper) < 4.5) { l = dark ? 0.04 : 0.99; hex = made(); }
       return hex;
     };
-    const text = colour(dark ? 0.84 : 0.36, 0.065, preset.hue);
+    const text = colour(preset.neutral ? (dark ? 0.95 : 0.24) : (dark ? 0.86 : 0.32), preset.neutral ? 0.009 : 0.12, preset.hue);
+    const distinct = shade === "contrast";
     return {
-      text, math: shade === "same" ? text : colour(dark ? 0.78 : 0.42, 0.065, preset.hue),
-      title: colour(dark ? 0.8 : 0.43, 0.12, preset.accent), preset: preset.id, shade: shade === "same" ? "same" : "shade",
+      text, math: shade === "same" ? text : colour(dark ? 0.73 : 0.46, preset.neutral && !distinct ? 0.035 : 0.13, distinct ? preset.mathHue : preset.hue),
+      title: colour(dark ? 0.82 : 0.41, 0.16, preset.accent), preset: preset.id, shade: ["same", "contrast"].includes(shade) ? shade : "shade",
     };
   }
   const coloursFor = (set, index) => {
@@ -136,9 +140,9 @@
     const host = document.getElementById("homeworkColors");
     if (!host) return null;
     host.innerHTML = `<h3>Question colours</h3>
-      <p class="setting-hint">Coordinated text and maths, with a distinct problem label.</p>
+      <p class="setting-hint">Distinct problem labels. Dark writing on light paper; light writing on dark paper.</p>
       <label class="combo-field">Combination<select id="comboPreset"><option value="current">Current / custom colours</option>${PRESETS.map((p) => `<option value="${p.id}">${p.name}</option>`).join("")}</select></label>
-      <label class="combo-field">Maths<select id="comboShade"><option value="shade">A slight shade of the text</option><option value="same">Match the text</option></select></label>
+      <label class="combo-field">Maths<select id="comboShade"><option value="shade">A clear shade of the text</option><option value="same">Match the text</option><option value="contrast">A distinct harmonious colour</option></select></label>
       <div class="combo-roles" aria-label="Colour preview"><span><i data-role="text"></i>Text</span><span><i data-role="math"></i>Maths</span><span><i data-role="title"></i>3A / label</span></div>
       <label class="combo-field">Apply to<select id="comboScope"><option value="current">This note page</option><option value="homework">This homework</option><option value="selected">Selected problems / pages</option><option value="all">All homework</option></select></label>
       <div id="comboTargets" class="combo-targets" hidden></div>
@@ -242,7 +246,7 @@
       finally { busy = false; button.disabled = false; button.textContent = "Apply colours"; preset.disabled = scope.disabled = false; targets.inert = false; refresh(); }
     });
     refresh();
-    return { refresh, open() { automaticScope = true; scope.value = "current"; preset.value = "current"; pad.useCurrentColors(); refresh(); host.scrollIntoView({ block: "start" }); } };
+    return { refresh, custom() { preset.value = "current"; pad.useCustomColors(); refresh(); }, open() { automaticScope = true; scope.value = "current"; preset.value = "current"; pad.useCurrentColors(); refresh(); host.scrollIntoView({ block: "start" }); } };
   }
   const api = { PRESETS, combo, valid, contrast, coloursFor, recolor, restoreColors, apply, init };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
