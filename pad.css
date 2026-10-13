@@ -217,6 +217,22 @@ canvas {
 .selection-color-target { display: flex; align-items: center; gap: 10px; font-weight: 600; }
 .selection-color-target select { flex: 1; min-width: 0; min-height: 44px; padding: 0 8px; border: 1px solid var(--edge-hi); border-radius: 10px; background: var(--surface-raised); color: var(--text); font: inherit; font-size: 16px; }
 #selectionColorHint { margin: 8px 0 0; }
+.question-colors { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid var(--edge); }
+.question-colors h3 { margin: 0; font-size: 17px; }
+.question-colors .setting-hint { margin: 0; }
+.combo-field { display: grid; gap: 6px; font-size: 14px; color: var(--text-2); }
+.combo-field select { width: 100%; min-width: 0; min-height: 44px; padding: 8px 10px; border: 1px solid var(--edge-hi); border-radius: 10px; background: var(--surface-raised); color: var(--text); font: inherit; font-size: 16px; }
+.combo-roles { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: var(--text-2); }
+.combo-roles span { display: inline-flex; align-items: center; gap: 6px; }
+.combo-roles i { width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--edge-hi); }
+.combo-targets { max-height: 260px; overflow-y: auto; overscroll-behavior: contain; }
+.combo-folder { border-bottom: 1px solid var(--edge); padding: 4px 0; }
+.combo-folder summary, .question-custom summary { cursor: pointer; min-height: 44px; padding: 12px 0; font-size: 14px; font-weight: 600; }
+.combo-choice { display: flex; gap: 10px; align-items: center; min-height: 44px; padding: 6px 0; font-size: 14px; }
+.combo-choice input { flex: none; width: 20px; height: 20px; accent-color: var(--accent); }
+.combo-choice:has(input:disabled) { color: var(--muted); }
+.question-custom[open] { display: grid; gap: 10px; }
+.my-board-problem[data-question-colors] .wb-math, .my-board-problem[data-question-colors] .wb-inline-math, .my-board-problem[data-question-colors] .wb-matrix { --wb-ink: var(--question-math); color: var(--question-math); }
 .color-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; justify-items: center; }
 .color-swatch {
   width: 40px;

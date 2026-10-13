@@ -39,6 +39,7 @@
     lassoBox: document.getElementById("lassoBox"),
     lassoBar: document.getElementById("lassoBar"),
     lassoColor: document.getElementById("lassoColor"),
+    lassoPresets: document.getElementById("lassoPresets"),
     lassoLock: document.getElementById("lassoLock"),
     lassoBar: document.getElementById("lassoBar"),
     imageBtn: document.getElementById("imageBtn"),
@@ -295,6 +296,7 @@
   // ---------------------------------------------------------------------------
   const strokes = []; // the open notebook's My board page, oldest first
   let nb = null; // the open notebook's details (see Notebooks below)
+  let homeworkColorsUi = null, colorPreview = null, customColors = false;
   const live = new Set(); // ids of strokes still being drawn (here or on another iPad)
   const geminiInk = []; // the user's writing on Gemini's board, in the PC board's coordinates
   let lastBoard = "mine"; // which board was written on last, for Undo, Clear and Send
@@ -2113,10 +2115,11 @@
 
   function applyCardLook(card) {
     const look = settings.card;
+    const colors = card._practice && nb?.problem?.colors;
     card.dataset.anchor = look.anchor;
     card.dataset.cardFont = look.font;
     card.dataset.cardSize = look.size;
-    const text = cardColor(look.text);
+    const text = colors ? strokeColor(colors.text) : cardColor(look.text);
     if (text) {
       card.dataset.cardColor = "custom";
       card.style.setProperty("--wb-ink", text);
@@ -2126,9 +2129,11 @@
       card.style.removeProperty("--wb-ink");
       card.style.removeProperty("--wb-faint");
     }
-    const title = cardColor(look.title);
+    const title = colors ? strokeColor(colors.title) : cardColor(look.title);
     if (title) card.style.setProperty("--card-title", title);
     else card.style.removeProperty("--card-title");
+    if (colors) { card.dataset.questionColors = "true"; card.style.setProperty("--question-math", strokeColor(colors.math)); }
+    else { delete card.dataset.questionColors; card.style.removeProperty("--question-math"); }
   }
 
   function renderCardSettings() {
@@ -2149,6 +2154,7 @@
     // The next problem drawn uses the same font and size.
     window.SkybridgeWhiteboard?.setCardStyle?.({ font: look.font, size: look.size, color: "auto", weight: "medium" });
     el.stage.querySelectorAll(".my-board-problem").forEach(applyCardLook);
+    homeworkColorsUi?.refresh();
   }
 
   // Buttons on the card: Move (tap to go to the next corner, or drag it to one), Next problem, Hide.
@@ -3673,6 +3679,7 @@
     // Keep the target while moving or undoing this selection, reset it for a different selection.
     const key = JSON.stringify(lasso.selected.map((stroke) => stroke.id).sort());
     const rich = lasso.selected.some((stroke) => stroke.rich && !stroke.img);
+    el.lassoPresets.hidden = !rich;
     if (key !== selectionColorKey || !rich) selectionColorTarget = "all";
     selectionColorKey = key;
     el.selectionColorTools.hidden = !rich;
@@ -3725,6 +3732,7 @@
     toast(`Deleted ${before.length} ${before.length === 1 ? "stroke" : "strokes"}`, { label: "Undo", run: undoAction });
   });
   el.lassoColor.addEventListener("click", () => el.colorBtn.click());
+  el.lassoPresets.addEventListener("click", () => { settings.page = "card"; saveSettings(); setSettingsOpen(true); showPage("card"); homeworkColorsUi?.open(); });
   el.lassoDone.addEventListener("click", clearSelection);
 
   el.send.addEventListener("click", () => {
@@ -3907,6 +3915,7 @@
 
   // Put a loaded notebook on the board.
   function showNotebook(found) {
+    customColors = false;
     nb = found.meta;
     Notebooks.setCurrent(nb.id);
     strokes.length = 0;
@@ -3929,6 +3938,7 @@
   // A practice problem belongs to its notebook: its card goes when you leave, and comes back when you return.
   // (A card Gemini put there from the PC is not touched.)
   async function showPracticeCard(problem) {
+    homeworkColorsUi?.refresh();
     const card = el.stage.querySelector(".my-board-problem");
     if (card?._practice) card.remove();
     if (!problem || !whiteboard || !window.SkybridgePractice) return;
@@ -4035,15 +4045,16 @@
     const hit = node && /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(getComputedStyle(node).color);
     return hit ? `#${[hit[1], hit[2], hit[3]].map((v) => Number(v).toString(16).padStart(2, "0")).join("")}` : null;
   }
-  function pinStyle() {
+  function pinStyle(problem = nb?.problem) {
     const card = settings.card;
+    const colors = problem?.colors;
     return {
       font: card.font in TEXT_FAMILIES ? card.font : "inter",
       size: CARD_PX[card.size] || 22,
       weight: settings.pin.weight,
-      color: cardColor(card.text) || shownColor(".wb-text, .wb-note") || "ink",
-      titleColor: cardColor(card.title) || shownColor(".wb-title") || "#8a94a0",
-      ink: settings.pin.ink,
+      color: colors?.text || cardColor(card.text) || shownColor(".wb-text, .wb-note") || "ink",
+      titleColor: colors?.title || cardColor(card.title) || shownColor(".wb-title") || "#8a94a0",
+      ink: colors?.math || settings.pin.ink,
     };
   }
   // The problem as ONE typeset item (mathcanvas.js): the words, with real fractions, subscripts and Greek, and
@@ -4207,7 +4218,7 @@
 
   // The problem written as pinned text at (x, y), for pages whose problem was never pinned (folder export).
   async function pinnedStrokes(problem, x, y) {
-    const style = pinStyle();
+    const style = pinStyle(problem);
     try { await document.fonts.load(`${style.size}px ${TEXT_FAMILIES[style.font] || TEXT_FAMILIES.hand}`); } catch {}
     return pinStrokesFor(problem, style, x, y, newId());
   }
@@ -4270,7 +4281,7 @@
     }
     el.pinRestyle.hidden = !(nb?.problem?.pinned && strokes.some((stroke) => stroke.pin));
     // The preview is drawn again once the chosen font has loaded.
-    const shown = pinStyle();
+    const shown = { ...pinStyle(), ...(colorPreview ? { color: colorPreview.text, titleColor: colorPreview.title, ink: colorPreview.math } : {}) };
     const fontKey = `${shown.size}px ${TEXT_FAMILIES[shown.font] || TEXT_FAMILIES.hand}`;
     if (renderPinSettings.loaded !== fontKey) {
       renderPinSettings.loaded = fontKey;
@@ -5651,6 +5662,61 @@
     }
   }
   window.SkybridgePad = { addHelpSheet: (file) => addPhoto(file, { help: true }), flush: saveNow, refreshNotebooks, relay: { ready: () => connected, send: (message) => send(message) }, pinnedStrokes, strokes, lasso, settings, cssColor, drawStroke, toast, stage: el.stage, geminiBoard: el.geminiBoard, geminiPane: el.geminiPane, fitGemini: fitGeminiBoard, geminiSize: () => geminiSize || { w: 640, pad: [16, 24, 16, 24] } };
+
+  // Batch colours edit only question fields, preserving the open page's ink and Undo history.
+  async function refreshQuestionColors(ids) {
+    if (!nb || !ids.includes(nb.id)) return;
+    const id = nb.id;
+    const record = await Notebooks.load(id);
+    if (!record || nb?.id !== id) return;
+    nb.problem = record.meta.problem;
+    const saved = new Map(record.strokes.filter((s) => s.pin && s.rich).map((s) => [s.id, s]));
+    const changed = [];
+    for (const stroke of strokes) {
+      const match = saved.get(stroke.id);
+      if (!match || !stroke.pin || !stroke.rich) continue;
+      stroke.color = match.color;
+      stroke.rich = { ...stroke.rich, titleColor: match.rich.titleColor, ink: match.rich.ink };
+      changed.push(itemOf(strokes, stroke));
+    }
+    if (changed.length) send({ t: "put", strokes: changed.map(({ s, i }) => ({ ...s, i })) });
+    rebuildBase(); schedulePaint();
+    await showPracticeCard(nb.problem);
+    homeworkColorsUi?.refresh();
+  }
+  async function applyHomeworkColors(request) {
+    const currentId = nb?.id, currentSet = nb?.problem?.set;
+    el.stage.inert = el.palette.inert = true;
+    try {
+      await saveNow();
+      const result = await window.SkybridgeHomeworkColors.apply({ ...request, currentId, currentSet }, { notebooks: Notebooks, homework: Homework });
+      await refreshQuestionColors(result.pageIds);
+      toast("Question colours applied", { label: "Undo", run: async () => {
+        el.stage.inert = el.palette.inert = true;
+        try { await saveNow(); await refreshQuestionColors(await result.undo()); toast("Question colours restored"); }
+        catch (error) { toast(error.message || "Couldn't restore question colours"); }
+        finally { el.stage.inert = el.palette.inert = false; }
+      } });
+      return result;
+    } finally { el.stage.inert = el.palette.inert = false; }
+  }
+  homeworkColorsUi = window.SkybridgeHomeworkColors?.init({
+    homework: Homework, notebooks: Notebooks, cssColor,
+    currentProblem: () => nb?.problem,
+    currentPageId: () => nb?.id,
+    currentColors: () => {
+      const rich = !customColors && strokes.find((s) => s.pin && s.rich);
+      const style = pinStyle();
+      const text = rich ? strokeColor(rich.color) : customColors ? (cardColor(settings.card.text) || cssColor("ink")) : strokeColor(style.color);
+      return {
+        text,
+        math: rich ? (rich.rich.ink && rich.rich.ink !== "ink" ? strokeColor(rich.rich.ink) : text) : customColors ? (settings.pin.ink === "ink" ? text : strokeColor(settings.pin.ink)) : (style.ink === "ink" ? text : strokeColor(style.ink)),
+        title: rich ? (rich.rich.titleColor ? strokeColor(rich.rich.titleColor) : text) : customColors ? (cardColor(settings.card.title) || "#8a94a0") : strokeColor(style.titleColor),
+      };
+    },
+    useCustomColors: () => { customColors = true; }, useCurrentColors: () => { customColors = false; },
+    previewColors: (colors) => { colorPreview = colors; renderPinSettings(); }, applyColors: applyHomeworkColors,
+  });
 
   renderSettings();
   renderLayout();
