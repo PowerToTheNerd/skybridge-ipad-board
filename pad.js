@@ -54,6 +54,7 @@
     helpBtn: document.getElementById("helpBtn"),
     homeworkHelp: document.getElementById("homeworkHelp"),
     lassoDuplicate: document.getElementById("lassoDuplicate"),
+    lassoMove: document.getElementById("lassoMove"),
     lassoText: document.getElementById("lassoText"),
     textSheet: document.getElementById("textSheet"),
     textOut: document.getElementById("textOut"),
@@ -2770,6 +2771,7 @@
   }
 
   function clearSelection() {
+    document.getElementById("moveSheet")?.remove();
     lasso.selected = [];
     lasso.path = null;
     lasso.pointer = null;
@@ -3084,6 +3086,180 @@
     positionLasso();
     toast(`Duplicated ${picked.length} ${picked.length === 1 ? "stroke" : "strokes"}`, { label: "Undo", run: undoAction });
   });
+
+  // ---------------------------------------------------------------------------
+  // Move (cut) or copy the selection into another note, or a brand new one.
+  // ---------------------------------------------------------------------------
+  function closeMoveSheet() {
+    document.getElementById("moveSheet")?.remove();
+  }
+
+  // Strokes out of a note by id. The open note changes on the board; any other is changed in storage.
+  async function removeFromNote(id, ids) {
+    if (nb && nb.id === id) {
+      for (const strokeId of ids) if (strokes.some((stroke) => stroke.id === strokeId)) boards.mine.remove(strokeId);
+      return;
+    }
+    const found = await Notebooks.load(id);
+    if (found) await Notebooks.save(id, { strokes: found.strokes.filter((stroke) => !ids.has(stroke.id)), meta: { unsynced: true } });
+  }
+
+  // Strokes into a note, the same two ways.
+  async function addToNote(id, list) {
+    if (nb && nb.id === id) {
+      boards.mine.put(list.map((stroke, k) => ({ s: stroke, i: strokes.length + k })));
+      return;
+    }
+    const found = await Notebooks.load(id);
+    if (found) await Notebooks.save(id, { strokes: [...found.strokes, ...list], meta: { unsynced: true } });
+  }
+
+  // destId "new" starts a new note. The strokes land near the top left of what that note shows.
+  async function sendSelection(destId, copy, openAfter) {
+    const picked = lasso.selected.slice();
+    if (!picked.length || !nb) return;
+    const sourceId = nb.id;
+    if (destId === sourceId) return;
+    closeMoveSheet();
+    const originals = picked.map((stroke) => itemOf(strokes, stroke));
+    await saveNow();
+    let created = false;
+    if (destId === "new") {
+      destId = (await Notebooks.create()).id;
+      created = true;
+    }
+    const found = await Notebooks.load(destId);
+    if (!found) { toast("Couldn't open that note"); return; }
+    const [rx0, ry0] = Ink().bounds(picked.flatMap((stroke) => stroke.points));
+    const dx = (found.view?.x || 0) + 60 - rx0;
+    const dy = (found.view?.y || 0) + 60 - ry0;
+    const moved = picked.map((stroke) => {
+      const made = copyStroke(stroke);
+      made.id = newId();
+      made.points = made.points.map(([x, y, ...rest]) => [Math.round((x + dx) * 10) / 10, Math.round((y + dy) * 10) / 10, ...rest]);
+      return made;
+    });
+    const newIds = new Set(moved.map((stroke) => stroke.id));
+    // Saved in the destination first, so nothing is taken off this page unless it arrived there.
+    await addToNote(destId, moved);
+    if (!copy) {
+      const ids = new Set(picked.map((stroke) => stroke.id));
+      await removeFromNote(sourceId, ids);
+    }
+    clearSelection();
+    const destName = created ? found.meta.name : (found.meta.name || "that note");
+    if (openAfter) await openNotebook(destId);
+    renderNotebookList();
+    const count = picked.length;
+    toast(`${copy ? "Copied" : "Moved"} ${count} ${count === 1 ? "stroke" : "strokes"} to ${destName}`, {
+      label: "Undo",
+      run: async () => {
+        await removeFromNote(destId, newIds);
+        if (!copy) await addToNote(sourceId, originals.map(({ s }) => s));
+        if (created && !(nb && nb.id === destId)) await Notebooks.remove(destId);
+        renderNotebookList();
+      },
+    });
+  }
+
+  async function openMoveSheet() {
+    if (!lasso.selected.length || !nb) return;
+    if (document.getElementById("moveSheet")) { closeMoveSheet(); return; }
+    const [books, folders] = await Promise.all([Notebooks.list(), Notebooks.listFolders()]);
+    const folderName = new Map(folders.map((folder) => [folder.id, folder.name]));
+    const sheet = document.createElement("div");
+    sheet.id = "moveSheet";
+    sheet.className = "move-sheet";
+    sheet.setAttribute("role", "dialog");
+    sheet.setAttribute("aria-label", "Move to another note");
+    let copy = false;
+    let openAfter = false;
+
+    const head = document.createElement("div");
+    head.className = "move-head";
+    const title = document.createElement("b");
+    const modes = document.createElement("div");
+    modes.className = "move-modes";
+    const modeButtons = [["Move", false], ["Copy", true]].map(([label, value]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.addEventListener("click", () => { copy = value; renderMode(); });
+      modes.append(button);
+      return [button, value];
+    });
+    const renderMode = () => {
+      title.textContent = copy ? "Copy to…" : "Move to…";
+      modeButtons.forEach(([button, value]) => button.setAttribute("aria-pressed", String(value === copy)));
+    };
+    head.append(title, modes);
+
+    const fresh = document.createElement("button");
+    fresh.type = "button";
+    fresh.className = "move-new";
+    fresh.textContent = "+ New note";
+    fresh.addEventListener("click", () => sendSelection("new", copy, openAfter));
+
+    const search = document.createElement("input");
+    search.type = "search";
+    search.className = "move-search";
+    search.placeholder = "Find a note";
+    search.setAttribute("aria-label", "Find a note");
+
+    const list = document.createElement("ul");
+    list.className = "move-list";
+    const renderList = () => {
+      const query = search.value.trim().toLowerCase();
+      const rows = books
+        .filter((book) => book.id !== nb.id)
+        .filter((book) => !query || `${book.name} ${book.title || ""} ${folderName.get(book.folder) || ""}`.toLowerCase().includes(query))
+        .map((book) => {
+          const row = document.createElement("li");
+          const button = document.createElement("button");
+          button.type = "button";
+          const name = document.createElement("b");
+          name.textContent = book.name;
+          const sub = document.createElement("small");
+          sub.textContent = [folderName.get(book.folder), book.title].filter(Boolean).join(" · ");
+          button.append(name);
+          if (sub.textContent) button.append(sub);
+          button.addEventListener("click", () => sendSelection(book.id, copy, openAfter));
+          row.append(button);
+          return row;
+        });
+      if (!rows.length) {
+        const none = document.createElement("li");
+        none.className = "move-none";
+        none.textContent = books.length > 1 ? "No note by that name" : "No other notes yet. Make a new one.";
+        rows.push(none);
+      }
+      list.replaceChildren(...rows);
+    };
+    search.addEventListener("input", renderList);
+
+    const follow = document.createElement("label");
+    follow.className = "move-follow";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.addEventListener("change", () => { openAfter = box.checked; });
+    follow.append(box, " Open that note after");
+
+    sheet.append(head, fresh, search, list, follow);
+    renderMode();
+    renderList();
+    document.body.append(sheet);
+    // A tap anywhere else puts it away.
+    setTimeout(() => {
+      const away = (event) => {
+        if (!sheet.isConnected) { document.removeEventListener("pointerdown", away, true); return; }
+        if (sheet.contains(event.target) || event.target.closest?.("#lassoMove")) return;
+        document.removeEventListener("pointerdown", away, true);
+        closeMoveSheet();
+      };
+      document.addEventListener("pointerdown", away, true);
+    }, 0);
+  }
+  el.lassoMove.addEventListener("click", openMoveSheet);
 
   // Dragging the box moves the selection; a corner scales it around the opposite corner.
   let lassoDrag = null;

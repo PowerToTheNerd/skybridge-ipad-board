@@ -263,12 +263,18 @@
       tx.objectStore(DATA).delete(id);
       await done(tx);
       if (found.pics.length) {
+        // A photo that was moved or copied into another note stays for that note.
+        const others = await request(db.transaction(DATA).objectStore(DATA).getAll());
+        const used = new Set(others.flatMap((record) => picIds(record.strokes)));
         const gone = db.transaction(PICS, "readwrite");
-        for (const pic of found.pics) gone.objectStore(PICS).delete(pic.id);
+        for (const pic of found.pics) if (!used.has(pic.id)) gone.objectStore(PICS).delete(pic.id);
         await done(gone);
       }
     }
-    if (!persistent) for (const pic of found.pics) memory.pics.delete(pic.id);
+    if (!persistent) {
+      const used = new Set([...memory.ink.values()].flatMap((record) => picIds(record.strokes)));
+      for (const pic of found.pics) if (!used.has(pic.id)) memory.pics.delete(pic.id);
+    }
     return found;
   }
 

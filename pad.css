@@ -1305,3 +1305,37 @@ input[type="range"] {
 .lumen-folders .tool { display: flex; align-items: center; gap: 8px; justify-content: flex-start; text-align: left; }
 .lumen-folders .tool small { margin-left: auto; color: var(--muted); font-size: 12px; }
 .lumen-folders .tool.suggested { border-color: var(--accent, var(--line-strong)); font-weight: 600; }
+
+/* Move or copy the selection to another note: a small list beside the selection sidebar. */
+.move-sheet {
+  position: fixed;
+  right: calc(env(safe-area-inset-right) + 96px);
+  top: calc(var(--bar-h) + env(safe-area-inset-top) + 16px);
+  width: min(300px, calc(100vw - 130px));
+  max-height: calc(100vh - var(--bar-h) - 90px);
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--edge-hi, var(--edge));
+  border-radius: 16px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-1);
+  color: var(--text);
+  z-index: 40;
+  animation: side-in 0.18s ease-out;
+}
+.move-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.move-head b { font-size: 16px; font-weight: 600; }
+.move-modes { display: flex; gap: 2px; padding: 2px; border-radius: 9px; background: rgba(var(--wash-rgb), 0.07); }
+.move-modes button { border: 0; border-radius: 7px; padding: 5px 10px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 600; }
+.move-modes button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.move-new { border: 1px dashed var(--accent); border-radius: 10px; padding: 11px; background: rgba(var(--acc-rgb), 0.08); color: var(--text); font: inherit; font-size: 15px; font-weight: 600; touch-action: manipulation; }
+.move-new:active { background: rgba(var(--acc-rgb), 0.2); }
+.move-search { height: 38px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: rgba(var(--wash-rgb), 0.05); color: inherit; font: inherit; font-size: 16px; }
+.move-search:focus { outline: none; border-color: var(--accent); }
+.move-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; overscroll-behavior: contain; min-height: 60px; max-height: 40vh; }
+.move-list button { display: block; width: 100%; text-align: left; padding: 10px; border: 0; border-radius: 10px; background: none; color: inherit; font: inherit; touch-action: manipulation; }
+.move-list button:active { background: rgba(var(--acc-rgb), 0.18); }
+.move-list b { display: block; font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.move-list small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.move-none { padding: 16px 8px; color: var(--muted); font-size: 14px; text-align: center; }
+.move-follow { display: flex; align-items: center; gap: 8px; color: var(--text-2, var(--muted)); font-size: 13px; }
