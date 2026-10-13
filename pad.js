@@ -194,6 +194,8 @@
     colorBtn: document.getElementById("colorBtn"),
     colorDot: document.getElementById("colorDot"),
     colorSheet: document.getElementById("colorSheet"),
+    selectionColorTools: document.getElementById("selectionColorTools"),
+    selectionColorTarget: document.getElementById("selectionColorTarget"),
     colorGrid: document.getElementById("colorGrid"),
     hsvSV: document.getElementById("hsvSV"),
     hsvSVKnob: document.getElementById("hsvSVKnob"),
@@ -299,6 +301,8 @@
   // Undo and redo steps per board (see "Undo and redo" below).
   const hist = { mine: { undo: [], redo: [] }, gemini: { undo: [], redo: [] } };
   const lasso = { path: null, pointer: null, selected: [] };
+  let selectionColorTarget = "all";
+  let selectionColorKey = "";
   let guides = []; // alignment lines shown while dragging: { x|y, from, to } in board coordinates
   let checking = false; // Check my work is running on the PC
   const base = document.createElement("canvas");
@@ -1825,6 +1829,7 @@
   renderPalette();
   renderTools();
   el.colorBtn.addEventListener("click", () => {
+    renderSelectionColorTools();
     const open = el.colorSheet.hidden;
     if (open) {
       setSettingsOpen(false);
@@ -2715,6 +2720,7 @@
     }
     applyStep(name, step.after, step.before);
     steps.redo.push(step);
+    updateButtons();
   }
 
   function redoAction() {
@@ -2771,6 +2777,7 @@
   }
 
   function positionLasso() {
+    renderSelectionColorTools();
     if (!lasso.selected.length) {
       el.lassoBox.hidden = true;
       return;
@@ -3662,15 +3669,47 @@
   el.lassoBox.addEventListener("pointercancel", endLassoDrag);
   el.lassoBox.addEventListener("touchstart", (event) => { if (!event.target.closest("button")) event.preventDefault(); }, { passive: false });
 
+  function renderSelectionColorTools() {
+    // Keep the target while moving or undoing this selection, reset it for a different selection.
+    const key = JSON.stringify(lasso.selected.map((stroke) => stroke.id).sort());
+    const rich = lasso.selected.some((stroke) => stroke.rich && !stroke.img);
+    if (key !== selectionColorKey || !rich) selectionColorTarget = "all";
+    selectionColorKey = key;
+    el.selectionColorTools.hidden = !rich;
+    el.selectionColorTarget.value = selectionColorTarget;
+    const label = { all: "Colour", text: "Text colour", math: "Maths colour", title: "Title colour" }[selectionColorTarget];
+    el.lassoColor.querySelector("span").textContent = label;
+    el.lassoColor.title = label;
+    el.lassoColor.setAttribute("aria-label", label);
+  }
+  el.selectionColorTarget.addEventListener("change", () => {
+    selectionColorTarget = el.selectionColorTarget.value;
+    renderSelectionColorTools();
+  });
+
   function recolorSelection(color) {
-    if (!lasso.selected.length) return;
-    const before = lasso.selected.map((stroke) => itemOf(strokes, stroke));
-    lasso.selected.forEach((stroke) => {
-      if (stroke.img) return;
-      stroke.color = color;
-      if (stroke.rich) stroke.rich = { ...stroke.rich, titleColor: null, ink: "ink" }; // one colour for all of a pinned problem
+    renderSelectionColorTools();
+    // A part target affects rich questions only, even in a selection containing ordinary ink or photos.
+    const picked = lasso.selected.filter((stroke) => !stroke.img && (selectionColorTarget === "all" || stroke.rich));
+    if (!picked.length) return;
+    const before = picked.map((stroke) => itemOf(strokes, stroke));
+    picked.forEach((stroke) => {
+      if (selectionColorTarget === "all") {
+        stroke.color = color;
+        if (stroke.rich) stroke.rich = { ...stroke.rich, titleColor: null, ink: "ink" };
+      } else if (selectionColorTarget === "text") {
+        // Freeze inherited colours before changing the text, so the other parts stay the same.
+        stroke.rich = {
+          ...stroke.rich,
+          titleColor: stroke.rich.titleColor || stroke.color,
+          ink: stroke.rich.ink && stroke.rich.ink !== "ink" ? stroke.rich.ink : (stroke.color === "ink" ? cssColor("ink") : stroke.color),
+        };
+        stroke.color = color;
+      } else {
+        stroke.rich = { ...stroke.rich, [selectionColorTarget === "math" ? "ink" : "titleColor"]: color };
+      }
     });
-    const after = lasso.selected.map((stroke) => itemOf(strokes, stroke));
+    const after = picked.map((stroke) => itemOf(strokes, stroke));
     record("mine", before, after);
     send({ t: "put", strokes: after.map(({ s, i }) => ({ ...s, i })) });
     rebuildBase();

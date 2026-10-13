@@ -491,7 +491,27 @@
     }
     ctx.globalAlpha = 1;
   }
-  function handBracket(ctx, op) {
+  function handBracket(ctx, op, weight = 0) {
+    if (op.kind === "square" && window.SkybridgeMarks) {
+      // The auto-matrix tool's bracket geometry and pen renderer, fitted to KaTeX's slot.
+      // Keep the ink inside the slot so neither entries nor neighbouring expressions are crossed.
+      const width = Math.max(0.8, op.em * 0.065) * (1 + weight * 0.15);
+      const inset = Math.min(width, op.w * 0.2, op.h * 0.1);
+      const box = [op.x + inset, op.y + inset, op.x + op.w - inset, op.y + op.h - inset];
+      const made = window.SkybridgeMarks.brackets(box, { left: op.side !== "R", right: op.side === "R" }, {
+        gap: 0, lift: 0, arm: Math.min(op.em * 0.42, op.w - inset * 2),
+      });
+      for (const stroke of made.strokes) {
+        if (window.SkybridgeInk?.fill(ctx, { ...stroke, width, sim: false, clean: true, done: true })) continue;
+        ctx.lineWidth = width;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        stroke.points.forEach(([x, y], i) => { if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+        ctx.stroke();
+      }
+      return;
+    }
     const rand = seeded(op.x * 7 + op.y * 13 + op.h);
     const lw = Math.max(0.8, op.em * 0.06);
     const shake = op.em * 0.012;
@@ -567,7 +587,7 @@
         ctx.lineTo(op.x2, op.y2);
         ctx.stroke();
       } else if (op.k === "d") {
-        handBracket(ctx, op);
+        handBracket(ctx, op, weight);
       }
       ctx.restore();
     }
