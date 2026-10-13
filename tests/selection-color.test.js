@@ -12,6 +12,7 @@ const ctx = {
   lasso: { selected: [] }, strokes: [], selectionColorTarget: "all", selectionColorKey: "",
   el: {
     selectionColorTools: {},
+    lassoPresets: {},
     selectionColorTarget: { value: "all", addEventListener: (name, fn) => { events[name] = fn; } },
     lassoColor: { querySelector: () => label, setAttribute() {} },
   },

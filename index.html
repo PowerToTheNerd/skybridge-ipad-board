@@ -125,6 +125,7 @@
       <i class="lasso-end" data-end="a"></i><i class="lasso-end" data-end="b"></i>
       <div class="lasso-bar" id="lassoBar" role="toolbar" aria-label="Selection">
         <button type="button" class="side-btn" id="lassoColor" title="Colour" aria-label="Colour"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 4v16M4 12h8"/></svg><span>Colour</span></button>
+        <button type="button" class="side-btn" id="lassoPresets" title="Question colour combinations" aria-label="Question colour combinations" hidden><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="8" r="4"/><circle cx="16" cy="8" r="4"/><circle cx="12" cy="16" r="4"/></svg><span>Combinations</span></button>
         <button type="button" class="side-btn" id="lassoLock" title="Lock" aria-label="Lock" hidden><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span>Lock</span></button>
         <button type="button" class="side-btn" id="lassoBrackets" title="Brackets" aria-label="Brackets"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H6v16h3M15 4h3v16h-3"/></svg><span>Brackets</span></button>
         <button type="button" class="side-btn" id="lassoDuplicate" title="Copy" aria-label="Copy"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg><span>Copy</span></button>
@@ -271,13 +272,17 @@
         <p class="setting-hint">How a practice problem looks on your page, and where it sits. Drag the Move button on the card to a corner, or tap it to go to the next one.</p>
         <div class="setting"><span class="setting-head">Font</span><div class="segmented four" role="radiogroup" id="cardFont"></div></div>
         <div class="setting"><span class="setting-head">Size</span><div class="segmented four" role="radiogroup" id="cardSize"></div></div>
-        <div class="setting"><span class="setting-head">Title colour</span><div class="papers" role="radiogroup" id="cardTitle"></div></div>
-        <div class="setting"><span class="setting-head">Text colour</span><div class="papers" role="radiogroup" id="cardText"></div></div>
         <div class="setting"><span class="setting-head">Position</span><div class="segmented two" role="radiogroup" id="cardAnchor"></div></div>
         <div class="setting"><span class="setting-head">Maths style</span><div class="segmented two" role="radiogroup" id="cardMath"></div></div>
         <p class="setting-hint">Pin to page copies the card: same font, size and colours as above. The maths is typeset (fractions, subscripts, Greek, matrices with brackets sized to fit) and stays sharp when you zoom.</p>
         <div class="setting"><span class="setting-head">Thickness</span><div class="segmented four" role="radiogroup" id="pinWeight"></div></div>
-        <div class="setting"><span class="setting-head">Maths colour</span><div class="papers" role="radiogroup" id="pinInk"></div></div>
+        <section class="question-colors" id="homeworkColors"></section>
+        <details class="question-custom" id="customQuestionColors">
+          <summary>Custom colours</summary>
+          <div class="setting"><span class="setting-head">Problem label</span><div class="papers" role="radiogroup" id="cardTitle"></div></div>
+          <div class="setting"><span class="setting-head">Question text</span><div class="papers" role="radiogroup" id="cardText"></div></div>
+          <div class="setting"><span class="setting-head">Maths</span><div class="papers" role="radiogroup" id="pinInk"></div></div>
+        </details>
         <canvas id="pinPreview" class="pin-preview" width="680" height="300" aria-label="Preview of a pinned problem"></canvas>
         <button type="button" class="tool wide" id="pinRestyle" hidden>Restyle the pinned problem on this page</button>
       </div>
@@ -637,6 +642,7 @@
   <script src="./homework.js"></script>
   <script src="./images.js"></script>
   <script src="./mathcanvas.js"></script>
+  <script src="./homework-colors.js"></script>
   <script src="./pad.js"></script>
   <script src="./effects.js"></script>
   <script src="./export.js"></script>

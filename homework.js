@@ -123,14 +123,15 @@ If a problem needs a figure you can't write down, say "(see the figure in the PD
     });
   }
   async function put(set) {
-    memory.set(set.id, set);
     const db = await openDb();
-    if (!db) return;
-    await new Promise((resolve) => {
+    if (!db) { memory.set(set.id, set); return; }
+    await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE, "readwrite");
       tx.objectStore(STORE).put(set);
-      tx.oncomplete = tx.onerror = tx.onabort = () => resolve();
+      tx.oncomplete = () => resolve();
+      tx.onerror = tx.onabort = () => reject(tx.error || new Error("Couldn't save the homework on this iPad."));
     });
+    memory.set(set.id, set);
   }
   async function drop(id) {
     memory.delete(id);
@@ -234,7 +235,8 @@ If a problem needs a figure you can't write down, say "(see the figure in the PD
   // The card for one problem: the same shape a practice problem has.
   const problemOf = (set, index) => {
     const item = set.problems[index];
-    return item ? { topic: "homework", pick: "homework", source: "homework", set: set.id, index, title: item.label, text: item.text, lines: item.lines } : null;
+    const colors = window.SkybridgeHomeworkColors?.coloursFor(set, index);
+    return item ? { topic: "homework", pick: "homework", source: "homework", set: set.id, index, title: item.label, text: item.text, lines: item.lines, ...(colors ? { colors } : {}) } : null;
   };
 
   window.SkybridgeHomework = {

@@ -204,6 +204,7 @@
     // `updated` moves whenever a notebook is opened or saved; `edited` moves only when the writing changes.
     // A restored backup uses it to tell which copy has the newer work.
     if (meta.edited === undefined) meta.edited = found.meta.updated || 0;
+    if (changes?.problem && JSON.stringify(changes.problem.colors) !== JSON.stringify(found.meta.problem?.colors)) meta.edited = Date.now();
     if (strokes) {
       meta.count = strokes.filter((stroke) => !stroke.eraser).length;
       const hash = hashOf(strokes);
