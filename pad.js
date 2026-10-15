@@ -175,6 +175,8 @@
     notebookSearch: document.getElementById("notebookSearch"),
     geminiKey: document.getElementById("geminiKey"),
     geminiKeyRemove: document.getElementById("geminiKeyRemove"),
+    geminiTest: document.getElementById("geminiTest"),
+    geminiResult: document.getElementById("geminiResult"),
     smartOut: document.getElementById("smartOut"),
     smartNote: document.getElementById("smartNote"),
     smartNow: document.getElementById("smartNow"),
@@ -5032,6 +5034,23 @@
     window.SkybridgeHelp?.open();
   });
 
+  // Which build this is: the name stamped into the page when it was built, and the saved copy's number. If the
+  // server has a newer one, it says so (it installs the next time the app is opened).
+  async function paintVersion() {
+    const lines = document.querySelectorAll(".app-version");
+    if (!lines.length) return;
+    const label = document.querySelector('meta[name="skybridge-build"]')?.content || "";
+    let running = "";
+    try { running = (await caches.keys()).map((name) => /^skybridge-board-(.+)$/.exec(name)?.[1]).filter(Boolean).pop() || ""; } catch {}
+    let latest = "";
+    try { latest = /VERSION = "([^"]+)"/.exec(await (await fetch("./sw.js", { cache: "no-store" })).text())?.[1] || ""; } catch {}
+    const text = `Version ${[label, running && `(${running})`].filter(Boolean).join(" ") || "of this page (not installed yet)"}`
+      + (latest && running && latest !== running ? `. A newer version (${latest}) is ready: close the app completely and open it again.` : latest && running ? ". This is the newest." : "");
+    lines.forEach((line) => { line.textContent = text; });
+  }
+  paintVersion();
+  window.addEventListener("online", paintVersion);
+
   el.updateApp.addEventListener("click", async () => {
     try {
       for (const registration of await navigator.serviceWorker.getRegistrations()) await registration.unregister();
@@ -5693,6 +5712,21 @@
     el.smartNow.disabled = true;
     toast("Reading your pages…");
     try { toast(await window.SkybridgeSmart.readNow()); } finally { el.smartNow.disabled = false; renderNotebookUi(); }
+  });
+  el.geminiTest.addEventListener("click", async () => {
+    el.geminiTest.disabled = true;
+    el.geminiTest.textContent = "Trying…";
+    el.geminiResult.hidden = true;
+    try {
+      const out = await window.SkybridgeAI.testKey();
+      el.geminiResult.dataset.state = out.ok ? "on" : "off";
+      el.geminiResult.textContent = !out.ok ? out.error
+        : `The key works. ${out.models.map((row) => `${row.label}: ${row.offered ? (row.out ? "used up today" : `offered, ${row.used} of ${row.rpd} used today`) : "not offered to this key"}.`).join(" ")}${out.models.some((row) => row.offered) ? "" : " None of the models Skybridge uses is offered to this key."}`;
+      el.geminiResult.hidden = false;
+    } finally {
+      el.geminiTest.disabled = false;
+      el.geminiTest.textContent = "Test the key";
+    }
   });
   el.geminiKeyRemove.addEventListener("click", () => {
     window.SkybridgeAI.setKey("");

@@ -93,6 +93,20 @@
       : (long ? "This page is http, so the iPad calls the address directly. The server must allow requests from this page (CORS)." : "Called straight from this iPad (the server must allow it: CORS).");
   }
 
+  const hostOf = (url) => { try { return new URL(url).host; } catch { return "the server"; } };
+  const onTailscale = (url) => { try { return /(\.ts\.net|^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+)$/i.test(new URL(url).hostname); } catch { return false; } };
+  // A short plain reason for a failure the server (or Tailscale in front of it) answered with.
+  function plainStatus(status, url, message = "") {
+    const host = hostOf(url);
+    if (status === 502 || status === 503 || status === 504) {
+      return onTailscale(url)
+        ? `Tailscale reached your PC, but LM Studio didn't answer (${status}). Is LM Studio's server switched on, and does tailscale serve point at its port?`
+        : `${host} didn't pass the request on (${status}). Is the model server switched on?`;
+    }
+    if (status === 404 && !/model/i.test(message)) return "The server doesn't know that address. For LM Studio it ends in /v1.";
+    return "";
+  }
+
   // Why a direct call failed: blocked by the browser, refused by the server's CORS rules, or not reachable at all.
   async function whyDirectFailed(url) {
     if (mixed(url) && !loopback(url)) {
@@ -102,9 +116,11 @@
     const timer = setTimeout(() => controller.abort(), 5000);
     try {
       await fetch(new URL(url).origin + "/", { mode: "no-cors", signal: controller.signal });
-      return { kind: "cors", error: "The server is there but didn't let this page call it (CORS). Allow this page's address in the server's CORS or allowed-origins setting, or switch to Through Skybridge." };
+      return { kind: "cors", error: "The server is there but didn't let this page call it (CORS). In LM Studio's server settings turn on Enable CORS, or switch to Through Skybridge." };
     } catch {
-      return { kind: "down", error: "Couldn't reach the server. Check the address and port, that the iPad is on the same Wi-Fi (or Tailscale is on), and that the server allows network access." };
+      return { kind: "down", error: onTailscale(url)
+        ? `Couldn't reach ${hostOf(url)}. Is Tailscale switched on on this iPad (open the Tailscale app)? Is the PC awake, with LM Studio's server on and tailscale serve running?`
+        : "Couldn't reach the server. Check the address and port, that the iPad is on the same Wi-Fi (or Tailscale is on), and that the server allows network access." };
     } finally {
       clearTimeout(timer);
     }
@@ -209,7 +225,8 @@
         const raw = await response.text();
         let data = null;
         try { data = JSON.parse(raw); } catch {}
-        return { ok: false, status: response.status, error: data?.error?.message || data?.detail || raw.slice(0, 200) || `The server answered ${response.status}.` };
+        const said = data?.error?.message || data?.detail || raw.slice(0, 200) || "";
+        return { ok: false, status: response.status, error: plainStatus(response.status, url, said) || said || `The server answered ${response.status}.` };
       }
       streamed = /event-stream/i.test(response.headers.get("content-type") || "") && Boolean(response.body);
       if (!streamed) {

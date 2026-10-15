@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="skybridge-hosted" content="1">
+  <meta name="skybridge-build" content="2026.10.15-version-tailscale">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -300,6 +301,7 @@
         <div class="lab-list" id="labList"></div>
       </div>
     </div>
+    <p class="setting-hint app-version" id="appVersion"></p>
   </section>
 
   <!-- Notebooks live on this iPad, so they work without the PC. -->
@@ -413,6 +415,8 @@
                 <div class="usage" id="usageList" aria-label="Free requests used today"></div>
                 <p class="nb-fine" id="usageNote"></p>
               </details>
+              <button type="button" class="nb-btn" id="geminiTest">Test the key</button>
+              <p class="nb-hint" id="geminiResult" hidden></p>
               <button type="button" class="nb-btn" id="smartNow">Read pages now</button>
               <button type="button" class="nb-link" id="geminiKeyRemove" hidden>Remove the key from this iPad</button>
             </div>
@@ -533,6 +537,7 @@
             </div>
           </details>
         </div>
+        <p class="nb-fine app-version" id="appVersionNb"></p>
         <button type="button" class="nb-link nb-update" id="updateApp">Get the latest version of this app</button>
       </div>
     </div>

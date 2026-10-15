@@ -381,7 +381,12 @@ Answer with JSON only.`;
     const pdf = Boolean(image && typeof image === "object");
     const trail = [];
     const done = (result, engine) => { if (feature) Engine?.record(feature, { ok: true, engine, model: result.model, trail }); return result; };
-    const fail = (error) => { if (feature) Engine?.record(feature, { ok: false, error: brief(explain(error)), trail }); throw error; };
+    const fail = (error) => {
+      // What the local model said before Gemini took over stays with the error, so the card can say both.
+      if (trail.length && !error.trail) error.trail = trail.slice();
+      if (feature) Engine?.record(feature, { ok: false, error: brief(explain(error)), trail });
+      throw error;
+    };
     const onlyLocal = Engine?.choice() === "local";
     const localSet = Boolean(Local && Local.endpoint(Local.config().url));
     if ((!Engine || Engine.local()) && localSet) {
@@ -526,6 +531,12 @@ Say each number as it is written, say "equals", "plus", "minus" and "times" for 
   }
 
   function explain(error) {
+    const base = explainOne(error);
+    const local = error?.kind !== "local" && error?.trail?.find((step) => step.engine === "local");
+    return local ? `${base} (Your local model went first: ${local.why}.)` : base;
+  }
+
+  function explainOne(error) {
     const kind = error?.kind;
     const where = error?.tried?.length ? ` (${[...new Set(error.tried)].join(", ")})` : "";
     if (kind === "local") return `${error.message} (Notebooks > Smart features > Local model)`;
@@ -569,5 +580,27 @@ Also give the page a short title (at most 6 words) that says what it is about, s
     return { model, folder, why: folder ? String(data.why ?? "").trim().slice(0, 160) : "", title: shortTitle(data.title), tags: labels.tags || [] };
   }
 
-  window.SkybridgeAI = { hasKey, hasGeminiKey, modelState: () => MODELS.map((name) => ({ model: name, rest: restWhy.get(name) || "", missing: missing.has(name) })), getKey, setKey, usage, liveStatus, onUsage: (fn) => { usageListeners.add(fn); window.SkybridgeLive?.onUsage(fn); }, LIMITS, indexPage, transcribe, ask, suggestFolder, askPdf, askPage, readWork, localWillRead, explain, busy, cleanIndex, shortTitle, parseJson, timing, MODELS };
+  // Is the key good, and which of the models Skybridge uses does Google offer to it? This lists the models, which
+  // costs none of the day's free requests.
+  async function testKey() {
+    const key = getKey();
+    if (!key) return { ok: false, error: "Paste your Gemini key first." };
+    let response;
+    try {
+      response = await fetch(`${ENDPOINT}?pageSize=200`, { headers: { "x-goog-api-key": key } });
+    } catch {
+      return { ok: false, error: "Couldn't reach Google. Is the iPad online? A VPN can block it." };
+    }
+    if (response.status === 400 || response.status === 401 || response.status === 403) return { ok: false, error: "Google didn't accept this key. Check it was copied whole, and that it is from AI Studio." };
+    if (response.status === 429) return { ok: false, error: "Google says too many requests right now. Wait a minute and try again." };
+    if (!response.ok) return { ok: false, error: `Google answered ${response.status}. Try again in a minute.` };
+    let data = {};
+    try { data = await response.json(); } catch {}
+    const offered = new Set((data.models || []).filter((model) => !model.supportedGenerationMethods || model.supportedGenerationMethods.includes("generateContent")).map((model) => String(model.name || "").replace(/^models\//, "")));
+    const used = usage();
+    const models = used.map((row) => ({ ...row, offered: offered.has(row.model) }));
+    return { ok: true, models };
+  }
+
+  window.SkybridgeAI = { testKey, hasKey, hasGeminiKey, modelState: () => MODELS.map((name) => ({ model: name, rest: restWhy.get(name) || "", missing: missing.has(name) })), getKey, setKey, usage, liveStatus, onUsage: (fn) => { usageListeners.add(fn); window.SkybridgeLive?.onUsage(fn); }, LIMITS, indexPage, transcribe, ask, suggestFolder, askPdf, askPage, readWork, localWillRead, explain, busy, cleanIndex, shortTitle, parseJson, timing, MODELS };
 })();
