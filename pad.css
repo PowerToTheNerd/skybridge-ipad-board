@@ -1487,37 +1487,15 @@ input[type="range"] {
 .paper:active { box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5); }
 .paper[aria-checked="true"]:active { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
 
-/* ---- The Review page (review.js): what Check my work found, laid out like a worksheet on a page of its own ---- */
-.review { position: fixed; inset: calc(var(--bar-h) + env(safe-area-inset-top)) 0 0 0; z-index: 20; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 20px max(16px, env(safe-area-inset-right)) calc(40px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); background: rgb(var(--panel-rgb)); color: var(--text); -webkit-user-select: text; user-select: text; animation: rise 200ms var(--ease); }
-.review[hidden] { display: none; }
-.review-sheet { max-width: 760px; margin: 0 auto; display: grid; gap: 22px; }
-.review-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
-.review-head h2 { margin: 0; font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
-.review-head span { color: var(--muted); font-size: 14px; }
-.rv { display: grid; gap: 26px; font-size: 18px; line-height: 1.6; }
-.rv p { margin: 0; }
-.rv-verdict { font-size: 19px; }
-.rv-pill { display: inline-block; margin-right: 8px; padding: 2px 14px; border-radius: 999px; background: rgba(var(--wash-rgb), 0.1); font-weight: 600; font-size: 16px; }
-.rv[data-tone="correct"] .rv-pill { background: rgba(52, 195, 143, 0.22); color: #34c38f; }
-.rv[data-tone="partly"] .rv-pill, .rv[data-tone="incomplete"] .rv-pill, .rv[data-tone="unsure"] .rv-pill { background: rgba(240, 180, 70, 0.22); color: #e8a93a; }
-.rv[data-tone="wrong"] .rv-pill { background: rgba(239, 83, 80, 0.22); color: #ef5350; }
-.rv-goal { display: grid; gap: 2px; color: var(--text-2); }
-.rv-goal span { font-size: 12.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-.rv-section { display: grid; gap: 12px; }
-.rv-section h3 { margin: 0; font-size: 12.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-.rv-list { margin: 0; padding-left: 22px; display: grid; gap: 8px; }
-.rv-eqs { display: grid; gap: 14px; justify-items: start; padding: 4px 0; }
-.rv-eq { font-size: 1.25em; overflow-x: auto; max-width: 100%; padding: 2px 0; }
-.rv-grid { display: inline-grid; gap: 2px 14px; padding: 4px 10px; border: 2px solid var(--text-2); border-top-color: transparent; border-bottom-color: transparent; border-radius: 10px; text-align: center; }
-.rv-hint { padding: 12px 16px; border-left: 3px solid var(--accent); background: rgba(var(--wash-rgb), 0.05); border-radius: 0 10px 10px 0; }
-.rv-foot { color: var(--muted); font-size: 13px; }
-.review-foot { display: flex; gap: 10px; flex-wrap: wrap; padding-top: 6px; border-top: 1px solid var(--line); }
-.review-foot .tool { height: 40px; padding: 0 16px; }
+/* ---- The Review page (review.js): a notebook page of its own, with a little bar over it ---- */
+.review-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom)); z-index: 18; display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 16px; border-radius: 999px; background: rgb(var(--panel-rgb)); border: 1px solid var(--line); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25); color: var(--muted); font-size: 14px; font-weight: 600; }
+.review-bar[hidden] { display: none; }
+.review-bar .tool { height: 38px; padding: 0 16px; }
 .review-btn { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 /* With a review on the page its button needs room: Check keeps its short name. */
 :root[data-review-has="1"] .bar .check .long, :root[data-review-has="1"] #settingsBtn .long { display: none; }
 @media (max-width: 1150px) { #reviewBtnLong { display: none; } }
 .review-btn[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-/* While the review is open the page's own floating tools are out of the way. */
-:root[data-review="open"] .rail, :root[data-review="open"] .palette, :root[data-review="open"] .corner-pill { visibility: hidden; }
+/* On a review page there is nothing to check: Check waits until you are back on your own page. */
+:root[data-review="open"] #checkBtn { display: none; }
 @media (max-width: 900px) { .review-btn span { max-width: 7.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }

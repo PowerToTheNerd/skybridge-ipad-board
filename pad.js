@@ -3926,15 +3926,14 @@
   function showVerdict({ ok, live, text, error, verdict, box, report }) {
     checking = false;
     const Review = window.SkybridgeReview;
-    if (Review && nb && ok && !live && report && verdict !== "correct") {
+    if (Review && nb && !nb.reviewOf && ok && !live && report && verdict !== "correct") {
+      // The result is written out on a review page of its own instead of a pop-up over the paper.
       el.verdict.hidden = true;
-      setReview({ v: 1, at: Date.now(), page: nb.name, report });
-      Review.show(nb.review);
       updateButtons();
-      markWork({ verdict, box });
+      Promise.resolve(markWork({ verdict, box })).then(() => openReview(report)).catch((error) => console.error("review failed", error));
       return;
     }
-    if (ok && !live && verdict === "correct" && nb?.review) setReview(null);
+    if (ok && !live && verdict === "correct" && nb?.reviewId) dropReview(nb.id);
     el.verdict.hidden = false;
     el.verdict.dataset.state = ok ? "ok" : "error";
     el.verdict.dataset.tone = ok && report ? report.tone : "";
@@ -4005,55 +4004,85 @@
   el.verdictClose.addEventListener("click", () => { el.verdict.hidden = true; });
 
   // ---- the Review page (review.js) -------------------------------------------------------------------------------
-  // It belongs to the notebook page (nb.review, saved with it) and lives until it is deleted, the problem is solved,
-  // or it is kept as a page of its own.
-  function setReview(review) {
-    if (!nb) return;
-    const id = nb.id;
-    nb.review = review || null;
-    saving = saving.then(() => Notebooks.save(id, { meta: { review: review || null }, touch: false })).catch(() => {});
-    window.SkybridgeReview?.sync(nb.review);
-    if (review) window.SkybridgeReview?.show(nb.review);
+  // What a check found is written out on a notebook page of its own (meta.reviewOf = the page it is about), drawn the way
+  // a problem is pinned to the paper. The page it belongs to remembers it (meta.reviewId). It stays out of the notebook
+  // list until it is kept; it is deleted with "Delete review", when a later check says Correct, or with its page.
+  async function reviewStrokes(report) {
+    const base = pinStyle({});
+    try { await document.fonts.load(`${base.size}px ${TEXT_FAMILIES[base.font] || TEXT_FAMILIES.hand}`); } catch {}
+    const pg = newId();
+    const out = [];
+    let y = 84;
+    for (const item of window.SkybridgeReview.items(report)) {
+      const style = { ...base, ...(item.titleColor ? { titleColor: item.titleColor } : {}), ...(item.small ? { size: Math.round(base.size * 0.8) } : {}) };
+      y += base.size * (item.before || 0);
+      const made = await pinStrokesFor(item.problem, style, 120, y, pg);
+      if (!made.length) continue;
+      out.push(...made.map(copyStroke));
+      const bottom = Math.max(...made.flatMap((stroke) => stroke.points.map((point) => point[1])));
+      y = bottom + base.size * item.gap;
+    }
+    return out;
   }
 
-  // The review as a pinned problem on a notebook page of its own: the words, with the matrices typeset.
-  const reviewProblem = (review) => {
-    const report = review.report || {};
-    const words = [
-      report.line ? `${report.head}. ${report.line}` : report.head,
-      report.goal ? `The page asks for: ${report.goal}.` : "",
-      report.right?.length ? `What's right: ${report.right.join("; ")}.` : "",
-      report.off?.length ? `What's off: ${report.off.join("; ")}.` : "",
-      report.hint ? `Hint: ${report.hint}` : "",
-    ].filter(Boolean).join(" ");
-    return {
-      title: "Review",
-      text: words,
-      lines: (report.matrices || []).filter((m) => m.rows?.length).map((m) => window.SkybridgeReview.latexOf(m)),
-    };
-  };
+  async function openReview(report) {
+    const source = nb;
+    if (!source || source.reviewOf) return;
+    await saveNow();
+    const name = `Review: ${source.name}`.slice(0, 80);
+    let found = source.reviewId ? await Notebooks.load(source.reviewId) : null;
+    if (!found) found = await Notebooks.load((await Notebooks.create(name)).id);
+    const rid = found.meta.id;
+    const drawn = await reviewStrokes(report);
+    await Notebooks.save(rid, { strokes: drawn, view: { x: 0, y: 0, zoom: 1 }, meta: { reviewOf: source.id, name, named: true, folder: null }, touch: false });
+    await Notebooks.save(source.id, { meta: { reviewId: rid }, touch: false });
+    source.reviewId = rid;
+    showNotebook(await Notebooks.load(rid));
+  }
+
+  // Take the review away from its page (it was solved, or you deleted it).
+  async function dropReview(sourceId) {
+    const found = nb && nb.id === sourceId ? { meta: nb } : await Notebooks.load(sourceId);
+    const rid = found?.meta?.reviewId;
+    if (!rid) return;
+    await Notebooks.remove(rid);
+    await Notebooks.save(sourceId, { meta: { reviewId: null }, touch: false });
+    if (nb && nb.id === sourceId) { nb.reviewId = null; window.SkybridgeReview?.sync(nb); }
+  }
 
   async function keepReview() {
-    const review = nb?.review;
-    if (!review || !window.SkybridgeReview) return;
+    if (!nb?.reviewOf) return;
+    const source = nb.reviewOf;
     await saveNow();
-    const name = `Review: ${review.page || nb.name}`.slice(0, 80);
-    const meta = await Notebooks.create(name);
-    await Notebooks.rename(meta.id, name);
-    const problem = reviewProblem(review);
-    const style = pinStyle(problem);
-    try { await document.fonts.load(`${style.size}px ${TEXT_FAMILIES[style.font] || TEXT_FAMILIES.hand}`); } catch {}
-    const made = await pinStrokesFor(problem, style, 120, 84, newId());
-    await Notebooks.save(meta.id, { strokes: made.map(copyStroke), view: { x: 0, y: 0, zoom: 1 } });
-    setReview(null);
+    await Notebooks.save(nb.id, { meta: { reviewOf: null } });
+    nb.reviewOf = null;
+    await Notebooks.save(source, { meta: { reviewId: null }, touch: false }).catch(() => {});
+    window.SkybridgeReview.sync(nb);
     renderNotebookList();
-    toast(`Kept as the page "${name}"`, { label: "Open", run: () => openNotebook(meta.id) });
+    toast(`Kept as the page "${nb.name}"`);
+  }
+
+  async function backToPage() {
+    if (!nb?.reviewOf) return;
+    if (await Notebooks.load(nb.reviewOf)) await openNotebook(nb.reviewOf);
+    else toast("The page this review is about is gone");
+  }
+
+  async function removeReview() {
+    if (!nb?.reviewOf) return;
+    const source = nb.reviewOf;
+    if (await Notebooks.load(source)) {
+      await openNotebook(source);
+      await dropReview(source);
+      toast("Review deleted");
+    } else deleteNotebook(nb.id);
   }
 
   window.SkybridgeReview?.init({
-    title: () => nb?.name || "",
+    open: () => nb?.reviewId && openNotebook(nb.reviewId),
+    back: backToPage,
     keep: keepReview,
-    remove: () => { setReview(null); toast("Review deleted"); },
+    remove: removeReview,
   });
 
   // Mute and Done speaking show only while a Live session runs on the PC.
@@ -4147,7 +4176,7 @@
     window.SkybridgeImages?.ensure(strokes); // photos on this page arrive from storage; each one repaints the page
     syncRichBoxes();
     upgradeFlatPin();
-    window.SkybridgeReview?.sync(nb.review); // this page's review (if it has one) is a button away
+    window.SkybridgeReview?.sync(nb); // this page's review (if it has one) is a button away
   }
 
   // A practice problem belongs to its notebook: its card goes when you leave, and comes back when you return.
@@ -4752,8 +4781,9 @@
     if (wasOpen) await saveNow();
     const removed = await Notebooks.remove(id);
     if (!removed) return;
+    if (removed.meta.reviewId) await Notebooks.remove(removed.meta.reviewId).catch(() => {});
     if (wasOpen) {
-      const rest = await Notebooks.list();
+      const rest = (await Notebooks.list()).filter((book) => !book.reviewOf);
       if (rest.length) showNotebook(await Notebooks.load(rest[0].id));
       else showNotebook(await Notebooks.load((await Notebooks.create()).id));
       if (connected) pushNotebook();
@@ -5230,7 +5260,7 @@
     if (el.notebookSheet.hidden) return;
     const Smart = window.SkybridgeSmart;
     const query = el.notebookSearch.value.trim();
-    const results = Smart ? await Smart.search(query) : (await Notebooks.list()).map((meta) => ({ meta, snippet: "" }));
+    const results = (Smart ? await Smart.search(query) : (await Notebooks.list()).map((meta) => ({ meta, snippet: "" }))).filter(({ meta }) => !meta.reviewOf);
     if (query && !results.length) {
       const none = document.createElement("li");
       none.className = "nb-none";
@@ -5243,7 +5273,7 @@
       rows.push(...results.map(({ meta: book, snippet }) => makeNotebookRow(book, snippet, query)));
     } else {
       const folders = await Notebooks.listFolders();
-      const pages = await Notebooks.list();
+      const pages = (await Notebooks.list()).filter((book) => !book.reviewOf);
       for (const folder of folders) {
         const kids = pages.filter((page) => page.folder === folder.id).sort((a, b) => (a.order || 0) - (b.order || 0));
         if (kids.some((page) => nb && page.id === nb.id) && !closedFolders.has(folder.id)) openFolders.add(folder.id);

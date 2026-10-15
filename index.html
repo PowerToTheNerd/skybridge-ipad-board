@@ -65,17 +65,12 @@
     </div>
   </header>
 
-  <!-- The Review page: what Check my work found, on a page of its own (review.js). -->
-  <section class="review" id="reviewPage" aria-label="Review of this page" hidden>
-    <div class="review-sheet">
-      <header class="review-head"><h2>Review</h2><span id="reviewSub"></span></header>
-      <div id="reviewBody"></div>
-      <footer class="review-foot">
-        <button type="button" class="tool" id="reviewKeep" title="Save this review as a page of its own">Keep as a page</button>
-        <button type="button" class="tool" id="reviewRemove">Delete review</button>
-      </footer>
-    </div>
-  </section>
+  <!-- The Review page is a notebook page of its own (review.js); this little bar sits over it. -->
+  <div class="review-bar" id="reviewBar" role="group" aria-label="Review of your page" hidden>
+    <span>Review</span>
+    <button type="button" class="tool" id="reviewKeep" title="Keep this review as a normal page">Keep as a page</button>
+    <button type="button" class="tool" id="reviewRemove">Delete review</button>
+  </div>
 
   <!-- Pens, eraser, lasso and undo: a rail down the left edge of the board. -->
   <nav class="rail" id="rail" aria-label="Pens and editing">
