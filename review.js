@@ -36,76 +36,121 @@
     return `${name ? `${name} = ` : ""}${bmatrix(matrix.rows || [])}`;
   }
 
-  // A line the reader wrote with matrices in it, as one line of typeset maths. Two shapes turn up:
-  //   augmented, rows split by ";" and each row split by "|":  "A = 2, 1 | 1, 0 ; 4, 3 | 0, 1"  (one block per "|" column)
-  //   blocks split by "|", rows by ";":                        "rref -> 1, 0; 0, 1 | U = 7/4, -1; 1/2, 3"
-  // Labels ("A =", "rref ->") stay with their block. `orphans` are short label-only lines the reader wrote apart
-  // ("U", "rref ->"): they go to a block that has no label of its own. Returns { tex, used } or null.
-  const NUM = "-?\\d+(?:\\.\\d+)?(?:\\s*\\/\\s*\\d+)?";
-  const CELL = new RegExp(`^${NUM}$`);
-  const parseRows = (body) => {
-    const rows = body.split(";").map((row) => row.split(",").map((cell) => cell.trim()));
-    return rows.every((row) => row.length === rows[0].length && row.every((cell) => CELL.test(cell))) ? rows : null;
-  };
+  // A line the reader wrote with matrices in it, as typeset maths. Readers write them every way: commas or spaces
+  // between entries, ";" between rows, "|" for the bar of an augmented matrix (or between two matrices), labels like
+  // "A =" or "RREF ->" before, and sometimes a loose label ("U") after, all on one line. The line is cut into runs of
+  // numbers and the words between them; only a run that is cleanly rectangular becomes a matrix. If anything about
+  // the line is off, it returns null and the line stays plain text.
+  const NUM = /^-?\d+(?:\.\d+)?(?:\/\d+)?$/;
   const isIdentity = (rows) => rows.length === rows[0].length && rows.every((row, r) => row.every((cell, c) => Number(cell) === (r === c ? 1 : 0)));
-  const labelOf = (head) => {
-    const bare = String(head || "").replace(/[=:]\s*$/, "").replace(/\s*(->|→)\s*$/, "").trim().replace(SAFE, "");
-    return bare;
-  };
-  function lineTex(text, orphans = []) {
-    const raw = String(text || "").trim();
-    if (!/[,;]/.test(raw)) return null;
-    let blocks = null; // [{ head, arrow, rows }]
-    const split = raw.split(";").map((row) => row.split("|").map((cell) => cell.trim()));
+  const rectangle = (rows) => rows.length > 0 && rows.every((row) => row.length === rows[0].length && row.length > 0);
+  const labelWord = (word) => String(word || "").replace(/^[^A-Za-z]+/, "").replace(/[^A-Za-z0-9'^]+$/, "").replace(SAFE, "");
+
+  // The blocks (each a list of rows) of one run of tokens, or null when it is not clean.
+  function blocksOf(run) {
+    const rows = [[]];
+    for (const token of run) { if (token === ";") rows.push([]); else rows[rows.length - 1].push(token); }
+    if (rows.length > 1 && rows[rows.length - 1].length === 0) rows.pop();
+    if (rows.some((row) => !row.length)) return null;
+    // Augmented: every row has the same "|" columns of the same widths.
+    const split = rows.map((row) => { const groups = [[]]; for (const t of row) { if (t === "|") groups.push([]); else groups[groups.length - 1].push(t); } return groups; });
     const columns = split[0].length;
-    if (columns > 1 && split.length > 0 && split.every((row) => row.length === columns)) {
-      // augmented: take the label (if any) off the first cell of the first row
-      let head = "";
-      let arrow = false;
-      const first = split[0][0];
-      const m = /^(.*?)(->|→|=)\s*(.*)$/.exec(first);
-      if (m && !/[,]/.test(m[1])) { head = m[1].trim(); arrow = m[2] !== "="; split[0][0] = m[3]; }
-      blocks = [];
-      for (let j = 0; j < columns; j += 1) {
-        const rows = parseRows(split.map((row) => row[j]).join(";"));
-        if (!rows) { blocks = null; break; }
-        blocks.push({ head: j === 0 ? head : "", arrow: j === 0 && arrow, rows });
-      }
+    if (split.every((groups) => groups.length === columns) && split.every((groups) => groups.every((group, j) => group.length > 0 && group.length === split[0][j].length))) {
+      return Array.from({ length: columns }, (_, j) => split.map((groups) => groups[j]));
     }
-    if (!blocks) {
-      blocks = [];
-      for (const part of raw.split("|").map((p) => p.trim())) {
-        const arrow = /^(.*?)(->|→)\s*(.*)$/.exec(part);
-        const eq = /^([^,;=]*)=\s*(.*)$/.exec(part);
-        const head = arrow ? arrow[1] : eq ? eq[1] : "";
-        const body = arrow ? arrow[3] : eq ? eq[2] : part;
-        const rows = parseRows(body);
-        if (!rows) return null;
-        blocks.push({ head: head.trim(), arrow: !!arrow, rows });
-      }
-      // Blocks side by side have the same number of rows; anything else is not a matrix line we understand.
-      if (blocks.length > 1 && blocks.some((block) => block.rows.length !== blocks[0].rows.length)) return null;
+    // Blocks side by side: split the whole run at "|", rows by ";" inside each block.
+    if (run.includes("|")) {
+      const parts = [[]];
+      for (const t of run) { if (t === "|") parts.push([]); else parts[parts.length - 1].push(t); }
+      const made = parts.map((part) => { const out = [[]]; for (const t of part) { if (t === ";") out.push([]); else out[out.length - 1].push(t); } if (out.length > 1 && !out[out.length - 1].length) out.pop(); return out; });
+      if (made.every(rectangle) && made.every((block) => block.length === made[0].length)) return made;
+      return null;
     }
-    // Labels that stand apart ("rref ->" before the first block, "U" for a block that is not the identity).
-    const used = [];
-    const take = (match) => { const i = orphans.findIndex((o, k) => !used.includes(k) && match(o)); if (i >= 0) { used.push(i); return orphans[i]; } return null; };
-    blocks.forEach((block, j) => {
-      if (block.head) return;
-      if (j === 0 && isIdentity(block.rows)) { const o = take((x) => /(->|→)/.test(x)); if (o) { block.head = o; block.arrow = true; return; } }
-      if (isIdentity(block.rows)) { block.head = "I"; return; }
-      const o = take((x) => !/(->|→)/.test(x));
-      if (o) block.head = o;
-    });
-    const tex = blocks.map((block) => {
-      const name = labelOf(block.head);
-      const lead = name ? `${/^[A-Za-z]$/.test(name) ? name : `\\text{${name}}`} ${block.arrow ? "\\to" : "="} ` : "";
-      return lead + bmatrix(block.rows);
-    }).join(" \\;\\mid\\; ");
-    return { tex, used };
+    return rectangle(rows) ? [rows] : null;
   }
 
-  // The report the check made ({ head, tone, line, goal, matrices, read, right, off, hint, model }) as the items a
-  // notebook page shows, top to bottom: a heading, then one item per paragraph or equation.
+  // -> { tex, texes, rest, used } or null. `orphans` are loose label-only lines ("U", "rref ->") for blocks without one.
+  function lineTex(text, orphans = []) {
+    const raw = String(text || "").trim().replace(/−/g, "-");
+    if (!raw || /,\s*[,;|]|[;|]\s*,/.test(raw)) return null;
+    const words = raw.replace(/\s*\/\s*/g, "/").replace(/[[\]()]/g, " ").replace(/->|→|⟶/g, " ARROW ").replace(/([;|=])/g, " $1 ").replace(/,/g, " ").split(/\s+/).filter(Boolean);
+    // Cut into runs (numbers, ";" and "|") and the words around them.
+    const parts = [];
+    for (const token of words) {
+      const inRun = NUM.test(token) || token === ";" || token === "|";
+      const last = parts[parts.length - 1];
+      if (last && last.run === inRun) last.tokens.push(token); else parts.push({ run: inRun, tokens: [token] });
+    }
+    const out = [];
+    const rest = [];
+    const used = [];
+    const take = (match) => { const i = orphans.findIndex((o, k) => !used.includes(k) && match(o)); if (i >= 0) { used.push(i); return orphans[i]; } return null; };
+    parts.forEach((part, index) => {
+      if (part.run) return;
+      // words before a run: "LU ?A =" -> label A, rest "LU ?"; words after it: one loose label for the last block.
+      const next = parts[index + 1];
+      const tokens = part.tokens.slice();
+      part.label = null;
+      part.arrow = false;
+      if (next?.run && (tokens[tokens.length - 1] === "=" || tokens[tokens.length - 1] === "ARROW")) {
+        part.arrow = tokens.pop() === "ARROW";
+        const at = tokens.length - 1;
+        if (at >= 0 && labelWord(tokens[at])) { part.label = labelWord(tokens[at]); tokens.splice(at, 1); }
+      }
+      part.rest = tokens;
+    });
+    const regions = [];
+    parts.forEach((part, index) => {
+      if (!part.run) return;
+      // A "|" at the edge of a run only separates it from the next matrix's label.
+      while (part.tokens[0] === "|") part.tokens.shift();
+      while (part.tokens[part.tokens.length - 1] === "|") { part.tokens.pop(); part.bar = true; }
+      const clean = blocksOf(part.tokens);
+      const numbers = part.tokens.filter((t) => NUM.test(t)).length;
+      const before = parts[index - 1] && !parts[index - 1].run ? parts[index - 1] : null;
+      const marked = part.tokens.some((t) => t === ";" || t === "|") || (before && (before.label || before.arrow));
+      if (!clean || numbers < 2 || !marked) { regions.push(null); return; }
+      regions.push({ blocks: clean, before, index });
+    });
+    if (regions.every((region) => !region)) return null;
+    // Any run that looked like a matrix but isn't clean makes the whole line unsafe to typeset.
+    if (parts.filter((part) => part.run && part.tokens.filter((t) => NUM.test(t)).length >= 2).length !== regions.filter(Boolean).length) return null;
+    let regionIndex = 0;
+    let joinNext = false;
+    const texes = [];
+    parts.forEach((part, index) => {
+      if (!part.run) return;
+      const region = regions[regionIndex++];
+      if (!region) { rest.push(part.tokens.join(" ")); return; }
+      const after = parts[index + 1] && !parts[index + 1].run ? parts[index + 1] : null;
+      // A loose single label right after the run (and not the next run's own label) belongs to its last block.
+      let trailing = "";
+      if (after && !after.label && !after.arrow && after.rest.length === 1 && /^[A-Za-z]{1,6}$/.test(after.rest[0]) && region.blocks.length > 1) { trailing = after.rest[0]; after.rest = []; }
+      const blocks = region.blocks.map((rows, j) => ({ rows, head: j === 0 && region.before ? region.before.label || "" : "", arrow: j === 0 && !!region.before?.arrow }));
+      const last = blocks[blocks.length - 1];
+      if (trailing && !last.head) last.head = trailing;
+      blocks.forEach((block, j) => {
+        if (block.head) return;
+        if (j === 0 && isIdentity(block.rows)) { const o = take((x) => /(->|→)/.test(x)); if (o) { block.head = o.replace(/\s*(->|→)\s*$/, ""); block.arrow = true; return; } }
+        if (isIdentity(block.rows)) { block.head = "I"; return; }
+        const o = take((x) => !/(->|→)/.test(x));
+        if (o) block.head = o;
+      });
+      const line = blocks.map((block) => {
+        const name = labelWord(block.head);
+        const lead = name ? `${/^[A-Za-z]$/.test(name) ? name : `\\text{${name}}`} ${block.arrow ? "\\to" : "="} ` : "";
+        return lead + bmatrix(block.rows);
+      }).join(" \\;\\mid\\; ");
+      // Two matrices the reader separated with a bar stay on one line.
+      if (joinNext) texes[texes.length - 1] += ` \\;\\mid\\; ${line}`; else texes.push(line);
+      joinNext = !!part.bar;
+    });
+    // Words that stayed words ("LU ?", a stray "U") are kept as plain text, in order.
+    const plainWords = parts.filter((part) => !part.run).flatMap((part) => part.rest || []).filter((w) => w !== "=" && w !== "ARROW" && w !== "|");
+    const leftover = [...plainWords, ...rest].join(" ").replace(/\s+/g, " ").trim();
+    return { tex: texes[0], texes, rest: leftover ? [leftover] : [], used };
+  }
+
   const TONES = { right: "#3f9d5f", partly: "#c98a1b", wrong: "#cf5252", unsure: "#8a94a0" };
   const HINT = "#3b82f6";
   // "A times U gives I" (an exact check that passed) as a line of maths with a tick: A × U = I ✓
@@ -121,8 +166,9 @@
     const out = [];
     const heading = (title, extra = {}) => out.push({ before: 0.7, gap: 0.35, problem: { title, text: "", lines: [] }, ...extra });
     const para = (text, extra = {}) => out.push({ gap: 0.4, problem: { title: "", text, lines: [] }, ...extra });
-    out.push({ gap: 0.5, problem: { title: report.head || "Checked", text: report.line || "", lines: [] }, titleColor: TONES[report.tone] });
-    if (report.model) para(`Read by ${report.model}. The numbers are checked exactly here.`, { small: true, gap: 0.2 });
+    const firstSentence = (text) => { const one = String(text || "").replace(/\s+/g, " ").trim(); const cut = /^(.+?[.!?])(\s|$)/.exec(one); return cut ? cut[1] : one; };
+    out.push({ gap: 0.5, problem: { title: report.head || "Checked", text: firstSentence(report.line), lines: [] }, titleColor: TONES[report.tone] });
+    if (report.model) para(`Read by ${report.model}${report.fellBack ? `, because your local model didn't answer: ${String(report.fellBack).replace(/[.\s]+$/, "")}` : ""}. The numbers are checked exactly here.`, { small: true, gap: 0.2 });
     if (report.goal) para(`The page asks for: ${report.goal}`, { before: 0.5 });
     const lines = (report.read?.length ? report.read : report.lines || []).map(String);
     const isOrphan = (line) => /^[A-Za-z]{1,6}\s*(->|→|=)?$/.test(line.trim());
@@ -137,7 +183,8 @@
       if (!made) { plain.push(line); continue; }
       const open = orphans.map((o, k) => k).filter((k) => !spent.has(k));
       made.used.forEach((i) => spent.add(open[i]));
-      tex.push(made.tex);
+      tex.push(...made.texes);
+      plain.push(...made.rest);
     }
     orphans.forEach((o, k) => { if (!spent.has(k)) plain.push(o); });
     const shown = new Set(tex.join(" ").match(/(?:^|[^\\A-Za-z])[A-Za-z](?= =)/g)?.map((x) => x.trim()) || []);

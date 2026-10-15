@@ -172,7 +172,8 @@
   }
 
   async function dueNotebooks() {
-    const books = await Notebooks.list();
+    // A review page is drawn by Skybridge itself: reading it back would only spend free requests.
+    const books = (await Notebooks.list()).filter((book) => !book.reviewOf);
     // A page is read once. After that (named by a reader or by you) it is left alone, however much you write
     // on it, until you ask for it again (Re-read on the page's row in the notebook list).
     const unread = books.filter((book) => book.count >= MIN_STROKES && book.hash && (manual.has(book.id) || (!book.readHash && !book.named && !autoDone.has(book.id))));
@@ -288,7 +289,7 @@
 
   async function search(query) {
     const tokens = plain(query).split(" ").filter(Boolean);
-    const books = await Notebooks.list();
+    const books = (await Notebooks.list()).filter((book) => !book.reviewOf);
     if (!tokens.length) return books.map((meta) => ({ meta, snippet: "" }));
     const found = [];
     for (const meta of books) {
@@ -318,7 +319,7 @@
 
   // The result as a card: a one-line verdict, then short sections (what was read, what is right, what is off, a hint).
   const unique = (list) => [...new Set(list.filter(Boolean))];
-  function reportOf(result, rows, reading, model) {
+  function reportOf(result, rows, reading, model, fellBack = "") {
     const right = unique(rows.filter((row) => row.ok === true).map((row) => row.what)).slice(0, 6);
     const off = unique([
       ...rows.filter((row) => row.ok === false).map((row) => `${row.what}${row.detail ? `: ${MathCheck.hideAnswer(row.detail)}` : ""}`),
@@ -334,16 +335,17 @@
     return {
       head: HEADS[result.verdict] || result.verdict,
       tone: result.verdict,
-      line,
-      goal: result.goal || "",
+      line: MathCheck.toYou(line),
+      goal: MathCheck.toYou(result.goal || ""),
       matrices: result.matrixList || [],
       lines,
       read,
-      right,
-      off,
+      right: right.map(MathCheck.toYou),
+      off: off.map(MathCheck.toYou),
       // Only what the exact checks support: a "correct" page can carry the reader's own comment, nothing else.
-      hint: unique([result.hint, result.verdict === "correct" ? result.feedback : ""]).join(" "),
+      hint: MathCheck.toYou(unique([result.hint, result.verdict === "correct" ? result.feedback : ""]).join(" ")),
       model,
+      fellBack,
     };
   }
 
@@ -386,10 +388,12 @@
     try {
       const problem = bridge.problemText?.() || "";
       const pageName = bridge.pageName?.() || "";
-      const { model, reading } = await AI.readWork(image, { problem, mode: "practice", pageName });
+      const { model, reading, trail = [] } = await AI.readWork(image, { problem, mode: "practice", pageName });
+      // When the local model went first and failed, the card says so (and why), so it never looks like it was skipped.
+      const fell = trail.find((step) => step.engine === "local");
       const rows = MathCheck.runChecks(reading.checks);
       const result = MathCheck.assess(reading, rows, "practice", { problem, pageName });
-      const answer = { ok: true, text: summary(result, model), report: reportOf(result, rows, reading, model), verdict: result.verdict, box: result.verdict === "wrong" ? boardBox(reading.mistake_box, page) : null };
+      const answer = { ok: true, text: summary(result, model), report: reportOf(result, rows, reading, model, fell?.why || ""), verdict: result.verdict, box: result.verdict === "wrong" ? boardBox(reading.mistake_box, page) : null };
       // A page nothing could be read from is worth asking again; a verdict is worth keeping.
       if (result.verdict !== "unreadable") remember(key, answer);
       return answer;

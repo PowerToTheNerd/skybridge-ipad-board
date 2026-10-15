@@ -174,6 +174,7 @@ The problem: ${problem && problem.trim() ? problem.trim() : `(not given: work it
    the goal needs is there and is what its label says: a U is upper triangular, an L lower triangular, an inverse multiplies with
    the original to give the identity); "partly" if some of it is missing or mislabelled; "no"; or "unclear" if the page states no goal.
    goal_gap: one short sentence on what is missing or mislabelled, without giving the answer or the next step.
+   Speak to the student as "you" ("you wrote", "your U"), never "the student".
 Answer with JSON only.`;
 
   const STR = { type: "STRING" };
@@ -380,7 +381,7 @@ Answer with JSON only.`;
     const Engine = window.SkybridgeEngine;
     const pdf = Boolean(image && typeof image === "object");
     const trail = [];
-    const done = (result, engine) => { if (feature) Engine?.record(feature, { ok: true, engine, model: result.model, trail }); return result; };
+    const done = (result, engine) => { if (feature) Engine?.record(feature, { ok: true, engine, model: result.model, trail }); return { ...result, engine, trail: trail.slice() }; };
     const fail = (error) => {
       // What the local model said before Gemini took over stays with the error, so the card can say both.
       if (trail.length && !error.trail) error.trail = trail.slice();
@@ -518,8 +519,8 @@ Say each number as it is written, say "equals", "plus", "minus" and "times" for 
     // A reasoning model on your own PC can think for minutes about a long prompt: tell it to be brief.
     const hurry = localWillRead() ? `\nBe quick: don't deliberate at length. Keep transcription to the essential lines and every other field to one short sentence.` : "";
     const live = window.SkybridgeLive?.config().checkRead ? { prompt: `${readPrompt(problem, mode, pageName)}\n${LIVE_JSON}`, toJson: liveReading } : undefined;
-    const { model, text } = await generate(image, readPrompt(problem, mode, pageName) + hurry, READING_SCHEMA, {}, { feature: "check", live });
-    return { model, reading: parseJson(text) };
+    const { model, text, engine, trail } = await generate(image, readPrompt(problem, mode, pageName) + hurry, READING_SCHEMA, {}, { feature: "check", live });
+    return { model, engine, trail, reading: parseJson(text) };
   }
 
   // Says what went wrong and, for the free-tier problems, which model said what (429 is Google's

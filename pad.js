@@ -3359,7 +3359,8 @@
     if (!lasso.selected.length || !nb) return;
     document.getElementById("rotateSheet")?.remove();
     if (document.getElementById("moveSheet")) { closeMoveSheet(); return; }
-    const [books, folders] = await Promise.all([Notebooks.list(), Notebooks.listFolders()]);
+    const [all, folders] = await Promise.all([Notebooks.list(), Notebooks.listFolders()]);
+    const books = all.filter((book) => !book.reviewOf);
     const folderName = new Map(folders.map((folder) => [folder.id, folder.name]));
     const sheet = document.createElement("div");
     sheet.id = "moveSheet";
@@ -3919,7 +3920,7 @@
     if (report.right.length) root.append(section("What's right", list(report.right)));
     if (report.off.length) root.append(section("What's off", list(report.off)));
     if (report.hint) root.append(section("Hint", node("p", "", report.hint)));
-    if (report.model) root.append(node("p", "vr-foot", `Read by ${report.model}. The numbers are checked exactly here.`));
+    if (report.model) root.append(node("p", "vr-foot", `Read by ${report.model}${report.fellBack ? `, because your local model didn't answer: ${String(report.fellBack).replace(/[.\s]+$/, "")}` : ""}. The numbers are checked exactly here.`));
     return root;
   }
 
@@ -5233,7 +5234,7 @@
     const removed = await Notebooks.removeFolder(id);
     if (!removed) return;
     if (nb && removed.pages.some((page) => page.meta.id === nb.id)) {
-      const rest = await Notebooks.list();
+      const rest = (await Notebooks.list()).filter((book) => !book.reviewOf);
       showNotebook(await Notebooks.load(rest.length ? rest[0].id : (await Notebooks.create()).id));
       if (connected) pushNotebook();
     }
@@ -5765,7 +5766,7 @@
       const last = Notebooks.current();
       if (last) found = await Notebooks.load(last);
       if (!found) {
-        const books = await Notebooks.list();
+        const books = (await Notebooks.list()).filter((book) => !book.reviewOf);
         if (books.length) found = await Notebooks.load(books[0].id);
       }
       if (!found) found = await Notebooks.load((await Notebooks.create()).id);

@@ -68,7 +68,7 @@ run("odd reader output never mangles the page: anything that is not a clean matr
     "1, 0 | 2, 3 ; 4, 5", // blocks with different row counts
     "A = 1,, 2; 3, 4", // empty field
     "A = ; ;", "A = |", "|", ";", ",", "A =", "1, 2, x; 3, 4, 5", "A = 1, 2; 3, 4 | | 5, 6; 7, 8",
-    "rref -> ", "->", "A = [1 2; 3 4]", "A = 1.2.3, 4",
+    "rref -> ", "->", "A = 1.2.3, 4", "x = 5", "1 2 3", "2 + 3 = 5",
   ];
   for (const line of odd) assert.equal(R.lineTex(line), null, line);
   const made = R.items({ head: "Partly right", tone: "partly", line: "x", read: odd.concat(["U", "rref \u2192"]), matrices: [{ name: "A", rows: [["1", "2"], ["3"]] }, { name: "B", rows: [] }], right: [], off: [], hint: "" });
@@ -82,5 +82,21 @@ run("clean inputs with spaces, fractions, negatives and decimals still become ma
   assert.ok(a.includes("\\tfrac{1}{2}") && a.includes("0.5") && a.includes("\\tfrac{2}{3}"));
   assert.equal(R.lineTex("A=1,2;3,4").tex.startsWith("A = "), true);
   assert.equal(R.lineTex("x = 5"), null); // one number is not a matrix line
+  assert.ok(R.lineTex("A = [1 2; 3 4]").tex.includes("bmatrix")); // brackets and spaces are fine
   assert.ok(R.lineTex("1, 2; 3, 4").tex.includes("bmatrix")); // no label is fine
+});
+run("a reader that writes everything on one line, with spaces and no commas, still gives clean matrices", () => {
+  const line = "LU ?A = 2 1 0 | 1 0 0; 4 3 1 | 0 1 0; 6 5 4 | 0 0 1 RREF \u2192 1 0 0 | 7/4 -1 1/4; 0 1 0 | -5/2 2 -1/2; 0 0 1 | 1/2 -1 1/2 U";
+  const made = R.lineTex(line);
+  assert.equal(made.texes.length, 2);
+  assert.ok(made.texes[0].startsWith("A = ") && made.texes[0].includes("I = "));
+  assert.ok(made.texes[1].startsWith("\\text{RREF} \\to ") && made.texes[1].includes("U = ") && made.texes[1].includes("\\tfrac{7}{4}"));
+  assert.equal(made.rest.join(" "), "LU");
+  const page = R.items({ head: "Partly right", tone: "partly", line: "One. Two three.", read: [line], matrices: [], right: [], off: [], hint: "" });
+  assert.equal(page.filter((m) => m.problem.lines.length).length, 2); // two rows of matrices
+  assert.equal(page[0].problem.text, "One."); // the verdict line is the first sentence, the rest lives under What's off
+});
+run("the footer says when the local model did not answer and Gemini read the page", () => {
+  const made = R.items({ head: "Partly right", tone: "partly", line: "x", model: "gemini-2.5-flash", fellBack: "Couldn't reach the server", read: [], matrices: [], right: [], off: [], hint: "" });
+  assert.ok(made[1].problem.text.startsWith("Read by gemini-2.5-flash, because your local model didn't answer: Couldn't reach the server."));
 });

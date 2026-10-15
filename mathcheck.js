@@ -691,6 +691,12 @@
   }
 
   // verdict() plus the page's goal: all-right arithmetic is only "Correct" when the page also delivers what it set out to do.
+  // The reader sometimes writes about "the student": what is shown to the student talks to them.
+  const toYou = (text) => String(text || "")
+    .replace(/\bthe student has\b/gi, "you have").replace(/\bthe student is\b/gi, "you are").replace(/\bthe student was\b/gi, "you were")
+    .replace(/\bthe student(?:'|\u2019)s\b/gi, "your").replace(/\bthe student\b/gi, "you")
+    .replace(/(^|[.!?]\s+)(you|your)\b/g, (found, lead, word) => `${lead}${word[0].toUpperCase()}${word.slice(1)}`);
+
   function assess(reading, rows, mode, context = {}) {
     const base = verdict(reading, rows, mode);
     const mats = readMatrices(reading.matrices);
@@ -713,5 +719,5 @@
     return { ...base, verdict: result, where, feedback, issues, hint, matrixList: mats.map(({ name, rows: grid }) => ({ name, rows: grid })), goal: text(reading.goal), goalMet: met };
   }
 
-  return { run, runChecks, verdict, assess, readMatrices, hideAnswer, evaluate, parseMatrix, multiply, fmt, fmtMatrix };
+  return { run, runChecks, verdict, assess, toYou, readMatrices, hideAnswer, evaluate, parseMatrix, multiply, fmt, fmtMatrix };
 });
