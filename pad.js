@@ -3930,7 +3930,7 @@
       // The result is written out on a review page of its own instead of a pop-up over the paper.
       el.verdict.hidden = true;
       updateButtons();
-      Promise.resolve(markWork({ verdict, box })).then(() => openReview(report)).catch((error) => console.error("review failed", error));
+      Promise.resolve(markWork({ verdict, box })).then(() => openReview(report)).catch((error) => { console.error("review failed", error); showVerdict({ ok, live, text, error: null, verdict, box, report: null }); });
       return;
     }
     if (ok && !live && verdict === "correct" && nb?.reviewId) dropReview(nb.id);
@@ -4014,7 +4014,7 @@
     const out = [];
     let y = 84;
     for (const item of window.SkybridgeReview.items(report)) {
-      const style = { ...base, ...(item.titleColor ? { titleColor: item.titleColor } : {}), ...(item.small ? { size: Math.round(base.size * 0.8) } : {}) };
+      const style = { ...base, ...(item.titleColor ? { titleColor: item.titleColor } : {}), ...(item.color ? { color: item.color } : {}), ...(item.small ? { size: Math.round(base.size * 0.8) } : {}) };
       y += base.size * (item.before || 0);
       const made = await pinStrokesFor(item.problem, style, 120, y, pg);
       if (!made.length) continue;

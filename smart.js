@@ -325,12 +325,8 @@
       ...(result.issues || []),
     ]).slice(0, 6);
     const lines = result.matrixList?.length ? [] : String(result.transcription || "").split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 4);
-    // What the page said in words (the matrices it defines are drawn from their numbers, so those lines are left out here).
-    const named = new Set((result.matrixList || []).map((m) => m.name));
-    const read = String(result.transcription || "").split("\n").map((l) => l.trim()).filter((l) => {
-      const label = /^([A-Za-z][\w'\u2019^\u207b\u00b9-]{0,9})\s*[=:]/.exec(l);
-      return l && !(label && named.has(label[1]));
-    }).slice(0, 8);
+    // Everything the reader wrote down, in order: the Review page typesets the matrices in it and keeps the words as words.
+    const read = String(result.transcription || "").split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 12);
     let line = "";
     if (result.verdict === "correct") line = result.steps_checked ? `All ${result.steps_checked} calculation${result.steps_checked === 1 ? "" : "s"} I checked ${result.steps_checked === 1 ? "is" : "are"} right.` : "Nothing I checked is wrong.";
     else if (result.verdict === "partly") line = `${result.steps_checked ? "The calculations I checked are right, but " : ""}${result.steps_checked ? result.where.replace(/^The /, "the ") : result.where}`;
