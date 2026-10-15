@@ -3921,8 +3921,20 @@
     return root;
   }
 
+  // The check found something to look at: it goes on the page's Review page, not into a pop-up. A Correct result
+  // clears the review (the problem is done); anything else (an error, no report) keeps the small card.
   function showVerdict({ ok, live, text, error, verdict, box, report }) {
     checking = false;
+    const Review = window.SkybridgeReview;
+    if (Review && nb && ok && !live && report && verdict !== "correct") {
+      el.verdict.hidden = true;
+      setReview({ v: 1, at: Date.now(), page: nb.name, report });
+      Review.show(nb.review);
+      updateButtons();
+      markWork({ verdict, box });
+      return;
+    }
+    if (ok && !live && verdict === "correct" && nb?.review) setReview(null);
     el.verdict.hidden = false;
     el.verdict.dataset.state = ok ? "ok" : "error";
     el.verdict.dataset.tone = ok && report ? report.tone : "";
@@ -3991,6 +4003,58 @@
   });
   el.verdictCancel.addEventListener("click", () => window.SkybridgeLocal?.cancel());
   el.verdictClose.addEventListener("click", () => { el.verdict.hidden = true; });
+
+  // ---- the Review page (review.js) -------------------------------------------------------------------------------
+  // It belongs to the notebook page (nb.review, saved with it) and lives until it is deleted, the problem is solved,
+  // or it is kept as a page of its own.
+  function setReview(review) {
+    if (!nb) return;
+    const id = nb.id;
+    nb.review = review || null;
+    saving = saving.then(() => Notebooks.save(id, { meta: { review: review || null }, touch: false })).catch(() => {});
+    window.SkybridgeReview?.sync(nb.review);
+    if (review) window.SkybridgeReview?.show(nb.review);
+  }
+
+  // The review as a pinned problem on a notebook page of its own: the words, with the matrices typeset.
+  const reviewProblem = (review) => {
+    const report = review.report || {};
+    const words = [
+      report.line ? `${report.head}. ${report.line}` : report.head,
+      report.goal ? `The page asks for: ${report.goal}.` : "",
+      report.right?.length ? `What's right: ${report.right.join("; ")}.` : "",
+      report.off?.length ? `What's off: ${report.off.join("; ")}.` : "",
+      report.hint ? `Hint: ${report.hint}` : "",
+    ].filter(Boolean).join(" ");
+    return {
+      title: "Review",
+      text: words,
+      lines: (report.matrices || []).filter((m) => m.rows?.length).map((m) => window.SkybridgeReview.latexOf(m)),
+    };
+  };
+
+  async function keepReview() {
+    const review = nb?.review;
+    if (!review || !window.SkybridgeReview) return;
+    await saveNow();
+    const name = `Review: ${review.page || nb.name}`.slice(0, 80);
+    const meta = await Notebooks.create(name);
+    await Notebooks.rename(meta.id, name);
+    const problem = reviewProblem(review);
+    const style = pinStyle(problem);
+    try { await document.fonts.load(`${style.size}px ${TEXT_FAMILIES[style.font] || TEXT_FAMILIES.hand}`); } catch {}
+    const made = await pinStrokesFor(problem, style, 120, 84, newId());
+    await Notebooks.save(meta.id, { strokes: made.map(copyStroke), view: { x: 0, y: 0, zoom: 1 } });
+    setReview(null);
+    renderNotebookList();
+    toast(`Kept as the page "${name}"`, { label: "Open", run: () => openNotebook(meta.id) });
+  }
+
+  window.SkybridgeReview?.init({
+    title: () => nb?.name || "",
+    keep: keepReview,
+    remove: () => { setReview(null); toast("Review deleted"); },
+  });
 
   // Mute and Done speaking show only while a Live session runs on the PC.
   function renderSession(info) {
@@ -4083,6 +4147,7 @@
     window.SkybridgeImages?.ensure(strokes); // photos on this page arrive from storage; each one repaints the page
     syncRichBoxes();
     upgradeFlatPin();
+    window.SkybridgeReview?.sync(nb.review); // this page's review (if it has one) is a button away
   }
 
   // A practice problem belongs to its notebook: its card goes when you leave, and comes back when you return.

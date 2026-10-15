@@ -656,6 +656,22 @@
     return issues;
   }
 
+  // What a label means, said as a definition only: a hint, never the answer. It comes from the exact check, so it can't
+  // disagree with it (a model's own hint once said entries were off when the exact check had found them right).
+  function labelHints(mats) {
+    const hints = [];
+    for (const m of mats) {
+      if (!m.values) continue;
+      const base = baseName(m.name);
+      const n = m.values.length;
+      const entries = (test) => m.values.some((row, i) => row.some((x, j) => test(i, j) && !x.isZero()));
+      if (base === "U" && entries((i, j) => i > j)) hints.push("A U has only zeros below its diagonal.");
+      else if (base === "L" && entries((i, j) => j > i)) hints.push("An L has only zeros above its diagonal.");
+      else if (base === "I" && (n !== m.values[0].length || m.values.some((row, i) => row.some((x, j) => (i === j ? !x.eq(ONE) : !x.isZero()))))) hints.push("The identity has 1s on its diagonal and 0s everywhere else.");
+    }
+    return [...new Set(hints)];
+  }
+
   const LU_GOAL = /\b(?:p?lu|pa\s*=\s*lu)\b|\blu\s*(?:decomposition|factori[sz]ation)/i;
   const LU_HINT = "An LU factorisation is two matrices: an L (lower triangular) and a U (upper triangular) that multiply to give A (or PA).";
 
@@ -691,9 +707,10 @@
     if (issues.length && (result === "correct" || result === "unsure")) {
       result = "partly";
       where = issues[0];
-      feedback = text(reading.feedback);
+      feedback = ""; // the reader's own comment isn't shown beside a finding it can't see: the hint is built from the checks
     }
-    return { ...base, verdict: result, where, feedback, issues, hint: goal.hint, matrixList: mats.map(({ name, rows: grid }) => ({ name, rows: grid })), goal: text(reading.goal), goalMet: met };
+    const hint = [...new Set([goal.hint, ...labelHints(mats)].filter(Boolean))].join(" ");
+    return { ...base, verdict: result, where, feedback, issues, hint, matrixList: mats.map(({ name, rows: grid }) => ({ name, rows: grid })), goal: text(reading.goal), goalMet: met };
   }
 
   return { run, runChecks, verdict, assess, readMatrices, hideAnswer, evaluate, parseMatrix, multiply, fmt, fmtMatrix };
