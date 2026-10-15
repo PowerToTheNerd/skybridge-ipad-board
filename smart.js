@@ -304,7 +304,7 @@
   }
 
   // ---- Check my work with no PC ----------------------------------------------------------------
-  const HEADS = { correct: "Correct", wrong: "Mistake found", incomplete: "Right so far", unreadable: "Couldn't read the page", unsure: "Numbers check out" };
+  const HEADS = { correct: "Correct", partly: "Partly right", wrong: "Mistake found", incomplete: "Right so far", unreadable: "Couldn't read the page", unsure: "Numbers check out" };
 
   function summary(result, model) {
     const parts = [`Work check: ${HEADS[result.verdict] || result.verdict}.`];
@@ -314,6 +314,33 @@
     if (result.feedback) line += `\n${result.feedback}`;
     if (result.matrices) line += `\nRead from your work:\n${result.matrices}`;
     return line;
+  }
+
+  // The result as a card: a one-line verdict, then short sections (what was read, what is right, what is off, a hint).
+  const unique = (list) => [...new Set(list.filter(Boolean))];
+  function reportOf(result, rows, reading, model) {
+    const right = unique(rows.filter((row) => row.ok === true).map((row) => row.what)).slice(0, 6);
+    const off = unique([
+      ...rows.filter((row) => row.ok === false).map((row) => `${row.what}${row.detail ? `: ${MathCheck.hideAnswer(row.detail)}` : ""}`),
+      ...(result.issues || []),
+    ]).slice(0, 6);
+    const lines = result.matrixList?.length ? [] : String(result.transcription || "").split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 4);
+    let line = "";
+    if (result.verdict === "correct") line = result.steps_checked ? `All ${result.steps_checked} calculation${result.steps_checked === 1 ? "" : "s"} I checked ${result.steps_checked === 1 ? "is" : "are"} right.` : "Nothing I checked is wrong.";
+    else if (result.verdict === "partly") line = `${result.steps_checked ? "The calculations I checked are right, but " : ""}${result.steps_checked ? result.where.replace(/^The /, "the ") : result.where}`;
+    else if (result.verdict === "wrong") line = result.where || "";
+    return {
+      head: HEADS[result.verdict] || result.verdict,
+      tone: result.verdict,
+      line,
+      goal: result.goal || "",
+      matrices: result.matrixList || [],
+      lines,
+      right,
+      off,
+      hint: unique([result.hint, result.feedback]).join(" "),
+      model,
+    };
   }
 
   // The reader's "ymin,xmin,ymax,xmax" (0 to 1000 of the picture) as a box on the board.
@@ -353,10 +380,12 @@
       return { ok: false, error: error.message || "There is nothing on the page yet." };
     }
     try {
-      const { model, reading } = await AI.readWork(image, { problem: bridge.problemText?.() || "", mode: "practice" });
+      const problem = bridge.problemText?.() || "";
+      const pageName = bridge.pageName?.() || "";
+      const { model, reading } = await AI.readWork(image, { problem, mode: "practice", pageName });
       const rows = MathCheck.runChecks(reading.checks);
-      const result = MathCheck.verdict(reading, rows, "practice");
-      const answer = { ok: true, text: summary(result, model), verdict: result.verdict, box: result.verdict === "wrong" ? boardBox(reading.mistake_box, page) : null };
+      const result = MathCheck.assess(reading, rows, "practice", { problem, pageName });
+      const answer = { ok: true, text: summary(result, model), report: reportOf(result, rows, reading, model), verdict: result.verdict, box: result.verdict === "wrong" ? boardBox(reading.mistake_box, page) : null };
       // A page nothing could be read from is worth asking again; a verdict is worth keeping.
       if (result.verdict !== "unreadable") remember(key, answer);
       return answer;
@@ -373,7 +402,7 @@
           return { ok: false, error: `${AI.explain(error)}\nLive couldn't help either: ${liveError.message}` };
         }
       }
-      return { ok: false, error: AI.explain(error) };
+      return { ok: false, error: AI.explain(error), kind: error?.kind };
     }
   }
 

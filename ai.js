@@ -144,8 +144,8 @@ Answer with JSON only: {"text": "..."}
   const PRACTICE_RULE = "They are practising: never give the correct value or the next step, only what is wrong and where.";
   const EXPLAIN_RULE = "You may say what the correct value is and why.";
 
-  const readPrompt = (problem, mode) => `You are checking a student's handwritten math. The image is one page of the student's notebook.
-The problem: ${problem && problem.trim() ? problem.trim() : "(not given: work it out from the page)"}
+  const readPrompt = (problem, mode, pageName = "") => `You are checking a student's handwritten math. The image is one page of the student's notebook.
+The problem: ${problem && problem.trim() ? problem.trim() : `(not given: work it out from the page${pageName ? `; the page is named "${String(pageName).slice(0, 60)}"` : ""})`}
 
 1. Transcribe what they wrote, line by line. Write matrices as rows: "1, 2; 3, 4" (commas between
    entries, semicolons between rows, fractions as 1/2). Do not fix their mistakes while transcribing.
@@ -168,6 +168,12 @@ The problem: ${problem && problem.trim() ? problem.trim() : "(not given: work it
    mistake_box: where that first mistake sits in the picture, as "ymin,xmin,ymax,xmax" with every number from 0
    to 1000 (0,0 is the top left corner of the image). Box just the wrong entry or expression. Empty if no mistake.
    feedback: one or two sentences for the student. ${mode === "explain" ? EXPLAIN_RULE : PRACTICE_RULE}
+4. goal: in a few words, what the page is asking for (the problem, or the heading or question written on the page, like
+   "LU factorisation of A"). Label each matrix exactly as the student labelled it; if they gave it no label, call it
+   "left block" or "right block", never a guess. goal_met: "yes" only if the page actually delivers its goal (every matrix
+   the goal needs is there and is what its label says: a U is upper triangular, an L lower triangular, an inverse multiplies with
+   the original to give the identity); "partly" if some of it is missing or mislabelled; "no"; or "unclear" if the page states no goal.
+   goal_gap: one short sentence on what is missing or mislabelled, without giving the answer or the next step.
 Answer with JSON only.`;
 
   const STR = { type: "STRING" };
@@ -188,6 +194,9 @@ Answer with JSON only.`;
       first_mistake: STR,
       mistake_box: STR,
       feedback: STR,
+      goal: STR,
+      goal_met: STR,
+      goal_gap: STR,
     },
     required: ["transcription", "checks", "verdict"],
   };
@@ -500,11 +509,11 @@ Say each number as it is written, say "equals", "plus", "minus" and "times" for 
     return JSON.stringify(data);
   }
 
-  async function readWork(image, { problem = "", mode = "practice" } = {}) {
+  async function readWork(image, { problem = "", mode = "practice", pageName = "" } = {}) {
     // A reasoning model on your own PC can think for minutes about a long prompt: tell it to be brief.
     const hurry = localWillRead() ? `\nBe quick: don't deliberate at length. Keep transcription to the essential lines and every other field to one short sentence.` : "";
-    const live = window.SkybridgeLive?.config().checkRead ? { prompt: `${readPrompt(problem, mode)}\n${LIVE_JSON}`, toJson: liveReading } : undefined;
-    const { model, text } = await generate(image, readPrompt(problem, mode) + hurry, READING_SCHEMA, {}, { feature: "check", live });
+    const live = window.SkybridgeLive?.config().checkRead ? { prompt: `${readPrompt(problem, mode, pageName)}\n${LIVE_JSON}`, toJson: liveReading } : undefined;
+    const { model, text } = await generate(image, readPrompt(problem, mode, pageName) + hurry, READING_SCHEMA, {}, { feature: "check", live });
     return { model, reading: parseJson(text) };
   }
 

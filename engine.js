@@ -13,10 +13,10 @@
   const KEY = "skybridge.engine";
   const LAST = "skybridge.engineLast";
   const CHOICES = [
-    { id: "hybrid", label: "Hybrid", hint: "Auto: your local model first when it can do the job, then Gemini Live if it is on, then Gemini. When one fails or is used up, the next one answers." },
-    { id: "gemini", label: "Gemini", hint: "Only Gemini's free models. The local model and Live are not used." },
-    { id: "local", label: "Local model", hint: "Only your local model. Nothing is sent to Gemini. Things it can't do are told so instead of failing quietly." },
-    { id: "live", label: "Gemini Live", hint: "Experimental. Live reads page names and To text (it has no daily limit), and Check my work if you turn that on under Gemini Live. Practice and PDFs still use Gemini." },
+    { id: "hybrid", label: "Hybrid", hint: "Your local model first, then Gemini. If one fails or is used up, the next answers." },
+    { id: "gemini", label: "Gemini", hint: "Only Gemini's free models." },
+    { id: "local", label: "Local model", hint: "Only your local model. Nothing goes to Gemini." },
+    { id: "live", label: "Gemini Live", hint: "Experimental: Live names pages and writes To text, with no daily limit." },
   ];
   // What each feature needs: a picture, or only words, or a PDF.
   const FEATURES = [

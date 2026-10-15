@@ -126,6 +126,7 @@
     verdict: document.getElementById("verdict"),
     verdictTitle: document.getElementById("verdictTitle"),
     verdictText: document.getElementById("verdictText"),
+    verdictReport: document.getElementById("verdictReport"),
     verdictClose: document.getElementById("verdictClose"),
     verdictCancel: document.getElementById("verdictCancel"),
     localFast: document.getElementById("localFast"),
@@ -142,6 +143,8 @@
     liveOut: document.getElementById("liveOut"),
     engineSeg: document.getElementById("engineSeg"),
     engineHint: document.getElementById("engineHint"),
+    advFold: document.getElementById("advFold"),
+    localRouteMore: document.getElementById("localRouteMore"),
     engineTable: document.getElementById("engineTable"),
     liveOn: document.getElementById("liveOn"),
     liveModel: document.getElementById("liveModel"),
@@ -158,6 +161,7 @@
     localVision: document.getElementById("localVision"),
     localVia: document.getElementById("localVia"),
     localRoute: document.getElementById("localRoute"),
+    localModels: document.getElementById("localModels"),
     localTest: document.getElementById("localTest"),
     localResult: document.getElementById("localResult"),
     localRemove: document.getElementById("localRemove"),
@@ -3872,10 +3876,58 @@
     lastBoard = "mine";
   }
 
-  function showVerdict({ ok, live, text, error, verdict, box }) {
+  // The check's result as a card: a one-line verdict, matrices drawn as grids, then short sections.
+  function renderReport(report) {
+    const node = (tag, className, content) => {
+      const made = document.createElement(tag);
+      if (className) made.className = className;
+      if (typeof content === "string") made.textContent = content;
+      return made;
+    };
+    const section = (title, ...children) => {
+      const box = node("section", "vr-section");
+      box.append(node("h4", "", title), ...children);
+      return box;
+    };
+    const list = (items) => {
+      const ul = node("ul", "vr-list");
+      for (const item of items) ul.append(node("li", "", item));
+      return ul;
+    };
+    const root = node("div", "vr");
+    root.dataset.tone = report.tone;
+    const verdictLine = node("p", "vr-line");
+    verdictLine.append(node("b", "vr-pill", report.head), report.line);
+    root.append(verdictLine);
+    if (report.goal) root.append(node("p", "vr-goal", `The page asks for: ${report.goal}`));
+    if (report.matrices.length || report.lines.length) {
+      const grids = node("div", "vr-grids");
+      for (const matrix of report.matrices) {
+        const item = node("div", "vr-matrix");
+        item.append(node("span", "vr-name", `${matrix.name} =`));
+        const grid = node("div", "vr-grid");
+        grid.style.gridTemplateColumns = `repeat(${matrix.rows[0].length}, auto)`;
+        for (const row of matrix.rows) for (const cell of row) grid.append(node("span", "", cell));
+        item.append(grid);
+        grids.append(item);
+      }
+      root.append(section("What I read", grids, ...(report.lines.length ? [list(report.lines)] : [])));
+    }
+    if (report.right.length) root.append(section("What's right", list(report.right)));
+    if (report.off.length) root.append(section("What's off", list(report.off)));
+    if (report.hint) root.append(section("Hint", node("p", "", report.hint)));
+    if (report.model) root.append(node("p", "vr-foot", `Read by ${report.model}. The numbers are checked exactly here.`));
+    return root;
+  }
+
+  function showVerdict({ ok, live, text, error, verdict, box, report }) {
     checking = false;
     el.verdict.hidden = false;
     el.verdict.dataset.state = ok ? "ok" : "error";
+    el.verdict.dataset.tone = ok && report ? report.tone : "";
+    el.verdictReport.replaceChildren(...(ok && !live && report ? [renderReport(report)] : []));
+    el.verdictReport.hidden = !(ok && !live && report);
+    el.verdictText.hidden = !el.verdictReport.hidden;
     el.verdictTitle.textContent = ok ? (live ? "Gemini is checking" : "Check my work") : "Couldn't check";
     el.verdictText.textContent = ok ? (live ? "Gemini is reading your board. Listen for the answer." : text || "Checked.") : error || "The check failed.";
     updateButtons();
@@ -3885,11 +3937,14 @@
     }
   }
 
-  async function checkWithoutPc() {
+  // Your local model reads the page on this iPad whenever it is switched on and can read pictures, PC paired or not.
+  async function checkWithoutPc({ thenPc = false } = {}) {
     checking = true;
     el.verdict.hidden = false;
     el.verdict.dataset.state = "ok";
     el.verdictTitle.textContent = "Check my work";
+    el.verdictReport.hidden = true;
+    el.verdictText.hidden = false;
     el.verdictText.textContent = "Reading your page, then checking the numbers…";
     updateButtons();
     // A local model can think for minutes: show that it is working, and let the student stop it.
@@ -3902,26 +3957,36 @@
     const result = await window.SkybridgeSmart.check();
     stop?.();
     el.verdictCancel.hidden = true;
+    // The local model couldn't do it and the PC is there: let the PC check it instead.
+    if (!result.ok && thenPc && connected && pcOpen && result.kind !== "cancel") { checkOnPc(); return; }
     showVerdict(result);
   }
 
-  el.check.addEventListener("click", () => {
-    if (checking) return;
-    if (!(connected && pcOpen)) {
-      // No PC: Gemini reads the page with your own key, and the numbers are checked here, exactly.
-      if (window.SkybridgeSmart) checkWithoutPc();
-      return;
-    }
+  function checkOnPc() {
     // The check reads My board, with Gemini's problem on it; writing on Gemini's board isn't read.
     checking = true;
     el.verdict.hidden = false;
     el.verdict.dataset.state = "ok";
     el.verdictTitle.textContent = "Check my work";
+    el.verdictReport.hidden = true;
+    el.verdictText.hidden = false;
     el.verdictText.textContent = "Checking your work...";
     send({ t: "check" });
     updateButtons();
     // A PC that never answers shouldn't leave the button stuck.
     setTimeout(() => { if (checking) showVerdict({ ok: false, error: "No answer from the PC. Is Skybridge open?" }); }, 90000);
+  }
+
+  el.check.addEventListener("click", () => {
+    if (checking) return;
+    const smart = window.SkybridgeSmart;
+    const localReads = Boolean(smart && window.SkybridgeAI?.localWillRead?.());
+    if (smart && (localReads || !(connected && pcOpen))) {
+      // Your local model (when it reads pictures), or no PC: this iPad reads the page, and the numbers are checked here, exactly.
+      checkWithoutPc({ thenPc: localReads && window.SkybridgeEngine?.choice() !== "local" });
+      return;
+    }
+    if (connected && pcOpen) checkOnPc();
   });
   el.verdictCancel.addEventListener("click", () => window.SkybridgeLocal?.cancel());
   el.verdictClose.addEventListener("click", () => { el.verdict.hidden = true; });
@@ -4664,7 +4729,7 @@
     try { version = (await caches.keys()).find((name) => name.startsWith("skybridge-board-"))?.slice("skybridge-board-".length) || ""; } catch {}
     const auto = log.filter((item) => !item.manual).length;
     const last = log[log.length - 1];
-    el.bgReads.textContent = `Pages read this session: ${auto} in the background, ${log.length - auto} when asked${last ? `. Last: “${last.name}” at ${new Date(last.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}. A named page is not read again. App version ${version || "unknown"}.`;
+    el.bgReads.textContent = `Pages read this session: ${auto} in the background, ${log.length - auto} when asked. App version ${version || "unknown"}.`;
   }
   window.SkybridgeSmart?.onStatus?.(renderBgReads);
   el.notebookBtn.addEventListener("click", renderBgReads);
@@ -5287,7 +5352,7 @@
       return line;
     }), liveRow());
     const liveWhy = window.SkybridgeAI.liveStatus();
-    el.usageNote.textContent = (liveWhy.on && liveWhy.error ? `Live last said: ${liveWhy.error} ` : "") + "Free requests used today. The free key allows about 5 a minute and 20 a day per model, and the day starts again around midnight Pacific (3 AM Eastern). The quota belongs to your key, so Skybridge on the PC and AI Studio use it too, and this iPad only counts its own requests. When Google says a model is used up, its bar fills.";
+    el.usageNote.textContent = (liveWhy.on && liveWhy.error ? `Live last said: ${liveWhy.error} ` : "") + "The free key allows about 5 a minute and 20 a day per model, and starts again around midnight Pacific. This iPad counts only its own requests.";
   }
   window.SkybridgeAI?.onUsage(renderUsage);
   renderUsage();
@@ -5306,7 +5371,11 @@
         el.engineSeg.append(button);
       }
     }
-    for (const button of el.engineSeg.children) button.setAttribute("aria-checked", String(button.dataset.engine === Engine.choice()));
+    for (const button of el.engineSeg.children) {
+      button.setAttribute("aria-checked", String(button.dataset.engine === Engine.choice()));
+      // Gemini Live is experimental: it shows when it is in use or when Advanced is open.
+      button.hidden = button.dataset.engine === "live" && Engine.choice() !== "live" && !el.advFold.open;
+    }
     el.engineHint.textContent = Engine.CHOICES.find((c) => c.id === Engine.choice()).hint;
     el.engineTable.replaceChildren(...Engine.FEATURES.map((feature) => {
       const row = document.createElement("div");
@@ -5330,6 +5399,8 @@
     renderEngine();
   }
 
+  el.advFold.addEventListener("toggle", () => { if (Engine) renderEngine(); });
+
   function renderLocal() {
     if (!Local) return;
     const cfg = Local.config();
@@ -5341,6 +5412,7 @@
     el.localVia.value = cfg.via;
     el.localFast.value = cfg.fast ? "yes" : "no";
     el.localRoute.textContent = Local.explainRoute();
+    if (el.localRouteMore) el.localRouteMore.textContent = Local.explainRoute({ long: true });
     const hasUrl = Boolean(Local.endpoint(cfg.url));
     const used = hasUrl && Engine.local();
     const on = used;
@@ -5352,7 +5424,8 @@
   }
   if (Local) {
     renderLocal();
-    Local.attach({ ready: () => connected && pcOpen, send: (message) => send(message) });
+    // The local model only needs the relay (Skybridge running on the PC); the Skybridge page doesn't have to be open there.
+    Local.attach({ ready: () => connected, send: (message) => send(message) });
     const saveLocal = (patch) => { Local.save(patch); renderLocal(); renderSmartUi(); };
     el.localUrl.addEventListener("change", () => saveLocal({ url: el.localUrl.value.trim() }));
     el.localModel.addEventListener("change", () => saveLocal({ model: el.localModel.value.trim() }));
@@ -5369,7 +5442,22 @@
       el.syncFold.scrollIntoView({ block: "start", behavior: "smooth" });
       (el.syncHost.offsetParent ? el.syncHost : el.syncFold).focus?.({ preventScroll: true });
     });
-    el.localRemove.addEventListener("click", () => { saveLocal({ url: "", key: "", model: "", vision: false, mode: "first", via: "auto" }); el.localResult.hidden = true; toast("Local model forgotten"); });
+    el.localRemove.addEventListener("click", () => { saveLocal({ url: "", key: "", model: "", vision: false, mode: "first", via: "auto" }); el.localResult.hidden = true; el.localModels.hidden = true; toast("Local model forgotten"); });
+    // Test it lists the server's models as chips; tapping one selects it and tests again.
+    function showModels(names) {
+      el.localModels.replaceChildren();
+      const current = Local.config().model;
+      for (const name of names) {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.textContent = name;
+        chip.title = name;
+        chip.setAttribute("aria-pressed", String(name === current));
+        chip.addEventListener("click", () => { saveLocal({ model: name }); el.localTest.click(); });
+        el.localModels.append(chip);
+      }
+      el.localModels.hidden = names.length < 2;
+    }
     el.localTest.addEventListener("click", async () => {
       el.localTest.disabled = true;
       el.localTest.textContent = "Trying…";
@@ -5378,7 +5466,11 @@
         const result = await Local.test();
         el.localResult.hidden = false;
         renderLocal();
-        el.localResult.textContent = result.ok ? `It answered in ${(result.ms / 1000).toFixed(1)} s: "${result.text}".` : result.error;
+        showModels(result.models || []);
+        const sees = result.sees === true ? " It can read pictures, so Check my work and page names will use it."
+          : result.sees === false ? " It can't read pictures, so Check my work and page names use Gemini. Practice problems use it."
+          : "";
+        el.localResult.textContent = result.ok ? `It answered in ${(result.ms / 1000).toFixed(1)} s${result.model ? ` (model: ${result.model})` : ""}.${sees}` : result.error;
         el.localResult.dataset.state = result.ok ? "on" : "off";
       } finally {
         el.localTest.disabled = false;
@@ -5395,9 +5487,7 @@
     const pending = Smart.pending();
     el.smartOut.textContent = (keyed ? "Key saved" : Local?.usable({ image: false }) ? "Local model" : pcOpen && connected ? "Using your PC" : "Off");
     el.smartOut.dataset.state = keyed || Local?.usable({ image: false }) || (pcOpen && connected) ? "on" : "off";
-    el.smartNote.textContent = (Smart.status() ? `${Smart.status()} ` : "")
-      + "Titles, tags and searchable handwriting for every page, and Check my work without your PC. "
-      + "Pages are read by Skybridge when your PC is on, otherwise by your local model or Gemini with your own free key.";
+    el.smartNote.textContent = (Smart.status() ? `${Smart.status()} ` : "") + "Names, searches and checks your pages. Your PC reads them when it is on; otherwise your free key does.";
     el.geminiKey.placeholder = keyed ? "Saved. Paste a new key to replace it" : "Paste your key";
     el.geminiKeyRemove.hidden = !keyed;
     renderEngine();
@@ -5467,6 +5557,7 @@
       pcReady: () => connected && pcOpen,
       relaySend: (message) => send(message),
       problemText: () => window.SkybridgePractice?.problemText(nb?.problem) || "",
+      pageName: () => [...new Set([nb?.name, nb?.title].filter(Boolean))].join(" - "),
       openId: () => nb?.id,
       lastChange: () => lastChangeAt,
       refresh: () => renderNotebookUi(),

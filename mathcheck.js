@@ -6,7 +6,7 @@
  * U/V/L/P answers) with exact fractions. It deliberately has no "solve this for me" operations
  * beyond what checking needs. backend/test_ipad_mathcheck.py runs both versions on the same inputs.
  *
- * window.SkybridgeMath = { run(args), runChecks(rawChecks), verdict(reading, rows, mode) }
+ * window.SkybridgeMath = { run(args), runChecks(rawChecks), verdict(reading, rows, mode), assess(reading, rows, mode, { problem, pageName }) }
  */
 (function (root, factory) {
   const api = factory();
@@ -619,5 +619,82 @@
     };
   }
 
-  return { run, runChecks, verdict, hideAnswer, evaluate, parseMatrix, multiply, fmt, fmtMatrix };
+  // ---- what the page was for, and whether each labelled matrix is what its label says ------------------
+  // "U = 7/4, -1; 2, 3" per line, as the reader wrote them. Shown as grids, and checked against their labels.
+  function readMatrices(raw) {
+    const seen = new Set();
+    const out = [];
+    for (const line of text(raw).split("\n")) {
+      const found = /^\s*([A-Za-z][A-Za-z0-9_'\u2019^\u207b\u00b9\u2080-\u2089-]{0,9})\s*[=:]\s*(.+)$/.exec(line);
+      if (!found) continue;
+      const rows = found[2].replace(/[\[\]()]/g, "").split(/;|\\\\/).map((row) => row.split(/[,\s&]+/).filter(Boolean)).filter((row) => row.length);
+      if (!rows.length || rows.length > MAX_SIZE || rows.some((row) => row.length !== rows[0].length || row.length > MAX_SIZE)) continue;
+      const key = `${found[1]}=${rows.map((row) => row.join(",")).join(";")}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      let values = null;
+      try { values = rows.map((row) => row.map((cell) => number(cell))); } catch { values = null; }
+      out.push({ name: found[1], rows, values });
+    }
+    return out;
+  }
+
+  const baseName = (name) => name.replace(/[_\d\u2080-\u2089'\u2019]+$/, "");
+
+  // A matrix called U must be upper triangular, an L lower triangular and an I the identity.
+  function labelIssues(mats) {
+    const issues = [];
+    for (const m of mats) {
+      if (!m.values) continue;
+      const base = baseName(m.name);
+      const n = m.values.length;
+      const entries = (test) => m.values.some((row, i) => row.some((x, j) => test(i, j) && !x.isZero()));
+      if (base === "U" && entries((i, j) => i > j)) issues.push(`${m.name} isn't upper triangular (it has non-zero entries below the diagonal), so it isn't a U.`);
+      else if (base === "L" && entries((i, j) => j > i)) issues.push(`${m.name} isn't lower triangular (it has non-zero entries above the diagonal), so it isn't an L.`);
+      else if (base === "I" && (n !== m.values[0].length || m.values.some((row, i) => row.some((x, j) => (i === j ? !x.eq(ONE) : !x.isZero()))))) issues.push(`${m.name} isn't the identity matrix.`);
+    }
+    return issues;
+  }
+
+  const LU_GOAL = /\b(?:p?lu|pa\s*=\s*lu)\b|\blu\s*(?:decomposition|factori[sz]ation)/i;
+  const LU_HINT = "An LU factorisation is two matrices: an L (lower triangular) and a U (upper triangular) that multiply to give A (or PA).";
+
+  // The page's goal, from the problem, the notebook page's name and what was written; missing pieces for it.
+  function goalIssues(goalText, mats) {
+    const issues = [];
+    let hint = "";
+    if (LU_GOAL.test(goalText) && mats.length) {
+      const names = new Set(mats.map((m) => baseName(m.name)));
+      const missing = ["L", "U"].filter((name) => !names.has(name));
+      if (missing.length) {
+        issues.push(`The page is about an LU factorisation, but I didn't find ${missing.map((name) => (name === "L" ? "an L" : "a U")).join(" or ")} written on it.`);
+        hint = LU_HINT;
+      }
+    }
+    return { issues, hint };
+  }
+
+  // verdict() plus the page's goal: all-right arithmetic is only "Correct" when the page also delivers what it set out to do.
+  function assess(reading, rows, mode, context = {}) {
+    const base = verdict(reading, rows, mode);
+    const mats = readMatrices(reading.matrices);
+    const issues = labelIssues(mats);
+    const goalText = [context.problem, context.pageName, reading.goal, reading.transcription].map(text).filter(Boolean).join(" ");
+    const goal = goalIssues(goalText, mats);
+    issues.push(...goal.issues);
+    const met = text(reading.goal_met).toLowerCase();
+    const gap = text(reading.goal_gap);
+    if ((met === "partly" || met === "no") && gap && !issues.length) issues.push(gap);
+    let result = base.verdict;
+    let where = base.where;
+    let feedback = base.feedback;
+    if (issues.length && (result === "correct" || result === "unsure")) {
+      result = "partly";
+      where = issues[0];
+      feedback = text(reading.feedback);
+    }
+    return { ...base, verdict: result, where, feedback, issues, hint: goal.hint, matrixList: mats.map(({ name, rows: grid }) => ({ name, rows: grid })), goal: text(reading.goal), goalMet: met };
+  }
+
+  return { run, runChecks, verdict, assess, readMatrices, hideAnswer, evaluate, parseMatrix, multiply, fmt, fmtMatrix };
 });

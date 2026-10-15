@@ -33,7 +33,7 @@
   // the local model's key), today's usage counts, the PC address and pairing code, the weather it last fetched,
   // and what a screen last showed.
   const OBJECT_SETTINGS = ["skybridge.padSettings", "skybridge-fx-v2", "skybridge-help", "skybridge.live", "skybridge.local"];
-  const TEXT_SETTINGS = ["skybridge.homeworkWhere", "skybridge.practiceTopic", "skybridge.practiceWhere", "skybridge.mulPreset"];
+  const TEXT_SETTINGS = ["skybridge.homeworkWhere", "skybridge.practiceTopic", "skybridge.practiceWhere", "skybridge.mulPreset", "skybridge.rotateSnap"];
   const ENGINE = "skybridge.engine";
   const LOCAL = "skybridge.local";
   const parse = (text) => { try { return JSON.parse(text); } catch { return undefined; } };

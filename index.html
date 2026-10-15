@@ -390,132 +390,141 @@
           <div class="nb-section-head"><h3>What to use</h3></div>
           <div class="engine-seg" id="engineSeg" role="radiogroup" aria-label="Engine"></div>
           <p class="nb-fine" id="engineHint"></p>
-          <div class="engine-table" id="engineTable" role="table" aria-label="Which engine each feature uses"></div>
-          <p class="nb-fine">"Will use" is the order it tries, and "Last time" is what answered and why it moved on. When your PC is on, Skybridge reads pages itself.</p>
         </section>
         <div class="nb-folds nb-folds-top">
-        <details class="nb-fold" id="geminiFold">
-          <summary><span>Gemini</span><output id="smartOut"></output></summary>
-          <div class="nb-fold-body">
-          <p class="nb-hint" id="smartNote"></p>
-          <label class="nb-address">
-            <span>Gemini API key</span>
-            <input type="password" id="geminiKey" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Paste your key">
-          </label>
-          <div class="usage" id="usageList" aria-label="Free requests used today"></div>
-          <p class="nb-fine" id="usageNote"></p>
-          <button type="button" class="nb-btn" id="smartNow">Read pages now</button>
-          <button type="button" class="nb-link" id="geminiKeyRemove" hidden>Remove the key from this iPad</button>
-          <p class="nb-fine">Your key stays on this iPad. Page pictures go to Google when Gemini reads them.</p>
-          </div>
-        </details>
-          <details class="nb-fold" id="liveFold">
-            <summary><span>Gemini Live (experimental)</span><output id="liveOut"></output></summary>
+          <details class="nb-fold" id="geminiFold">
+            <summary><span>Gemini</span><output id="smartOut"></output></summary>
             <div class="nb-fold-body">
-              <p class="nb-hint">The Live models have no daily request limit on the free key. Choose what is used at the top of this page. In Hybrid, with this on, naming pages and To text try a short Live session first (one picture in, the spoken answer read back as text) and use the usual Flash models only if that fails.</p>
+              <p class="nb-hint" id="smartNote"></p>
               <label class="nb-address">
-                <span>Use Live in Hybrid</span>
-                <select id="liveOn">
-                  <option value="off">Off</option>
-                  <option value="on">On</option>
-                </select>
+                <span>Gemini API key (stays on this iPad)</span>
+                <input type="password" id="geminiKey" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Paste your key">
               </label>
-              <label class="nb-address">
-                <span>Live model</span>
-                <select id="liveModel"></select>
-              </label>
-              <label class="nb-address" id="liveThinkingRow">
-                <span>Thinking level</span>
-                <select id="liveThinking"></select>
-              </label>
-              <label class="nb-address">
-                <span>Check my work reading</span>
-                <select id="liveCheckRead">
-                  <option value="off">Gemini Flash first</option>
-                  <option value="on">Gemini Live first</option>
-                </select>
-              </label>
-              <p class="nb-fine">With Live first, Live reads your page as JSON and the numbers are still checked exactly here. If Live's answer can't be used, Flash does it. Extended Thinking is best for this, and may take a minute or two.</p>
-              <label class="nb-address">
-                <span>When Flash is out, Check my work</span>
-                <select id="liveCheck">
-                  <option value="off">Says so (exact check only)</option>
-                  <option value="on">Asks Live for an opinion</option>
-                </select>
-              </label>
-              <p class="nb-fine">An opinion is a voice model reading the picture. It does not run the exact number check, so it is labelled unverified, never marks "Correct!", and can be wrong.</p>
-              <button type="button" class="nb-btn" id="liveTest">Test it</button>
-              <p class="nb-hint" id="liveResult" hidden></p>
-              <p class="nb-fine">Your key goes straight from this iPad to Google, as with Flash. Check my work and homework PDFs still use Flash, because they need exact structured answers that a voice model can't give reliably.</p>
+              <details class="nb-more">
+                <summary>Free requests used today</summary>
+                <div class="usage" id="usageList" aria-label="Free requests used today"></div>
+                <p class="nb-fine" id="usageNote"></p>
+              </details>
+              <button type="button" class="nb-btn" id="smartNow">Read pages now</button>
+              <button type="button" class="nb-link" id="geminiKeyRemove" hidden>Remove the key from this iPad</button>
             </div>
           </details>
           <details class="nb-fold" id="localFold">
             <summary><span>Local model</span><output id="localOut"></output></summary>
             <div class="nb-fold-body">
-              <p class="nb-hint">Your own model (Unsloth Studio, llama.cpp, Ollama, LM Studio...) at an OpenAI-compatible address. It is tried first, so Gemini's daily free requests last longer.</p>
+              <p class="nb-hint">Your own model at an OpenAI-style address, like LM Studio's http://127.0.0.1:1234/v1. It is tried first.</p>
               <label class="nb-address">
                 <span>Address</span>
-                <input type="url" id="localUrl" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="http://127.0.0.1:8888/v1">
+                <input type="url" id="localUrl" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="http://127.0.0.1:1234/v1">
               </label>
               <label class="nb-address">
-                <span>API key (if it has one)</span>
+                <span>API key (if it needs one)</span>
                 <input type="password" id="localKey" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Leave empty if it has none">
               </label>
-              <p class="nb-fine">No key needed when the server runs without one. Unsloth Studio with keyless access on your network needs none.</p>
               <label class="nb-address">
                 <span>Model name (optional)</span>
-                <input type="text" id="localModel" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="whatever the server calls it">
+                <input type="text" id="localModel" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Test it lists them to tap">
               </label>
-              <label class="nb-address">
-                <span>Can it read pictures?</span>
-                <select id="localVision">
-                  <option value="no">No, words only</option>
-                  <option value="yes">Yes (a vision model)</option>
-                </select>
-              </label>
-              <label class="nb-address">
-                <span>How to reach it</span>
-                <select id="localVia">
-                  <option value="auto">Automatic</option>
-                  <option value="pc">Through Skybridge (paired PC)</option>
-                  <option value="solo">Solo: straight from this iPad</option>
-                </select>
-              </label>
-              <label class="nb-address">
-                <span>Fast mode (skip long thinking)</span>
-                <select id="localFast">
-                  <option value="no">Off: let it think</option>
-                  <option value="yes">On: answer quickly</option>
-                </select>
-              </label>
-              <p class="nb-fine">A reasoning model can think for minutes before it answers. Fast mode asks it for low effort and no long thinking, if your server supports that. Check my work is much quicker.</p>
+              <div class="nb-chips" id="localModels" hidden></div>
               <p class="nb-fine" id="localRoute"></p>
               <button type="button" class="nb-btn" id="localPair" hidden>Pair with Skybridge first</button>
               <button type="button" class="nb-btn" id="localTest">Test it</button>
               <p class="nb-hint" id="localResult" hidden></p>
+              <details class="nb-more">
+                <summary>More options</summary>
+                <label class="nb-address">
+                  <span>Can it read pictures?</span>
+                  <select id="localVision">
+                    <option value="no">No, words only</option>
+                    <option value="yes">Yes (a vision model)</option>
+                  </select>
+                </label>
+                <p class="nb-fine">A picture model also names pages, checks your work and turns writing into text.</p>
+                <label class="nb-address">
+                  <span>How to reach it</span>
+                  <select id="localVia">
+                    <option value="auto">Automatic</option>
+                    <option value="pc">Through Skybridge (paired PC)</option>
+                    <option value="solo">Solo: straight from this iPad</option>
+                  </select>
+                </label>
+                <p class="nb-fine" id="localRouteMore"></p>
+                <label class="nb-address">
+                  <span>Fast mode (skip long thinking)</span>
+                  <select id="localFast">
+                    <option value="no">Off: let it think</option>
+                    <option value="yes">On: answer quickly</option>
+                  </select>
+                </label>
+                <p class="nb-fine">For reasoning models that think for minutes. Check my work is much quicker.</p>
+              </details>
               <button type="button" class="nb-link" id="localRemove" hidden>Forget this address and key</button>
-              <p class="nb-fine">Words-only models write practice problems. A picture model also names pages, runs Check my work and To text. PDFs always use Gemini. The address and key stay on this iPad.</p>
             </div>
           </details>
           <details class="nb-fold" id="syncFold">
-        <summary><span>Sync with Skybridge</span><output id="syncOut"></output></summary>
-        <div class="nb-fold-body">
-          <p class="nb-hint" id="syncNote"></p>
-          <label class="nb-address">
-            <span>PC address</span>
-            <input type="text" id="syncHost" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="192.168.1.20:8011">
-          </label>
-          <label class="nb-address" id="syncCodeRow" hidden>
-            <span>Pairing code</span>
-            <input type="text" id="syncCode" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="shown in Skybridge">
-          </label>
-          <button type="button" class="nb-btn" id="syncRetry">Sync now</button>
+            <summary><span>Sync with Skybridge</span><output id="syncOut"></output></summary>
+            <div class="nb-fold-body">
+              <p class="nb-hint" id="syncNote"></p>
+              <label class="nb-address">
+                <span>PC address</span>
+                <input type="text" id="syncHost" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="192.168.1.20:8011">
+              </label>
+              <label class="nb-address" id="syncCodeRow" hidden>
+                <span>Pairing code</span>
+                <input type="text" id="syncCode" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="shown in Skybridge">
+              </label>
+              <button type="button" class="nb-btn" id="syncRetry">Sync now</button>
+            </div>
+          </details>
+          <details class="nb-fold" id="advFold">
+            <summary><span>Advanced</span></summary>
+            <div class="nb-fold-body nb-adv">
+              <details class="nb-more" id="engineMore">
+                <summary>What answered last</summary>
+                <div class="engine-table" id="engineTable" role="table" aria-label="Which engine each feature uses"></div>
+              </details>
+              <details class="nb-more" id="liveFold">
+                <summary><span>Gemini Live (experimental)</span><output id="liveOut"></output></summary>
+                <p class="nb-fine">Live models have no daily limit. In Hybrid they can name pages and write To text.</p>
+                <label class="nb-address">
+                  <span>Use Live in Hybrid</span>
+                  <select id="liveOn">
+                    <option value="off">Off</option>
+                    <option value="on">On</option>
+                  </select>
+                </label>
+                <label class="nb-address">
+                  <span>Live model</span>
+                  <select id="liveModel"></select>
+                </label>
+                <label class="nb-address" id="liveThinkingRow">
+                  <span>Thinking level</span>
+                  <select id="liveThinking"></select>
+                </label>
+                <label class="nb-address">
+                  <span>Check my work reading</span>
+                  <select id="liveCheckRead">
+                    <option value="off">Gemini Flash first</option>
+                    <option value="on">Gemini Live first</option>
+                  </select>
+                </label>
+                <label class="nb-address">
+                  <span>When Flash is out, Check my work</span>
+                  <select id="liveCheck">
+                    <option value="off">Says so (exact check only)</option>
+                    <option value="on">Asks Live for an opinion</option>
+                  </select>
+                </label>
+                <p class="nb-fine">An opinion is not the exact number check, so it is marked unverified.</p>
+                <button type="button" class="nb-btn" id="liveTest">Test it</button>
+                <p class="nb-hint" id="liveResult" hidden></p>
+              </details>
+              <p class="nb-fine" id="bgReads"></p>
+              <button type="button" class="nb-link adv-link" id="testTouch">Test touch (finger, pinch and Pencil)</button>
+            </div>
+          </details>
         </div>
-      </details>
-      <p class="nb-fine" id="bgReads"></p>
-      <button type="button" class="nb-link" id="testTouch">Test touch (finger, pinch and Pencil)</button>
-      <button type="button" class="nb-link" id="updateApp">Get the latest version of this app</button>
-        </div>
+        <button type="button" class="nb-link nb-update" id="updateApp">Get the latest version of this app</button>
       </div>
     </div>
     <p class="nb-fine" id="installNote" hidden>To keep this as an app that works without your PC: tap Share, then Add to Home Screen.</p>
@@ -598,6 +607,7 @@
   <section class="verdict" id="verdict" role="status" aria-live="polite" hidden>
     <div class="verdict-head"><strong id="verdictTitle">Check my work</strong><span><button type="button" class="tool" id="verdictCancel" hidden>Cancel</button> <button type="button" class="tool" id="verdictClose" aria-label="Close">Close</button></span></div>
     <p id="verdictText"></p>
+    <div class="verdict-report" id="verdictReport" hidden></div>
   </section>
 
   <div class="live-controls" id="liveControls" hidden>
