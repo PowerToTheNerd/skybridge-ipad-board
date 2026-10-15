@@ -162,6 +162,7 @@
     localVia: document.getElementById("localVia"),
     localRoute: document.getElementById("localRoute"),
     localModels: document.getElementById("localModels"),
+    localModelNote: document.getElementById("localModelNote"),
     localTest: document.getElementById("localTest"),
     localResult: document.getElementById("localResult"),
     localRemove: document.getElementById("localRemove"),
@@ -5442,21 +5443,81 @@
       el.syncFold.scrollIntoView({ block: "start", behavior: "smooth" });
       (el.syncHost.offsetParent ? el.syncHost : el.syncFold).focus?.({ preventScroll: true });
     });
-    el.localRemove.addEventListener("click", () => { saveLocal({ url: "", key: "", model: "", vision: false, mode: "first", via: "auto" }); el.localResult.hidden = true; el.localModels.hidden = true; toast("Local model forgotten"); });
-    // Test it lists the server's models as chips; tapping one selects it and tests again.
-    function showModels(names) {
-      el.localModels.replaceChildren();
+    el.localRemove.addEventListener("click", () => { saveLocal({ url: "", key: "", model: "", vision: false, mode: "first", via: "auto" }); el.localResult.hidden = true; el.localModels.hidden = true; modelList = null; if (el.localModelNote) el.localModelNote.hidden = true; toast("Local model forgotten"); });
+    // Test it lists the server's models to choose from: chat models only (embedding models and bare file ids are
+    // behind "Show N more"), one line per model, loaded ones first. Tapping one selects it and tests again.
+    let modelList = null;
+    let modelQuery = "";
+    let modelsAll = false;
+    function showModels(result) {
+      modelList = result?.ok === false && !(result.items || []).length ? null : Local.tidy(result?.items?.length ? result.items : (result?.models || []).map((id) => ({ id })), { current: Local.config().model });
+      modelQuery = "";
+      drawModels();
+    }
+    function drawModels() {
+      const box = el.localModels;
+      box.replaceChildren();
+      const note = el.localModelNote;
+      if (note) { note.hidden = true; note.textContent = ""; }
+      if (!modelList || (modelList.shown.length < 2 && !modelList.hidden.length)) { box.hidden = true; return; }
+      box.hidden = false;
       const current = Local.config().model;
-      for (const name of names) {
-        const chip = document.createElement("button");
-        chip.type = "button";
-        chip.textContent = name;
-        chip.title = name;
-        chip.setAttribute("aria-pressed", String(name === current));
-        chip.addEventListener("click", () => { saveLocal({ model: name }); el.localTest.click(); });
-        el.localModels.append(chip);
+      const picked = [...modelList.shown, ...modelList.hidden].find((entry) => entry.selected);
+      if (note && picked && modelList.known && !picked.loaded) {
+        note.textContent = `${picked.name} isn't loaded in LM Studio. It starts on first use, which can take a moment, or load it there first.`;
+        note.hidden = false;
       }
-      el.localModels.hidden = names.length < 2;
+      const rows = modelsAll ? [...modelList.shown, ...modelList.hidden] : modelList.shown;
+      if (rows.length > 6) {
+        const search = document.createElement("input");
+        search.type = "search";
+        search.placeholder = "Search models";
+        search.value = modelQuery;
+        search.autocapitalize = "off";
+        search.autocorrect = "off";
+        search.spellcheck = false;
+        search.setAttribute("aria-label", "Search models");
+        search.addEventListener("input", () => { modelQuery = search.value; drawRows(); });
+        box.append(search);
+      }
+      const list = document.createElement("div");
+      list.className = "nb-model-list";
+      box.append(list);
+      const drawRows = () => {
+        list.replaceChildren();
+        const query = modelQuery.trim().toLowerCase();
+        const matching = rows.filter((entry) => !query || entry.name.toLowerCase().includes(query));
+        for (const entry of matching) {
+          const row = document.createElement("button");
+          row.type = "button";
+          row.className = "nb-model";
+          row.title = entry.ids.join("\n");
+          row.setAttribute("aria-pressed", String(entry.ids.includes(current)));
+          const name = document.createElement("span");
+          name.className = "nb-model-name";
+          name.textContent = entry.name;
+          row.append(name);
+          const tags = [entry.loaded ? "loaded" : "", entry.vision ? "reads pictures" : "", entry.kind === "embedding" ? "embedding" : "", entry.kind === "other" ? "file id" : ""].filter(Boolean);
+          if (tags.length) {
+            const tagBox = document.createElement("span");
+            tagBox.className = "nb-model-tags";
+            for (const tag of tags) { const chip = document.createElement("span"); chip.textContent = tag; tagBox.append(chip); }
+            row.append(tagBox);
+          }
+          row.addEventListener("click", () => { saveLocal({ model: entry.pick }); el.localTest.click(); });
+          list.append(row);
+        }
+        if (!matching.length) { const none = document.createElement("p"); none.className = "nb-fine"; none.textContent = "No model matches that."; list.append(none); }
+      };
+      drawRows();
+      if (modelList.hidden.length) {
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "nb-btn nb-model-more";
+        toggle.textContent = modelsAll ? "Hide embedding models and file ids" : `Show ${modelList.hidden.length} more (embedding models, file ids)`;
+        toggle.addEventListener("click", () => { modelsAll = !modelsAll; drawModels(); });
+        box.append(toggle);
+      }
     }
     el.localTest.addEventListener("click", async () => {
       el.localTest.disabled = true;
@@ -5466,7 +5527,7 @@
         const result = await Local.test();
         el.localResult.hidden = false;
         renderLocal();
-        showModels(result.models || []);
+        showModels(result);
         const sees = result.sees === true ? " It can read pictures, so Check my work and page names will use it."
           : result.sees === false ? " It can't read pictures, so Check my work and page names use Gemini. Practice problems use it."
           : "";

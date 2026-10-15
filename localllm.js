@@ -9,7 +9,7 @@
  *    the request goes through Skybridge on the PC, which makes the call (and only to a local address). The PC
  *    has to be on, and the address is the one the PC would use (http://127.0.0.1:1234/v1 for LM Studio on the PC).
  *
- * window.SkybridgeLocal = { config(), save(patch), usable({image,pdf}), route(), chat({prompt,image,schema,temperature}), cancel(), busy(), onProgress(fn), test(), models(), explainRoute(), attach(bridge), onRelay(message), label() }
+ * window.SkybridgeLocal = { config(), save(patch), usable({image,pdf}), route(), chat({prompt,image,schema,temperature}), cancel(), busy(), onProgress(fn), test(), models(), tidy(items, {current}), explainRoute(), attach(bridge), onRelay(message), label() }
  */
 (() => {
   const KEY = "skybridge.local";
@@ -257,12 +257,33 @@
     });
   }
 
-  // The model names the server offers (GET .../v1/models), through the PC or straight from the iPad.
+  // The models the server offers, through the PC or straight from the iPad. LM Studio also answers a richer list
+  // (GET .../api/v0/models: which are loaded, which read pictures, which are embedding models); it is asked first and
+  // the plain OpenAI list (GET .../v1/models) is the fallback. `models` is every name; `items` has what is known of each.
   const modelsUrl = (url) => url.replace(/\/chat\/completions$/, "/models");
+  const richModelsUrl = (url) => (/\/v1\/chat\/completions\/?$/.test(url) ? url.replace(/\/v1\/chat\/completions\/?$/, "/api/v0/models") : "");
+  const MAX_LISTED = 200;
+  function itemsOf(data) {
+    const listed = Array.isArray(data?.data) ? data.data : Array.isArray(data?.models) ? data.models : [];
+    const items = [];
+    for (const raw of listed) {
+      const id = typeof raw === "string" ? raw : raw?.id || raw?.name || raw?.model;
+      if (typeof id !== "string" || !id || items.some((item) => item.id === id)) continue;
+      const item = { id: id.slice(0, 160) };
+      if (raw && typeof raw === "object") {
+        if (typeof raw.type === "string") item.type = raw.type.slice(0, 20);
+        if (typeof raw.state === "string") item.state = raw.state.slice(0, 20);
+        if (typeof raw.quantization === "string") item.quant = raw.quantization.slice(0, 20);
+      }
+      items.push(item);
+    }
+    return items.slice(0, MAX_LISTED);
+  }
+  const listing = (items) => ({ ok: true, models: items.map((item) => item.id), items, error: "" });
   async function models() {
     const cfg = config();
     const url = endpoint(cfg.url);
-    if (!url) return { ok: false, models: [], error: "Type the server's address first." };
+    if (!url) return { ok: false, models: [], items: [], error: "Type the server's address first." };
     if (route() === "relay") {
       const answer = await new Promise((resolve) => {
         if (!bridge?.ready()) { resolve({ ok: false, pair: true, error: "Pair with Skybridge first (Sync with Skybridge below) and keep it running on your PC." }); return; }
@@ -271,32 +292,70 @@
         waits.set(id, { resolve: (result) => { clearTimeout(timer); waits.delete(id); resolve(result); }, timer, ticker: 0 });
         bridge.send({ t: "llm-models", id, url, key: cfg.key });
       });
-      return { ok: answer.ok === true, models: answer.models || [], error: answer.ok ? "" : (answer.status === 401 || answer.status === 403 ? "The local server didn't accept the key." : answer.error || "Couldn't list the models.") };
+      if (answer.ok === true) return { ok: true, models: answer.models || [], items: answer.items?.length ? answer.items : (answer.models || []).map((id) => ({ id })), error: "" };
+      return { ok: false, models: [], items: [], error: answer.status === 401 || answer.status === 403 ? "The local server didn't accept the key." : answer.error || "Couldn't list the models." };
     }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20000);
+    const headers = cfg.key ? { Authorization: `Bearer ${cfg.key}` } : {};
+    const get = async (address) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 20000);
+      try { return await fetch(address, { headers, signal: controller.signal }); } finally { clearTimeout(timer); }
+    };
+    const rich = richModelsUrl(url);
+    if (rich) {
+      try {
+        const response = await get(rich);
+        if (response.ok) {
+          const items = itemsOf(await response.json());
+          if (items.length) return listing(items);
+        }
+      } catch { /* not LM Studio, or not reachable: the plain list says which */ }
+    }
     try {
-      const response = await fetch(modelsUrl(url), { headers: cfg.key ? { Authorization: `Bearer ${cfg.key}` } : {}, signal: controller.signal });
-      if (!response.ok) return { ok: false, models: [], error: response.status === 401 || response.status === 403 ? "The local server didn't accept the key." : `The server answered ${response.status}.` };
-      const data = await response.json();
-      const listed = Array.isArray(data?.data) ? data.data : Array.isArray(data?.models) ? data.models : [];
-      const names = [];
-      for (const item of listed) {
-        const name = typeof item === "string" ? item : item?.id || item?.name || item?.model;
-        if (typeof name === "string" && name && !names.includes(name)) names.push(name);
-      }
-      return { ok: true, models: names.slice(0, 60), error: "" };
+      const response = await get(modelsUrl(url));
+      if (!response.ok) return { ok: false, models: [], items: [], error: response.status === 401 || response.status === 403 ? "The local server didn't accept the key." : `The server answered ${response.status}.` };
+      return listing(itemsOf(await response.json()));
     } catch {
-      return { ok: false, models: [], ...(await whyDirectFailed(url)) };
-    } finally {
-      clearTimeout(timer);
+      return { ok: false, models: [], items: [], ...(await whyDirectFailed(url)) };
     }
+  }
+
+  // Makes a server's list fit to choose from. An embedding model, a bare file hash and "gguf" are not models to
+  // chat with, so they are set aside (the panel can show them); the same model in several sizes (@q4_k_m, @f16)
+  // is one entry; loaded ones come first. `pick` is the id to send: the one already chosen, else the loaded one,
+  // else the plain name, else the first. A model that is chosen already always stays in view.
+  const HASHY = /^[0-9a-f]{24,}(@[\w.\-?]*)?$/i;
+  const NOT_A_MODEL = /^(gguf|ggml|safetensors|\?)$/i;
+  const QUANT_TAIL = /@[\w.\-?]*$/;
+  function tidy(items, { current = "" } = {}) {
+    const groups = new Map();
+    for (const item of Array.isArray(items) ? items : []) {
+      const id = typeof item === "string" ? item : item?.id;
+      if (typeof id !== "string" || !id) continue;
+      const base = id.replace(QUANT_TAIL, "") || id;
+      const kind = item?.type === "embeddings" || /embed/i.test(base) ? "embedding" : HASHY.test(id) || NOT_A_MODEL.test(id) ? "other" : "model";
+      let entry = groups.get(base);
+      if (!entry) { entry = { name: base, kind, ids: [], loaded: false, loadedId: "", vision: false }; groups.set(base, entry); }
+      entry.ids.push(id);
+      if (item?.state === "loaded") { entry.loaded = true; entry.loadedId = entry.loadedId || id; }
+      if (item?.type === "vlm") entry.vision = true;
+    }
+    const shown = [];
+    const hidden = [];
+    for (const entry of groups.values()) {
+      entry.selected = entry.ids.includes(current);
+      entry.pick = entry.selected ? current : entry.loadedId || (entry.ids.includes(entry.name) ? entry.name : entry.ids[0]);
+      ((entry.kind === "model" || entry.selected) ? shown : hidden).push(entry);
+    }
+    shown.sort((a, b) => Number(b.loaded) - Number(a.loaded)); // the sort is stable: the rest stay in the server's order
+    const known = Array.isArray(items) && items.some((item) => item?.state);
+    return { shown, hidden, known };
   }
 
   function onRelay(message) {
     const wait = waits.get(message.id);
     if (!wait) return;
-    wait.resolve({ ok: message.ok === true, status: message.status || 0, text: String(message.text || ""), models: Array.isArray(message.models) ? message.models.filter((name) => typeof name === "string") : [], error: String(message.error || "") });
+    wait.resolve({ ok: message.ok === true, status: message.status || 0, text: String(message.text || ""), models: Array.isArray(message.models) ? message.models.filter((name) => typeof name === "string") : [], items: Array.isArray(message.items) ? message.items.filter((item) => item && typeof item.id === "string") : [], error: String(message.error || "") });
   }
 
   async function chat(request) {
@@ -317,8 +376,9 @@
       else if (!cfg.model && !askedModels && result.status !== 401 && result.status !== 403 && /model/i.test(result.error)) {
         askedModels = true;
         const found = await models();
-        if (found.ok && found.models.length === 1) cfg = save({ model: found.models[0] });
-        else if (found.ok && found.models.length) { result = { ...result, error: `The server needs a model name. It has: ${found.models.slice(0, 6).join(", ")}. Tap one under Model name.` }; break; }
+        const chosen = found.ok ? tidy(found.items).shown : [];
+        if (chosen.length === 1) cfg = save({ model: chosen[0].pick });
+        else if (chosen.length) { result = { ...result, error: `The server needs a model name. It has: ${chosen.slice(0, 6).map((entry) => entry.name).join(", ")}. Tap one under Model name.` }; break; }
         else break;
       } else break;
       result = await send(bodyFor(cfg, request, options));
@@ -374,15 +434,17 @@
     const started = Date.now();
     let text;
     // Ask the server what it has first, so the list is there to pick from whatever happens next.
-    const listed = await models().catch(() => ({ ok: false, models: [] }));
+    const listed = await models().catch(() => ({ ok: false, models: [], items: [] }));
     const names = listed.ok ? listed.models : [];
-    if (listed.ok && listed.models.length === 1 && !config().model) save({ model: listed.models[0] });
+    const items = listed.ok ? listed.items : [];
+    const only = listed.ok ? tidy(items).shown : [];
+    if (only.length === 1 && !config().model) save({ model: only[0].pick });
     try {
       text = (await chat({ prompt: "Reply with the single word: ready", temperature: 0 })).trim().slice(0, 80);
     } catch (error) {
-      return { ok: false, error: error.message, pair: error.pair === true, kind: error.why || "", models: names };
+      return { ok: false, error: error.message, pair: error.pair === true, kind: error.why || "", models: names, items };
     }
-    const out = { ok: true, text, ms: Date.now() - started, sees: null, model: config().model, models: names };
+    const out = { ok: true, text, ms: Date.now() - started, sees: null, model: config().model, models: names, items };
     const picture = testPicture();
     if (picture) {
       try {
@@ -402,5 +464,5 @@
   const onProgress = (fn) => { watchers.add(fn); return () => watchers.delete(fn); };
   const needsPair = () => route() === "relay" && !bridge?.ready();
 
-  window.SkybridgeLocal = { config, save, endpoint, usable, route, chat, models, test, explainRoute, needsPair, cancel, busy, onProgress, attach: (given) => { bridge = given; }, onRelay, label, LocalError };
+  window.SkybridgeLocal = { config, save, endpoint, usable, route, chat, models, tidy, test, explainRoute, needsPair, cancel, busy, onProgress, attach: (given) => { bridge = given; }, onRelay, label, LocalError };
 })();
