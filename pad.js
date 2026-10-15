@@ -5446,6 +5446,22 @@
     el.localRemove.addEventListener("click", () => { saveLocal({ url: "", key: "", model: "", vision: false, mode: "first", via: "auto" }); el.localResult.hidden = true; el.localModels.hidden = true; modelList = null; if (el.localModelNote) el.localModelNote.hidden = true; toast("Local model forgotten"); });
     // Test it lists the server's models to choose from: chat models only (embedding models and bare file ids are
     // behind "Show N more"), one line per model, loaded ones first. Tapping one selects it and tests again.
+    const marksOf = (entry) => [entry.loaded ? "loaded" : "", entry.vision ? "vision" : "", entry.kind === "embedding" ? "embedding" : "", entry.kind === "other" ? "file" : ""].filter(Boolean);
+    const MODEL_MARKS = {
+      loaded: { label: "Loaded", paths: '<path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/>' },
+      vision: { label: "Reads pictures", paths: '<path d="M1.5 12S5.5 5 12 5s10.5 7 10.5 7-4 7-10.5 7S1.5 12 1.5 12Z"/><circle cx="12" cy="12" r="3"/>' },
+      file: { label: "File id", paths: '<path d="M9 3 7 21M17 3l-2 18M4 9h17M3 15h17"/>' },
+      embedding: { label: "Embedding", paths: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>' },
+    };
+    function modelIcon(mark) {
+      const icon = document.createElement("span");
+      icon.className = `nb-model-icon is-${mark}`;
+      icon.title = MODEL_MARKS[mark].label;
+      icon.setAttribute("role", "img");
+      icon.setAttribute("aria-label", MODEL_MARKS[mark].label);
+      icon.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${MODEL_MARKS[mark].paths}</svg>`;
+      return icon;
+    }
     let modelList = null;
     let modelQuery = "";
     let modelsAll = false;
@@ -5492,17 +5508,19 @@
           row.type = "button";
           row.className = "nb-model";
           row.title = entry.ids.join("\n");
+          const meaning = marksOf(entry).map((mark) => MODEL_MARKS[mark].label);
+          row.setAttribute("aria-label", meaning.length ? `${entry.name}, ${meaning.join(", ")}` : entry.name);
           row.setAttribute("aria-pressed", String(entry.ids.includes(current)));
           const name = document.createElement("span");
           name.className = "nb-model-name";
           name.textContent = entry.name;
           row.append(name);
-          const tags = [entry.loaded ? "loaded" : "", entry.vision ? "reads pictures" : "", entry.kind === "embedding" ? "embedding" : "", entry.kind === "other" ? "file id" : ""].filter(Boolean);
-          if (tags.length) {
-            const tagBox = document.createElement("span");
-            tagBox.className = "nb-model-tags";
-            for (const tag of tags) { const chip = document.createElement("span"); chip.textContent = tag; tagBox.append(chip); }
-            row.append(tagBox);
+          const marks = [entry.loaded ? "loaded" : "", entry.vision ? "vision" : "", entry.kind === "embedding" ? "embedding" : "", entry.kind === "other" ? "file" : ""].filter(Boolean);
+          if (marks.length) {
+            const iconBox = document.createElement("span");
+            iconBox.className = "nb-model-icons";
+            for (const mark of marks) iconBox.append(modelIcon(mark));
+            row.append(iconBox);
           }
           row.addEventListener("click", () => { saveLocal({ model: entry.pick }); el.localTest.click(); });
           list.append(row);
@@ -5510,6 +5528,17 @@
         if (!matching.length) { const none = document.createElement("p"); none.className = "nb-fine"; none.textContent = "No model matches that."; list.append(none); }
       };
       drawRows();
+      const present = ["loaded", "vision", "embedding", "file"].filter((mark) => rows.some((entry) => marksOf(entry).includes(mark)));
+      if (present.length) {
+        const legend = document.createElement("p");
+        legend.className = "nb-fine nb-model-legend";
+        for (const mark of present) {
+          const item = document.createElement("span");
+          item.append(modelIcon(mark), document.createTextNode(MODEL_MARKS[mark].label));
+          legend.append(item);
+        }
+        box.append(legend);
+      }
       if (modelList.hidden.length) {
         const toggle = document.createElement("button");
         toggle.type = "button";
@@ -5531,8 +5560,9 @@
         const sees = result.sees === true ? " It can read pictures, so Check my work and page names will use it."
           : result.sees === false ? " It can't read pictures, so Check my work and page names use Gemini. Practice problems use it."
           : "";
-        el.localResult.textContent = result.ok ? `It answered in ${(result.ms / 1000).toFixed(1)} s${result.model ? ` (model: ${result.model})` : ""}.${sees}` : result.error;
+        el.localResult.textContent = result.ok ? `It answered in ${(result.ms / 1000).toFixed(1)} s${result.model ? ` (model: ${result.model})` : ""}.${result.picked ? " You had none chosen, so it picked this one." : ""}${sees}` : result.error;
         el.localResult.dataset.state = result.ok ? "on" : "off";
+        el.localResult.scrollIntoView({ block: "nearest", behavior: "smooth" }); // the answer is never left below the edge
       } finally {
         el.localTest.disabled = false;
         el.localTest.textContent = "Test it";

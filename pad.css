@@ -1046,12 +1046,18 @@ input[type="range"] {
 .nb-models { display: grid; gap: 8px; min-width: 0; }
 .nb-models input[type="search"] { min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line); background: rgba(var(--wash-rgb), 0.04); color: var(--text); font: inherit; font-size: 15px; width: 100%; box-sizing: border-box; }
 .nb-model-list { display: grid; gap: 6px; max-height: 340px; overflow-y: auto; overscroll-behavior: contain; min-width: 0; }
-.nb-model { display: grid; align-content: center; gap: 4px; height: auto; min-height: 44px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line); background: rgba(var(--wash-rgb), 0.04); color: var(--text); font: inherit; font-size: 14px; text-align: left; min-width: 0; }
-.nb-model-name { overflow-wrap: anywhere; line-height: 1.3; }
-.nb-model-tags { display: flex; flex-wrap: wrap; gap: 4px; }
-.nb-model-tags span { padding: 1px 8px; border-radius: 10px; font-size: 12px; background: rgba(var(--wash-rgb), 0.1); color: var(--text-dim, var(--text)); }
+.nb-model { display: flex; align-items: center; justify-content: space-between; gap: 10px; height: auto; min-height: 44px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line); background: rgba(var(--wash-rgb), 0.04); color: var(--text); font: inherit; font-size: 14px; text-align: left; min-width: 0; }
+.nb-model-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; line-height: 1.3; }
+.nb-model-icons { display: flex; flex: none; gap: 8px; align-items: center; }
+.nb-model-icon { display: inline-flex; width: 18px; height: 18px; opacity: 0.85; }
+.nb-model-icon svg { width: 100%; height: 100%; }
+.nb-model-icon.is-loaded { color: var(--ok); opacity: 1; }
+.nb-model[aria-pressed="true"] .nb-model-icon.is-loaded { color: inherit; }
+.nb-model-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; }
+.nb-model-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.nb-model-legend .nb-model-icon { width: 14px; height: 14px; }
 .nb-model[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.nb-model[aria-pressed="true"] .nb-model-tags span { background: rgba(0, 0, 0, 0.18); color: inherit; }
+#localResult { overflow-wrap: anywhere; }
 .nb-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .nb-chips button { min-height: 38px; max-width: 100%; padding: 0 12px; border-radius: 19px; border: 1px solid var(--line); background: rgba(var(--wash-rgb), 0.04); color: var(--text); font: inherit; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nb-chips button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }

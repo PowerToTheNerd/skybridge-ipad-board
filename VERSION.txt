@@ -1,1 +1,1 @@
-2026.10.15-readable-local-model-list
+2026.10.15-model-list-icons

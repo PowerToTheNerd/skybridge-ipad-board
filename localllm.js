@@ -327,6 +327,8 @@
   const HASHY = /^[0-9a-f]{24,}(@[\w.\-?]*)?$/i;
   const NOT_A_MODEL = /^(gguf|ggml|safetensors|\?)$/i;
   const QUANT_TAIL = /@[\w.\-?]*$/;
+  // With no model chosen, the one to use: a loaded one that reads pictures, a loaded one, one that reads pictures, the first.
+  const bestOf = (shown) => shown.find((entry) => entry.loaded && entry.vision) || shown.find((entry) => entry.loaded) || shown.find((entry) => entry.vision) || shown[0];
   function tidy(items, { current = "" } = {}) {
     const groups = new Map();
     for (const item of Array.isArray(items) ? items : []) {
@@ -377,9 +379,8 @@
         askedModels = true;
         const found = await models();
         const chosen = found.ok ? tidy(found.items).shown : [];
-        if (chosen.length === 1) cfg = save({ model: chosen[0].pick });
-        else if (chosen.length) { result = { ...result, error: `The server needs a model name. It has: ${chosen.slice(0, 6).map((entry) => entry.name).join(", ")}. Tap one under Model name.` }; break; }
-        else break;
+        if (!chosen.length) break;
+        cfg = save({ model: bestOf(chosen).pick }); // it says which one it used, and the list lets you change it
       } else break;
       result = await send(bodyFor(cfg, request, options));
     }
@@ -438,13 +439,14 @@
     const names = listed.ok ? listed.models : [];
     const items = listed.ok ? listed.items : [];
     const only = listed.ok ? tidy(items).shown : [];
-    if (only.length === 1 && !config().model) save({ model: only[0].pick });
+    const chosenBefore = config().model;
+    if (only.length === 1 && !chosenBefore) save({ model: only[0].pick });
     try {
       text = (await chat({ prompt: "Reply with the single word: ready", temperature: 0 })).trim().slice(0, 80);
     } catch (error) {
       return { ok: false, error: error.message, pair: error.pair === true, kind: error.why || "", models: names, items };
     }
-    const out = { ok: true, text, ms: Date.now() - started, sees: null, model: config().model, models: names, items };
+    const out = { ok: true, text, ms: Date.now() - started, sees: null, model: config().model, picked: !chosenBefore && !!config().model, models: names, items };
     const picture = testPicture();
     if (picture) {
       try {
