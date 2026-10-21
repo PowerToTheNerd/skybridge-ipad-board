@@ -117,13 +117,16 @@ Variety: ${Math.floor(Math.random() * 1e6)}.${avoid?.length ? ` Do not repeat th
   // The built-in bank (problems.json, made by backend/make_problems.py) is added once and again whenever
   // new problems ship. Seen marks are never touched. Built-ins sort ahead of Gemini's (small "at").
   // The answers in that file are for a checker only; they are dropped here and never shown.
+  // It waits for the page to be idle, so it never competes with the board opening; anything that needs the bank awaits it.
   const seeded = (async () => {
+    await new Promise((resolve) => (window.requestIdleCallback ? window.requestIdleCallback(resolve, { timeout: 4000 }) : setTimeout(resolve, 1500)));
     try {
       const response = await fetch("problems.json");
       if (!response.ok) return;
       const list = (await response.json()).problems || [];
       const have = new Set((await rawRecords()).map((r) => r.id));
       const db = await openDb();
+      const store = db ? db.transaction(STORE, "readwrite").objectStore(STORE) : null; // one transaction for the whole bank
       list.forEach((item, index) => {
         const id = `built:${item.id}`;
         if (have.has(id)) return;
@@ -132,7 +135,7 @@ Variety: ${Math.floor(Math.random() * 1e6)}.${avoid?.length ? ` Do not repeat th
           problem: { topic: item.topic, title: item.title, text: item.text, lines: item.lines },
         };
         memory.set(id, record);
-        if (db) db.transaction(STORE, "readwrite").objectStore(STORE).put(record);
+        store?.put(record);
       });
     } catch { /* offline before the first load: Gemini problems still work */ }
   })();

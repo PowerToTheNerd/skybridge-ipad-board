@@ -26,7 +26,7 @@
   // the paper keep their own colours.
   const THEMES = { black: "Black", white: "White", green: "Green", purple: "Purple", custom: "Your colour" };
   const THEME_HUES = { black: 210, white: 215, green: 156, purple: 265 };
-  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", recent: [], palette: [], rail: true, paper: "night", theme: "green", accent: "#7c5cd6", paperColor: "#2d3b57", fxs: {}, card: {}, page: "pen", finger: "move", palm: true, penSeen: false, clock: true, weather: false, wxAt: null, grid: "dots", gridSize: 24, grain: true, layout: "mine" };
+  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", nib: "ink", nibs: {}, recent: [], palette: [], rail: true, paper: "night", theme: "green", accent: "#7c5cd6", paperColor: "#2d3b57", fxs: {}, card: {}, page: "pen", finger: "move", palm: true, penSeen: false, clock: true, weather: false, wxAt: null, grid: "dots", gridSize: 24, grain: true, layout: "mine" };
   const LAYOUTS = ["mine", "both", "gemini"];
 
   const el = {
@@ -202,6 +202,9 @@
     colorBtn: document.getElementById("colorBtn"),
     colorDot: document.getElementById("colorDot"),
     colorSheet: document.getElementById("colorSheet"),
+    nibBtn: document.getElementById("nibBtn"),
+    nibSheet: document.getElementById("nibSheet"),
+    nibList: document.getElementById("nibList"),
     selectionColorTools: document.getElementById("selectionColorTools"),
     selectionColorTarget: document.getElementById("selectionColorTarget"),
     colorGrid: document.getElementById("colorGrid"),
@@ -277,6 +280,10 @@
   // Smoothing and tidy got stronger defaults; settings saved before that start over on them.
   if (settings.sv !== DEFAULTS.sv) Object.assign(settings, { smooth: DEFAULTS.smooth, tidy: DEFAULTS.tidy, sv: DEFAULTS.sv });
   if (!Array.isArray(settings.recent)) settings.recent = [];
+  // Pen types (inkstroke.js NIBS): "ink" is the ordinary pen. Each type remembers its own thickness and colour.
+  const NIB_NAMES = ["ink", ...Object.keys(window.SkybridgeInk?.NIBS || {})];
+  if (!NIB_NAMES.includes(settings.nib)) settings.nib = "ink";
+  if (!settings.nibs || typeof settings.nibs !== "object" || Array.isArray(settings.nibs)) settings.nibs = {};
   // The palette at the bottom left holds the colours kept on purpose (it replaces the earlier "Saved" row).
   const PALETTE_START = ["ink", "#e5484d", "#f5a524", "#3fb950", "#3b82f6", "#a371f7"];
   const PALETTE_MIN = 2;
@@ -314,8 +321,12 @@
   let selectionColorKey = "";
   let guides = []; // alignment lines shown while dragging: { x|y, from, to } in board coordinates
   let checking = false; // Check my work is running on the PC
-  const base = document.createElement("canvas");
-  const baseCtx = base.getContext("2d");
+  // The page drawn once, kept and reused every frame. While panning, two canvases take turns: the page slides
+  // from one to the other and only the strip that comes into view is drawn.
+  let base = document.createElement("canvas");
+  let baseCtx = base.getContext("2d");
+  let spare = null;
+  const baseView = { x: 0, y: 0, zoom: 1 }; // the view the base was drawn at
   let ratio = 1;
   let frame = 0;
 
@@ -331,8 +342,20 @@
 
   const layered = (list) => (window.SkybridgeInk?.layered ? window.SkybridgeInk.layered(list) : list);
 
+  // Read once per pass: a page of strokes asks for the same few colours thousands of times, and each ask is a style lookup.
+  // The cache is dropped as soon as the current task ends, so a theme change is always seen.
+  let colorCache = null;
   function cssColor(name) {
-    return getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim() || "#e3ece6";
+    if (!colorCache) {
+      colorCache = new Map();
+      queueMicrotask(() => { colorCache = null; });
+    }
+    let value = colorCache.get(name);
+    if (value === undefined) {
+      value = getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim() || "#e3ece6";
+      colorCache.set(name, value);
+    }
+    return value;
   }
 
   // Fixed palette colours are nudged only as far as needed to read on this paper; the
@@ -463,7 +486,42 @@
     target.setTransform(scale, 0, 0, scale, -view.x * scale, -view.y * scale);
   }
 
+  // The part of the board the canvas shows, in board units; pen strokes outside it cost nothing to redraw.
+  function visibleBoard() {
+    return { x0: view.x, y0: view.y, x1: view.x + base.width / (ratio * view.zoom), y1: view.y + base.height / (ratio * view.zoom) };
+  }
+  // The box around a stroke's points, worked out once and kept until its points change.
+  const boxes = new WeakMap();
+  function boxOf(stroke) {
+    const points = stroke.points;
+    let box = boxes.get(stroke);
+    if (!box || box.points !== points || box.count !== points.length) {
+      let [x0, y0] = points[0];
+      let [x1, y1] = points[0];
+      for (let i = 1; i < points.length; i += 1) {
+        const [x, y] = points[i];
+        if (x < x0) x0 = x; else if (x > x1) x1 = x;
+        if (y < y0) y0 = y; else if (y > y1) y1 = y;
+      }
+      box = { points, count: points.length, x0, y0, x1, y1 };
+      boxes.set(stroke, box);
+    }
+    return box;
+  }
+  function onScreen(stroke, seen) {
+    if (stroke.text || stroke.rich || stroke.img) return true;
+    if (!stroke.points?.length) return true;
+    const box = boxOf(stroke);
+    const reach = (stroke.width || 3) * 3 + 8;
+    return box.x1 + reach >= seen.x0 && box.x0 - reach <= seen.x1 && box.y1 + reach >= seen.y0 && box.y0 - reach <= seen.y1;
+  }
+
   function rebuildBase() {
+    colorCache = null;
+    clearTimeout(settleTimer);
+    settleTimer = 0;
+    slid = false;
+    Object.assign(baseView, view);
     baseCtx.setTransform(1, 0, 0, 1, 0, 0);
     baseCtx.clearRect(0, 0, base.width, base.height);
     toScreen(baseCtx);
@@ -481,13 +539,79 @@
       baseCtx.setTransform(1, 0, 0, 1, 0, 0);
       baseCtx.drawImage(under, 0, 0);
     }
-    // Highlighters sit under the ink, whenever they were drawn.
-    layered(strokes).forEach((stroke) => { if (!stroke.img && !live.has(stroke.id) && !(dragging && dragging.has(stroke.id))) drawStroke(target, stroke); });
+    // Highlighters sit under the ink, whenever they were drawn. Pen strokes wholly off the screen are skipped.
+    const seen = visibleBoard();
+    layered(strokes).forEach((stroke) => { if (!stroke.img && !live.has(stroke.id) && !(dragging && dragging.has(stroke.id)) && onScreen(stroke, seen)) drawStroke(target, stroke); });
     if (hasPhotos) {
       baseCtx.setTransform(1, 0, 0, 1, 0, 0);
       baseCtx.drawImage(target.canvas, 0, 0);
     }
   }
+  // Pan and pinch reuse the drawn page instead of drawing every stroke again each frame.
+  // A pan by whole screen pixels slides the page and draws only the strip that comes into view. A pinch (or a
+  // page with photos) shows the page scaled for a moment, drawn sharp again as soon as the fingers stop.
+  // When the fingers lift, the page is drawn once from scratch, so it ends exactly as a full drawing would be
+  // (a slid page can differ from one by a shade at the edge of a few pixels).
+  let settleTimer = 0;
+  let slid = false;
+  const SETTLE_MS = 200;
+  const baseIsCurrent = () => baseView.x === view.x && baseView.y === view.y && baseView.zoom === view.zoom;
+  function freshBase() {
+    if (!baseIsCurrent()) rebuildBase();
+  }
+  function settleSoon() {
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => { settleTimer = 0; if (!baseIsCurrent()) { rebuildBase(); schedulePaint(); } }, SETTLE_MS);
+  }
+  function followView() {
+    const k = ratio * view.zoom;
+    const dx = Math.round((baseView.x - view.x) * k);
+    const dy = Math.round((baseView.y - view.y) * k);
+    const whole = Math.abs((baseView.x - view.x) * k - dx) < 1e-6 && Math.abs((baseView.y - view.y) * k - dy) < 1e-6;
+    if (baseView.zoom !== view.zoom || !whole || hasPhotos || dragging || Math.abs(dx) >= base.width || Math.abs(dy) >= base.height) {
+      if (!baseIsCurrent()) settleSoon();
+      return;
+    }
+    if (!dx && !dy) { Object.assign(baseView, view); return; }
+    if (!spare || spare.width !== base.width || spare.height !== base.height) {
+      spare = document.createElement("canvas");
+      spare.width = base.width;
+      spare.height = base.height;
+    }
+    const next = spare.getContext("2d");
+    next.setTransform(1, 0, 0, 1, 0, 0);
+    next.clearRect(0, 0, spare.width, spare.height);
+    next.drawImage(base, dx, dy);
+    [spare, base] = [base, spare];
+    baseCtx = next;
+    slid = true;
+    Object.assign(baseView, view);
+    // The strips that came into view, in screen pixels: a column at the left or right, and a row at the top or
+    // bottom beside it (not over it: ink drawn twice in a corner would come out darker at its edges).
+    const w = base.width;
+    const h = base.height;
+    const strips = [];
+    if (dx > 0) strips.push([0, 0, dx, h]);
+    if (dx < 0) strips.push([w + dx, 0, -dx, h]);
+    const rowX = Math.max(0, dx);
+    const rowW = w - Math.abs(dx);
+    if (dy > 0) strips.push([rowX, 0, rowW, dy]);
+    if (dy < 0) strips.push([rowX, h + dy, rowW, -dy]);
+    const order = layered(strokes);
+    for (const [x, y, sw, sh] of strips) {
+      baseCtx.save();
+      baseCtx.setTransform(1, 0, 0, 1, 0, 0);
+      baseCtx.beginPath();
+      baseCtx.rect(x, y, sw, sh);
+      baseCtx.clip();
+      toScreen(baseCtx);
+      const seen = { x0: view.x + x / k, y0: view.y + y / k, x1: view.x + (x + sw) / k, y1: view.y + (y + sh) / k };
+      order.forEach((stroke) => { if (!stroke.img && !live.has(stroke.id) && onScreen(stroke, seen)) drawStroke(baseCtx, stroke); });
+      baseCtx.restore();
+    }
+    toScreen(baseCtx);
+  }
+
   // With photos on the page the base is kept in two parts (the photos, and the ink over them), so an eraser
   // being dragged rubs out ink and never the photo underneath.
   let hasPhotos = false;
@@ -514,8 +638,10 @@
 
   function paint() {
     frame = 0;
+    colorCache = null;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, el.canvas.width, el.canvas.height);
+    if (dragging || (hasPhotos && live.size)) freshBase();
     if (dragging) {
       const moved = strokes.filter((stroke) => dragging.has(stroke.id));
       if (hasPhotos) ctx.drawImage(sizedCanvas(photoBase), 0, 0);
@@ -540,7 +666,14 @@
       ctx.drawImage(liveMix.canvas, 0, 0);
       toScreen(ctx);
     } else {
-      ctx.drawImage(base, 0, 0);
+      if (baseIsCurrent()) ctx.drawImage(base, 0, 0);
+      else {
+        // The page as it was last drawn, moved and scaled to where it is now, until it is drawn again.
+        const scale = view.zoom / baseView.zoom;
+        const k = ratio * view.zoom;
+        ctx.setTransform(scale, 0, 0, scale, (baseView.x - view.x) * k, (baseView.y - view.y) * k);
+        ctx.drawImage(base, 0, 0);
+      }
       toScreen(ctx);
       strokes.forEach((stroke) => { if (live.has(stroke.id)) drawStroke(ctx, withTail(stroke)); });
     }
@@ -579,7 +712,7 @@
     const stroke = strokes.find((item) => item.id === id);
     if (stroke) stroke.done = true;
     // Strokes finish in order almost always; when one overtakes another, rebuild to keep layering right.
-    if (stroke && !stroke.hl && !hasPhotos && strokes[strokes.length - 1] === stroke && live.size === 0) {
+    if (stroke && !stroke.hl && !hasPhotos && strokes[strokes.length - 1] === stroke && live.size === 0 && baseIsCurrent()) {
       toScreen(baseCtx);
       drawStroke(baseCtx, stroke);
     } else {
@@ -987,6 +1120,7 @@
       color: eraser ? "ink" : pen,
       eraser,
       hl: marker,
+      ...nibOf(eraser, marker),
       width: eraser ? settings.eraser : marker ? markerWidth() : settings.width,
       sim,
       points: [geminiPoint(event)],
@@ -1300,21 +1434,32 @@
   // Moving the board
   // ---------------------------------------------------------------------------
   let viewFrame = 0;
+  let viewQuick = false;
   let viewSent = 0;
 
-  function moveView(x, y, zoom = view.zoom) {
+  // quick: a finger is moving the board, so the page is reused rather than drawn again each frame (followView).
+  function moveView(x, y, zoom = view.zoom, quick = false) {
     view.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(zoom * 1000) / 1000));
-    view.x = Math.round(x * 10) / 10;
-    view.y = Math.round(y * 10) / 10;
+    if (quick && view.zoom === baseView.zoom) {
+      // A pan lands on whole screen pixels from the drawn page, so it can slide (half a pixel at most from the finger).
+      const k = ratio * view.zoom;
+      view.x = baseView.x + Math.round((x - baseView.x) * k) / k;
+      view.y = baseView.y + Math.round((y - baseView.y) * k) / k;
+    } else {
+      view.x = Math.round(x * 10) / 10;
+      view.y = Math.round(y * 10) / 10;
+    }
+    viewQuick = quick && (viewQuick || !viewFrame);
     // The dot grid moves and scales with the board so it feels like paper sliding.
     gridPosition();
     el.stage.style.backgroundSize = `${settings.gridSize * view.zoom}px ${settings.gridSize * view.zoom}px`;
     renderZoomPill();
-    queueSave(1500);
+    queueSave(1500, true);
     if (!viewFrame) {
       viewFrame = requestAnimationFrame(() => {
         viewFrame = 0;
-        rebuildBase();
+        if (viewQuick) followView();
+        else rebuildBase();
         paint();
         positionLasso();
         sendView();
@@ -1458,13 +1603,14 @@
     if (pinching && spreadBefore > 10) zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, view.zoom * (spread() / spreadBefore)));
     const anchorX = (before[0] - rect.left) / view.zoom + view.x;
     const anchorY = (before[1] - rect.top) / view.zoom + view.y;
-    moveView(anchorX - (after[0] - rect.left) / zoom, anchorY - (after[1] - rect.top) / zoom, zoom);
+    moveView(anchorX - (after[0] - rect.left) / zoom, anchorY - (after[1] - rect.top) / zoom, zoom, true);
     return true;
   }
 
   function endPan(event) {
     const wasPinch = touches.size >= 2 && touches.has(event.pointerId);
-    touches.delete(event.pointerId);
+    const was = touches.delete(event.pointerId);
+    if (was && !touches.size && (slid || !baseIsCurrent())) { rebuildBase(); schedulePaint(); }
     const fingers = tap ? tap.starts.size : 0;
     const twoFingerTap = (fingers === 2 || fingers === 3) && !tap.moved && event.timeStamp - tap.at < TAP_MS + (fingers === 3 ? 100 : 0);
     if (twoFingerTap && !touches.size) {
@@ -1519,11 +1665,11 @@
     const { width, height } = el.stage.getBoundingClientRect();
     const sim = marker || event.pointerType !== "pen";
     const width0 = eraser ? settings.eraser : marker ? markerWidth() : settings.width;
-    current = { id: newId(), color: eraser ? "ink" : pen, eraser, hl: marker, width: width0, sim, pen: event.pointerType === "pen", done: false, points: [pointFrom(event)] };
+    current = { id: newId(), color: eraser ? "ink" : pen, eraser, hl: marker, ...nibOf(eraser, marker), width: width0, sim, pen: event.pointerType === "pen", done: false, points: [pointFrom(event)] };
     strokes.push(current);
     live.add(current.id);
     lastBoard = "mine";
-    send({ t: "start", id: current.id, color: current.color, eraser, hl: marker, width: current.width, sim, w: width, h: height, p: [current.points[0]] });
+    send({ t: "start", id: current.id, color: current.color, eraser, hl: marker, ...nibOf(eraser, marker), width: current.width, sim, w: width, h: height, p: [current.points[0]] });
     schedulePaint();
     updateButtons();
   });
@@ -1608,7 +1754,7 @@
     if (!fromSheet) slot = settings.palette.indexOf(name);
     if (tool === "eraser") tool = beforeEraser;
     renderTools();
-    if (remember) { settings.pen = name; saveSettings(); }
+    if (remember) { settings.pen = name; rememberNib(); saveSettings(); }
   }
 
   function setTool(name) {
@@ -1841,6 +1987,8 @@
     renderSelectionColorTools();
     const open = el.colorSheet.hidden;
     if (open) {
+      el.nibSheet.hidden = true;
+      el.nibBtn.setAttribute("aria-expanded", "false");
       setSettingsOpen(false);
       document.getElementById("exportSheet").hidden = true;
     }
@@ -1936,7 +2084,7 @@
 
   function toggleEraser() {
     setTool(tool === "eraser" ? beforeEraser : "eraser");
-    toast(tool === "eraser" ? "Eraser" : { pen: "Pen", marker: "Highlighter", lasso: "Lasso", matrix: "Matrix brackets" }[tool]);
+    toast(tool === "eraser" ? "Eraser" : { pen: nibLabel(settings.nib), marker: "Highlighter", lasso: "Lasso", matrix: "Matrix brackets" }[tool]);
   }
 
   el.pens.forEach((button) => {
@@ -1953,6 +2101,70 @@
     button.addEventListener("click", () => setTool(tool === button.dataset.tool ? "pen" : button.dataset.tool));
   });
   const markerWidth = () => Math.max(14, Math.round(settings.width * 6));
+
+  // ---- Pen types: a nib other than the ordinary pen is saved on each stroke as `nib` (see inkstroke.js) ----
+  function nibOf(eraser, marker) {
+    return !eraser && !marker && settings.nib !== "ink" ? { nib: settings.nib } : null;
+  }
+  const rememberNib = () => { settings.nibs[settings.nib] = { w: settings.width, c: pen }; };
+  const nibLabel = (name) => (name === "ink" ? "Pen" : window.SkybridgeInk?.NIBS?.[name]?.label || "Pen");
+  function setNib(name) {
+    if (!NIB_NAMES.includes(name)) return;
+    rememberNib();
+    settings.nib = name;
+    const kept = settings.nibs[name];
+    if (kept && Number.isFinite(kept.w)) settings.width = Math.min(10, Math.max(1, kept.w));
+    setTool("pen");
+    setPen(typeof kept?.c === "string" && kept.c ? kept.c : pen);
+    renderSettings();
+    renderNibs();
+    toast(nibLabel(name));
+  }
+  function renderNibs() {
+    el.nibBtn.setAttribute("aria-pressed", String(tool === "pen" && settings.nib !== "ink"));
+    el.nibBtn.title = `Pen type: ${nibLabel(settings.nib).toLowerCase()}`;
+    el.nibList.querySelectorAll(".nib-row").forEach((row) => row.setAttribute("aria-checked", String(row.dataset.nib === settings.nib)));
+  }
+  const SAMPLE_PTS = Array.from({ length: 26 }, (_, i) => {
+    const t = i / 25;
+    return [8 + t * 104, 17 + Math.sin(t * Math.PI * 2) * 8, 0.25 + 0.6 * Math.sin(t * Math.PI)];
+  });
+  function paintNibSamples() {
+    const ratioNow = window.devicePixelRatio || 1;
+    el.nibList.querySelectorAll(".nib-row").forEach((row) => {
+      const canvas = row.querySelector("canvas");
+      canvas.width = 120 * ratioNow;
+      canvas.height = 34 * ratioNow;
+      const ctx = canvas.getContext("2d");
+      ctx.scale(ratioNow, ratioNow);
+      ctx.fillStyle = ctx.strokeStyle = pen === "ink" || !row.dataset.nib ? cssColor("ink") : strokeColor(pen);
+      const stroke = { points: SAMPLE_PTS, width: Math.max(1.4, settings.width * 0.9), sim: false, done: true, ...(row.dataset.nib === "ink" ? null : { nib: row.dataset.nib }) };
+      window.SkybridgeInk?.fill(ctx, stroke);
+    });
+  }
+  for (const name of NIB_NAMES) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "nib-row";
+    row.dataset.nib = name;
+    row.setAttribute("role", "radio");
+    row.innerHTML = '<canvas aria-hidden="true"></canvas><span></span>';
+    row.querySelector("span").textContent = nibLabel(name);
+    row.addEventListener("click", () => { setNib(name); el.nibSheet.hidden = true; el.nibBtn.setAttribute("aria-expanded", "false"); });
+    el.nibList.appendChild(row);
+  }
+  el.nibBtn.addEventListener("click", () => {
+    const open = el.nibSheet.hidden;
+    if (open) {
+      setSettingsOpen(false);
+      document.getElementById("exportSheet").hidden = true;
+      paintNibSamples();
+    }
+    el.nibSheet.hidden = !open;
+    el.nibBtn.setAttribute("aria-expanded", String(open));
+    renderNibs();
+  });
+  renderNibs();
 
   // ---------------------------------------------------------------------------
   // Pen & paper panel
@@ -1978,7 +2190,7 @@
       points.push([16 + t * (width - 32) + noise() * 2, height / 2 + Math.sin(t * Math.PI * 2) * (height / 4) + noise() * 4, pressure]);
     }
     previewCtx.fillStyle = cssColor("ink");
-    window.SkybridgeInk?.fill(previewCtx, { points, width: settings.width, sim: false });
+    window.SkybridgeInk?.fill(previewCtx, { points, width: settings.width, sim: false, ...(settings.nib !== "ink" ? { nib: settings.nib } : null) });
   }
 
   // The paper and its dots are set with resolved colours rather than left to CSS
@@ -2648,6 +2860,7 @@
 
   el.widthInput.addEventListener("input", () => {
     settings.width = Number(el.widthInput.value);
+    rememberNib();
     saveSettings();
     renderSettings();
   });
@@ -2725,6 +2938,7 @@
       el.colorSheet.hidden = true;
       el.colorBtn.setAttribute("aria-expanded", "false");
     }
+    if (open) { el.nibSheet.hidden = true; el.nibBtn.setAttribute("aria-expanded", "false"); }
     el.settings.hidden = !open;
     if (open) showPage(settings.page, false);
     el.settingsBtn.setAttribute("aria-expanded", String(open));
@@ -2851,7 +3065,15 @@
     const Ink = window.SkybridgeInk;
     if (!Ink || stroke.eraser || stroke.hl || stroke.clean || !Ink.scribble(stroke.points)) return false;
     const board = boards[name];
-    const hits = Ink.crossed(stroke.points, board.list.filter((other) => !other.img), stroke).filter((other) => !live.has(other.id));
+    // Only strokes whose box meets the scribble's are looked at closely.
+    const [sx0, sy0, sx1, sy1] = Ink.bounds(stroke.points);
+    const near = board.list.filter((other) => {
+      if (other.img || !other.points?.length) return false;
+      const box = boxOf(other);
+      const pad = Math.max(3, other.width / 2 + 1) + 8;
+      return box.x0 - pad <= sx1 && box.x1 + pad >= sx0 && box.y0 - pad <= sy1 && box.y1 + pad >= sy0;
+    });
+    const hits = Ink.crossed(stroke.points, near, stroke).filter((other) => !live.has(other.id));
     if (!hits.length) return false;
     const before = hits.map((hit) => itemOf(board.list, hit));
     board.remove(stroke.id);
@@ -2867,9 +3089,14 @@
   const Ink = () => window.SkybridgeInk;
 
   function selectionBounds() {
-    const points = lasso.selected.flatMap((stroke) => stroke.points.map(([x, y]) => [x, y]));
     const reach = Math.max(...lasso.selected.map((stroke) => stroke.width / 2), 2) + 4;
-    return Ink().bounds(points, reach);
+    let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const stroke of lasso.selected) {
+      if (!stroke.points.length) continue;
+      const box = boxOf(stroke);
+      x0 = Math.min(x0, box.x0); y0 = Math.min(y0, box.y0); x1 = Math.max(x1, box.x1); y1 = Math.max(y1, box.y1);
+    }
+    return [x0 - reach, y0 - reach, x1 + reach, y1 + reach];
   }
 
   function positionLasso() {
@@ -2920,24 +3147,36 @@
     const ys = [];
     for (const stroke of strokes) {
       if (stroke.eraser || exclude.has(stroke.id) || !stroke.points.length) continue;
-      const [x0, y0, x1, y1] = Ink().bounds(stroke.points);
-      for (const v of [x0, (x0 + x1) / 2, x1]) xs.push({ v, lo: y0, hi: y1 });
-      for (const v of [y0, (y0 + y1) / 2, y1]) ys.push({ v, lo: x0, hi: x1 });
+      const { x0, y0, x1, y1 } = boxOf(stroke);
+      for (const v of [x0, (x0 + x1) / 2, x1]) xs.push({ v, lo: y0, hi: y1, n: xs.length });
+      for (const v of [y0, (y0 + y1) / 2, y1]) ys.push({ v, lo: x0, hi: x1, n: ys.length });
     }
+    // Sorted, so the targets near a value are found by halving rather than by looking at them all.
+    xs.sort((a, b) => a.v - b.v);
+    ys.sort((a, b) => a.v - b.v);
     return { xs, ys };
   }
 
   // The closest target to any of the values, within the snapping reach (a few screen pixels).
+  // targets are sorted by v (alignTargets); a tie goes to the earlier value, then the earlier target, as it always has.
   function nearestTarget(values, targets) {
     const reach = 7 / view.zoom;
     let best = null;
-    for (const value of values) {
-      for (const target of targets) {
-        const gap = Math.abs(target.v - value);
-        if (gap <= reach && (!best || gap < best.gap)) best = { gap, delta: target.v - value, target };
+    values.forEach((value, at) => {
+      let lo = 0;
+      let hi = targets.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (targets[mid].v < value - reach) lo = mid + 1; else hi = mid;
       }
-    }
-    return best;
+      for (let i = lo; i < targets.length && targets[i].v <= value + reach; i += 1) {
+        const target = targets[i];
+        const gap = Math.abs(target.v - value);
+        if (gap > reach) continue;
+        if (!best || gap < best.gap || (gap === best.gap && at === best.at && target.n < best.target.n)) best = { gap, delta: target.v - value, target, at };
+      }
+    });
+    return best && { gap: best.gap, delta: best.delta, target: best.target };
   }
 
   function clearSelection() {
@@ -3006,6 +3245,9 @@
       lasso.selected = strokes.filter((stroke) => {
         if (stroke.eraser || live.has(stroke.id) || !stroke.points.length) return false;
         if (stroke.img && stroke.lock) return false; // a locked photo is left alone by a loop
+        // Nothing of a stroke wholly outside the loop's box can be inside the loop.
+        const own = boxOf(stroke);
+        if (own.x0 > box[2] || own.x1 < box[0] || own.y0 > box[3] || own.y1 < box[1]) return false;
         if (stroke.text || stroke.rich || stroke.img) {
           const [[ax, ay], [bx, by]] = stroke.points;
           const spots = [[ax, ay], [bx, by], [(ax + bx) / 2, (ay + by) / 2]];
@@ -4136,18 +4378,24 @@
     window.SkybridgeSmart?.touched();
   }
 
-  function queueSave(delay = 500) {
+  // A pan or zoom alone (viewOnly) saves just the view, without copying and fingerprinting every stroke again.
+  let inkQueued = false;
+  function queueSave(delay = 500, viewOnly = false) {
     if (!nb) return;
+    if (!viewOnly) inkQueued = true;
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(saveNow, delay);
+    saveTimer = setTimeout(() => saveNow(!inkQueued), delay);
   }
 
-  function saveNow() {
+  function saveNow(viewOnly = false) {
     clearTimeout(saveTimer);
     if (!nb) return saving;
     const id = nb.id;
+    inkQueued = false;
+    // The strokes go as they are; the notebook copies (with copyStroke) and writes only the parts that changed.
     const data = {
-      strokes: strokes.filter((stroke) => stroke.points?.length).map(copyStroke),
+      strokes: viewOnly ? undefined : strokes.filter((stroke) => stroke.points?.length),
+      copy: copyStroke,
       view: { x: view.x, y: view.y, zoom: view.zoom },
       meta: { unsynced: nb.unsynced, seen: nb.seen || 0 },
     };
@@ -4520,6 +4768,17 @@
   el.pinRestyle.addEventListener("click", restylePin);
 
   // Settings: the choices, a preview drawn by the same code that pins, and the Restyle button.
+  let pinPreviewShown = false;
+  if (typeof IntersectionObserver === "function") {
+    new IntersectionObserver((entries) => {
+      const shown = entries[entries.length - 1].isIntersecting;
+      if (shown === pinPreviewShown) return;
+      pinPreviewShown = shown;
+      if (shown) renderPinSettings();
+    }).observe(el.pinPreview);
+  } else {
+    pinPreviewShown = true;
+  }
   function renderPinSettings() {
     const look = settings.pin;
     for (const container of [el.pinWeight, el.pinInk]) {
@@ -4528,6 +4787,8 @@
     }
     renderQuestionWheel(el.pinInk, look.ink, PIN_INKS);
     el.pinRestyle.hidden = !(nb?.problem?.pinned && strokes.some((stroke) => stroke.pin));
+    // The preview typesets maths, which is slow; it waits until the settings panel is showing it.
+    if (!pinPreviewShown) return;
     // The preview is drawn again once the chosen font has loaded.
     const shown = { ...pinStyle(), ...(colorPreview ? { color: colorPreview.text, titleColor: colorPreview.title, ink: colorPreview.math } : {}) };
     const fontKey = `${shown.size}px ${TEXT_FAMILIES[shown.font] || TEXT_FAMILIES.hand}`;
@@ -5276,11 +5537,14 @@
     toast(`Made a folder for ${set.name}: ${set.problems.length} pages`);
   }
 
+  let listRun = 0;
   async function renderNotebookList() {
     if (el.notebookSheet.hidden) return;
     const Smart = window.SkybridgeSmart;
     const query = el.notebookSearch.value.trim();
+    const run = ++listRun; // a newer render (the next key) makes this one stop, so slow ones never overwrite fast ones
     const results = (Smart ? await Smart.search(query) : (await Notebooks.list()).map((meta) => ({ meta, snippet: "" }))).filter(({ meta }) => !meta.reviewOf);
+    if (run !== listRun) return;
     if (query && !results.length) {
       const none = document.createElement("li");
       none.className = "nb-none";
@@ -5294,6 +5558,7 @@
     } else {
       const folders = await Notebooks.listFolders();
       const pages = (await Notebooks.list()).filter((book) => !book.reviewOf);
+      if (run !== listRun) return;
       for (const folder of folders) {
         const kids = pages.filter((page) => page.folder === folder.id).sort((a, b) => (a.order || 0) - (b.order || 0));
         if (kids.some((page) => nb && page.id === nb.id) && !closedFolders.has(folder.id)) openFolders.add(folder.id);
@@ -5699,7 +5964,11 @@
     renderEngine();
   }
 
-  el.notebookSearch.addEventListener("input", renderNotebookList);
+  let searchTimer = 0;
+  el.notebookSearch.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(renderNotebookList, 120); // wait for a pause in typing
+  });
   el.geminiKey.addEventListener("change", () => {
     const value = el.geminiKey.value.trim();
     el.geminiKey.value = "";

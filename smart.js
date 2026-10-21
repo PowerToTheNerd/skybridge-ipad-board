@@ -287,6 +287,16 @@
     return line ? line.trim().slice(0, 110) : "";
   }
 
+  // The page text is normalised once per page, not again on every key typed in the search box.
+  const bodies = new Map();
+  function bodyOf(meta) {
+    const hit = bodies.get(meta.id);
+    if (hit && hit.text === meta.text) return hit.body;
+    const body = plain(meta.text);
+    bodies.set(meta.id, { text: meta.text, body });
+    return body;
+  }
+
   async function search(query) {
     const tokens = plain(query).split(" ").filter(Boolean);
     const books = (await Notebooks.list()).filter((book) => !book.reviewOf);
@@ -295,7 +305,7 @@
     for (const meta of books) {
       const name = plain(`${meta.name} ${meta.title || ""}`);
       const tags = plain((meta.tags || []).join(" "));
-      const body = plain(meta.text);
+      const body = bodyOf(meta);
       const everything = `${name} ${tags} ${body}`;
       if (!tokens.every((token) => everything.includes(token))) continue;
       const score = tokens.reduce((sum, token) => sum + (name.includes(token) ? 3 : 0) + (tags.includes(token) ? 2 : 0) + (body.includes(token) ? 1 : 0), 0);

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="skybridge-hosted" content="1">
-  <meta name="skybridge-build" content="2026.10.15-review-you">
+  <meta name="skybridge-build" content="2026.10.21-pens-big-pages">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -80,6 +80,9 @@
     </button>
     <button type="button" class="tool swatch" data-pen="ink" aria-pressed="true" aria-label="Pen" title="Pen"><i class="dot ink"></i></button>
     <button type="button" class="tool swatch" id="colorBtn" aria-pressed="false" aria-expanded="false" aria-controls="colorSheet" aria-label="Pen colours" title="Pen colours"><i class="dot" id="colorDot"></i></button>
+    <button type="button" class="tool icon" id="nibBtn" aria-pressed="false" aria-expanded="false" aria-controls="nibSheet" aria-label="Pen type" title="Pen type: fountain, ballpoint, pencil, brush, calligraphy">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l4 6.5-2.2 5.5h-3.6L8 10z" /><path d="M12 8.5v5M9.5 19.5h5M12 15.5v4" /></svg>
+    </button>
     <button type="button" class="tool icon" data-tool="marker" aria-pressed="false" aria-label="Highlighter" title="Highlighter">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h7M14.5 4.5l5 5-8 8-5-5z" /><path d="M6.5 12.5l5 5" /></svg>
     </button>
@@ -542,6 +545,11 @@
       </div>
     </div>
     <p class="nb-fine" id="installNote" hidden>To keep this as an app that works without your PC: tap Share, then Add to Home Screen.</p>
+  </section>
+
+  <section class="settings nib-sheet" id="nibSheet" role="dialog" aria-label="Pen type" hidden>
+    <div class="nib-list" id="nibList" role="radiogroup" aria-label="Pen type"></div>
+    <p class="setting-hint">Each pen type remembers its own thickness and colour.</p>
   </section>
 
   <section class="settings color-sheet" id="colorSheet" role="dialog" aria-label="Pen colours" hidden>

@@ -10,7 +10,9 @@
  * paper, whatever the paper (a dark pen on dark paper is lifted, a light one on light paper darkened).
  * A highlighter stroke (stroke.hl) is wide and see-through, and layered() puts it under the ink.
  * A quick zigzag over ink is a scribble: scribble() spots one, and crossed() lists what it crosses.
- * Exposes window.SkybridgeInk = { fill, snap, hold, PALETTE, colorOn, paperOf, isHex, layered, scribble, crossed, inside }.
+ * Pen types: stroke.nib picks the nib (see NIBS: fountain, ballpoint, pencil, brush, calligraphy). A stroke with no nib,
+ * or one this file doesn't know, is the ordinary pen, so older notebooks and older boards draw as they always did.
+ * Exposes window.SkybridgeInk = { fill, snap, hold, PALETTE, colorOn, paperOf, isHex, layered, scribble, crossed, inside, NIBS }.
  */
 (() => {
   "use strict";
@@ -39,6 +41,17 @@
   // Snapped shapes: even width and crisp corners instead of the hand-drawn swell.
   const CLEAN_OPTIONS = { thinning: 0, streamline: 0, smoothing: 0.2 };
 
+  // The pen types. `size` scales the stroke's width, `thinning` is how much pressure/speed changes it, and
+  // `start`/`end` are tapers in multiples of the width. The ordinary pen is the absence of a nib.
+  const NIBS = {
+    fountain: { label: "Fountain pen", size: 1.9, thinning: 0.8, start: 2, end: 6 },
+    ballpoint: { label: "Ballpoint", size: 0.95, thinning: 0.1 },
+    pencil: { label: "Pencil", size: 1.5, thinning: 0.35, grain: true },
+    brush: { label: "Brush pen", size: 3, thinning: 0.9, start: 5, end: 10 },
+    calligraphy: { label: "Calligraphy", size: 2.2, chisel: true },
+  };
+  const nibOf = (stroke) => (stroke.nib && Object.prototype.hasOwnProperty.call(NIBS, stroke.nib) ? NIBS[stroke.nib] : null);
+
   const HOLD_MS = 450;
   const HOLD_SLOP = 5; // px the pen may wobble while held still
 
@@ -63,23 +76,145 @@
 
   // Draws one pen stroke filled in the current fillStyle. stroke: { points, width, sim, done }.
   // sim (no real pressure, as with a mouse) lets perfect-freehand fake pressure from speed.
+  // A finished stroke's outline is worked out once and kept as a Path2D, so redrawing the page (every pan or
+  // zoom frame) only fills it. The key notices a stroke that was moved, resized, snapped or re-styled.
+  const outlines = typeof Path2D === "function" && typeof WeakMap === "function" ? new WeakMap() : null;
+  function outlineKey(stroke) {
+    const pts = stroke.points;
+    const mid = pts[pts.length >> 1];
+    const first = pts[0];
+    const last = pts[pts.length - 1];
+    return `${pts.length}|${first[0]},${first[1]}|${mid[0]},${mid[1]}|${last[0]},${last[1]}|${stroke.width}|${stroke.clean ? 1 : 0}|${stroke.sim === false ? 0 : 1}|${smoothing}|${stroke.nib || ""}`;
+  }
+  function cachedPath(stroke, points, freehand) {
+    const key = outlineKey(stroke);
+    const hit = outlines.get(stroke);
+    if (hit && hit.points === stroke.points && hit.key === key) return hit.path;
+    const nib = nibOf(stroke);
+    let path = null;
+    if (nib?.chisel) {
+      path = new Path2D();
+      if (!chiselPath(path, points, stroke.width, 1)) path = null;
+    } else {
+      const outline = freehand.getStroke(points, outlineOptions(stroke, 1));
+      if (outline.length >= 3) {
+        path = new Path2D();
+        path.moveTo(outline[0][0], outline[0][1]);
+        for (let i = 0; i < outline.length; i += 1) {
+          const [x0, y0] = outline[i];
+          const [x1, y1] = outline[(i + 1) % outline.length];
+          path.quadraticCurveTo(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2);
+        }
+        path.closePath();
+      }
+    }
+    if (!path) return null;
+    outlines.set(stroke, { points: stroke.points, key, path });
+    return path;
+  }
+
+  // A broad-edge nib held at a fixed angle: thick across the nib, hairline along it. Every step of the stroke
+  // sweeps the nib's edge into a four-sided piece, all wound the same way so the pieces add up instead of cancelling.
+  const CHISEL_ANGLE = (40 * Math.PI) / 180;
+  function chiselPath(path, points, width, scale) {
+    const half = (width * 2.2 * scale) / 2;
+    const dx = Math.cos(CHISEL_ANGLE) * half;
+    const dy = -Math.sin(CHISEL_ANGLE) * half;
+    const edge = (px, py) => [px + dx, py + dy, px - dx, py - dy];
+    if (points.length === 1) {
+      const [px, py] = [points[0][0] * scale, points[0][1] * scale];
+      path.moveTo(px + dx, py + dy);
+      path.lineTo(px - dy * 0.3, py + dx * 0.3);
+      path.lineTo(px - dx, py - dy);
+      path.lineTo(px + dy * 0.3, py - dx * 0.3);
+      path.closePath();
+      return true;
+    }
+    for (let i = 0; i < points.length - 1; i += 1) {
+      const [ax, ay, bx, by] = [points[i][0] * scale, points[i][1] * scale, points[i + 1][0] * scale, points[i + 1][1] * scale];
+      const [a1x, a1y, a2x, a2y] = edge(ax, ay);
+      const [b1x, b1y, b2x, b2y] = edge(bx, by);
+      const turn = (b1x - a1x) * (a2y - a1y) - (b1y - a1y) * (a2x - a1x);
+      path.moveTo(a1x, a1y);
+      if (turn >= 0) { path.lineTo(b1x, b1y); path.lineTo(b2x, b2y); path.lineTo(a2x, a2y); }
+      else { path.lineTo(a2x, a2y); path.lineTo(b2x, b2y); path.lineTo(b1x, b1y); }
+      path.closePath();
+    }
+    return true;
+  }
+
+  // Pencil lead: the stroke is filled with a speckled tile in the pen's colour instead of a solid one. One tile per colour.
+  const grainTiles = new Map();
+  function grainTile(color) {
+    let tile = grainTiles.get(color);
+    if (tile) return tile;
+    const size = 96;
+    const noise = document.createElement("canvas");
+    noise.width = noise.height = size;
+    const nctx = noise.getContext("2d");
+    const image = nctx.createImageData(size, size);
+    let seed = 1234567;
+    for (let i = 0; i < size * size; i += 1) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      const v = seed / 4294967296;
+      image.data[i * 4 + 3] = v < 0.28 ? 0 : Math.round(150 + v * 105);
+    }
+    nctx.putImageData(image, 0, 0);
+    tile = document.createElement("canvas");
+    tile.width = tile.height = size;
+    const tctx = tile.getContext("2d");
+    tctx.fillStyle = color;
+    tctx.fillRect(0, 0, size, size);
+    tctx.globalCompositeOperation = "destination-in";
+    tctx.drawImage(noise, 0, 0);
+    if (grainTiles.size > 48) grainTiles.clear();
+    grainTiles.set(color, tile);
+    return tile;
+  }
+  function grainFill(target) {
+    const color = typeof target.fillStyle === "string" ? target.fillStyle : "#000";
+    const pattern = target.createPattern?.(grainTile(color), "repeat");
+    if (pattern) target.fillStyle = pattern;
+  }
+  function outlineOptions(stroke, scale) {
+    // A snapped line or bracket is drawn evenly, at the pen's own width setting, so every straight line is the
+    // same thickness whatever pressure the hand happened to use (even lines saved with a pressure on them).
+    const nib = nibOf(stroke);
+    const taper = (steps) => (steps && !stroke.clean ? { taper: stroke.width * steps * scale, cap: true } : { taper: 0, cap: true });
+    return {
+      ...OPTIONS,
+      ...smoothOptions(),
+      ...(nib && nib.thinning !== undefined ? { thinning: nib.thinning } : null),
+      ...(nib ? { start: taper(nib.start), end: taper(nib.end) } : null),
+      ...(stroke.clean ? CLEAN_OPTIONS : null),
+      size: stroke.width * SIZE_PER_WIDTH * (nib?.size || 1) * scale,
+      simulatePressure: stroke.sim !== false,
+      last: stroke.done !== false,
+    };
+  }
+
   function fill(target, stroke, scale = 1) {
     if (stroke.hl) return marker(target, stroke, scale);
     const freehand = window.PerfectFreehand;
     if (!freehand) return false;
+    const nib = nibOf(stroke);
+    if (nib?.grain) grainFill(target);
+    if (outlines && scale === 1 && stroke.done !== false && stroke.points.length >= 1) {
+      const path = cachedPath(stroke, stroke.points, freehand);
+      if (!path) return false;
+      target.fill(path);
+      return true;
+    }
     const points = scale === 1
       ? stroke.points
       : stroke.points.map(([x, y, p]) => (p === undefined ? [x * scale, y * scale] : [x * scale, y * scale, p]));
-    // A snapped line or bracket is drawn evenly, at the pen's own width setting, so every straight line is the
-    // same thickness whatever pressure the hand happened to use (even lines saved with a pressure on them).
-    const outline = freehand.getStroke(points, {
-      ...OPTIONS,
-      ...smoothOptions(),
-      ...(stroke.clean ? CLEAN_OPTIONS : null),
-      size: stroke.width * SIZE_PER_WIDTH * scale,
-      simulatePressure: stroke.sim !== false,
-      last: stroke.done !== false,
-    });
+    if (nib?.chisel) {
+      const path = new Path2D();
+      chiselPath(path, stroke.points, stroke.width, scale);
+      target.fill(path);
+      return true;
+    }
+    const outline = freehand.getStroke(points, outlineOptions(stroke, scale));
     if (!tracePath(target, outline)) return false;
     target.fill();
     return true;
@@ -431,5 +566,5 @@
     return on;
   }
 
-  window.SkybridgeInk = { fill, snap, hold, PALETTE, colorOn, paperOf, isHex, layered, scribble, crossed, inside, bounds, setSmoothing, tidy, DEFAULT_SMOOTHING };
+  window.SkybridgeInk = { fill, snap, hold, PALETTE, colorOn, paperOf, isHex, layered, scribble, crossed, inside, bounds, NIBS, setSmoothing, tidy, DEFAULT_SMOOTHING };
 })();
