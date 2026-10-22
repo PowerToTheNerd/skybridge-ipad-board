@@ -47,6 +47,10 @@
     imageFile: document.getElementById("imageFile"),
     lassoDelete: document.getElementById("lassoDelete"),
     lassoBrackets: document.getElementById("lassoBrackets"),
+    lassoShapes: document.getElementById("lassoShapes"),
+    shapesBtn: document.getElementById("shapesBtn"),
+    shapesLayer: document.getElementById("shapesLayer"),
+    shapesBar: document.getElementById("shapesBar"),
     lassoTextTools: document.getElementById("lassoTextTools"),
     lassoSizeDown: document.getElementById("lassoSizeDown"),
     lassoSizeUp: document.getElementById("lassoSizeUp"),
@@ -1661,6 +1665,7 @@
     if (event.pointerType === "mouse" && event.button !== 0) return;
     if (current || lasso.path || area.pointer !== null) return;
     event.preventDefault();
+    closeTidy();
     try { el.canvas.setPointerCapture(event.pointerId); } catch {}
     if (tool === "area") {
       area.pointer = event.pointerId;
@@ -1694,15 +1699,32 @@
   // Hold the pen still at the end of a stroke to straighten it into a line or bracket.
   const holdStill = window.SkybridgeInk?.hold(() => {
     if (!current || current.eraser || current.clean) return;
-    const shaped = window.SkybridgeInk.snap(current.points);
-    if (!shaped) return;
+    const found = window.SkybridgeInk.snapKind(current.points);
+    if (!found) return;
+    const shaped = found.points.map(([x, y]) => [x, y]);
+    const drawn = { id: current.id, points: current.points.map((point) => [...point]), sim: current.sim };
     if (flushFrame) cancelAnimationFrame(flushFrame);
     flushFrame = 0;
     pending = [];
     Object.assign(current, { points: shaped, sim: true, clean: true });
     send({ t: "set", id: current.id, p: shaped });
     schedulePaint();
+    // A line or bracket is what holding is for; a new shape says what it guessed and can be put back as drawn.
+    if (found.kind !== "line" && found.kind !== "bracket") toast(`Made it a ${SHAPE_NAMES[found.kind] || found.kind}`, { label: "Keep as drawn", run: () => keepAsDrawn(drawn) });
   });
+
+  // Put a snapped stroke back the way it was drawn, as one undoable step.
+  function keepAsDrawn(drawn) {
+    const stroke = strokes.find((item) => item.id === drawn.id);
+    if (!stroke || live.has(stroke.id)) return;
+    const before = [itemOf(strokes, stroke)];
+    Object.assign(stroke, { points: drawn.points, sim: drawn.sim, clean: false });
+    const after = [itemOf(strokes, stroke)];
+    record("mine", before, after);
+    send({ t: "put", strokes: after.map(({ s, i }) => ({ ...s, i })) });
+    rebuildBase();
+    schedulePaint();
+  }
 
   el.canvas.addEventListener("pointermove", (event) => {
     if (event.pointerType === "pen") notePen();
@@ -1790,6 +1812,7 @@
     tool = name;
     if (name !== "lasso" && name !== "matrix") clearSelection();
     if (name !== "area") clearArea();
+    closeTidy();
     el.canvas.parentElement.dataset.tool = name;
     renderTools();
   }
@@ -3281,6 +3304,7 @@
   }
 
   function positionArea() {
+    if (el.shapesBar && !el.shapesBar.hidden) renderTidy();
     if (!el.areaBox) return;
     if (!area.rect) { el.areaBox.hidden = true; return; }
     const [x0, y0, x1, y1] = area.rect;
@@ -3478,6 +3502,135 @@
   }
 
   el.lassoBrackets.addEventListener("click", () => addBrackets(true));
+
+  // ---------------------------------------------------------------------------
+  // Tidy shapes: the hold-still snap, on demand. The lasso's Shapes button tidies what is selected. The rail's
+  // Tidy shapes looks over the page (what is in view, or all of it), shows what it would change, and waits for
+  // Apply. Small marks are left alone there, since they are most likely writing. Everything is one Undo.
+  // ---------------------------------------------------------------------------
+  const TIDY_MIN = 70; // board units across: anything smaller is taken for handwriting
+  const sweep = { found: [], whole: false };
+  const SHAPE_NAMES = { line: "line", bracket: "bracket", circle: "circle", ellipse: "oval", rectangle: "box", square: "square", triangle: "triangle", arrow: "arrow" };
+
+  const shapeable = (stroke) => !stroke.eraser && !stroke.hl && !stroke.img && !stroke.text && !stroke.rich && !stroke.pin && !stroke.help && !stroke.clean
+    && stroke.points.length >= 4 && !live.has(stroke.id);
+
+  // The strokes that are shapes, each with its clean version: [{ id, kind, was, points }].
+  function shapesIn(list, opts) {
+    const found = [];
+    for (const stroke of list) {
+      if (!shapeable(stroke)) continue;
+      const shape = Ink().snapKind(stroke.points, opts);
+      if (shape) found.push({ id: stroke.id, kind: shape.kind, was: stroke.points.map((point) => [...point]), points: shape.points });
+    }
+    return found;
+  }
+
+  // Swap the drawn strokes for their clean shapes as one undoable step; returns how many changed.
+  function applyShapes(found) {
+    const picked = found.map((shape) => ({ shape, stroke: strokes.find((item) => item.id === shape.id) }))
+      .filter(({ shape, stroke }) => stroke && shapeable(stroke) && stroke.points.length === shape.was.length);
+    if (!picked.length) return 0;
+    const before = picked.map(({ stroke }) => itemOf(strokes, stroke));
+    for (const { shape, stroke } of picked) Object.assign(stroke, { points: shape.points, sim: true, clean: true });
+    const after = picked.map(({ stroke }) => itemOf(strokes, stroke));
+    record("mine", before, after);
+    send({ t: "put", strokes: after.map(({ s, i }) => ({ ...s, i })) });
+    lastBoard = "mine";
+    rebuildBase();
+    positionLasso();
+    schedulePaint();
+    return picked.length;
+  }
+
+  const tidySummary = (found) => {
+    const counts = new Map();
+    for (const { kind } of found) counts.set(kind, (counts.get(kind) || 0) + 1);
+    return [...counts].map(([kind, n]) => `${n} ${SHAPE_NAMES[kind] || kind}${n > 1 ? (kind === "box" ? "es" : "s") : ""}`).join(", ");
+  };
+
+  function tidySelection() {
+    if (!lasso.selected.length) return;
+    const found = shapesIn(lasso.selected, { careful: true });
+    if (!found.length) { toast("No shapes found in the selection"); return; }
+    const count = applyShapes(found);
+    if (count) toast(`Tidied ${tidySummary(found)}`, { label: "Undo", run: undoAction });
+  }
+  el.lassoShapes.addEventListener("click", tidySelection);
+
+  // The part of the page on screen, in board units.
+  function visibleRect() {
+    const { width: w, height: h } = el.stage.getBoundingClientRect();
+    return [view.x, view.y, view.x + w / view.zoom, view.y + h / view.zoom];
+  }
+
+  function findTidy() {
+    let list = strokes;
+    if (!sweep.whole) {
+      const [x0, y0, x1, y1] = visibleRect();
+      list = strokes.filter((stroke) => {
+        if (!stroke.points.length) return false;
+        const box = boxOf(stroke);
+        return box.x1 >= x0 && box.x0 <= x1 && box.y1 >= y0 && box.y0 <= y1;
+      });
+    }
+    return shapesIn(list, { minSize: TIDY_MIN, careful: true });
+  }
+
+  function renderTidy() {
+    const open = el.shapesBar && !el.shapesBar.hidden;
+    el.shapesLayer.toggleAttribute("hidden", !open); // an SVG has no .hidden property
+    el.shapesBtn.setAttribute("aria-pressed", String(open));
+    if (!open) { el.shapesLayer.replaceChildren(); return; }
+    const NS = "http://www.w3.org/2000/svg";
+    const d = (points) => points.map(([x, y], i) => `${i ? "L" : "M"}${((x - view.x) * view.zoom).toFixed(1)} ${((y - view.y) * view.zoom).toFixed(1)}`).join("");
+    const parts = [];
+    for (const shape of sweep.found) {
+      for (const [cls, points] of [["was", shape.was], ["will", shape.points]]) {
+        const path = document.createElementNS(NS, "path");
+        path.setAttribute("class", cls);
+        path.setAttribute("d", d(points));
+        parts.push(path);
+      }
+    }
+    el.shapesLayer.replaceChildren(...parts);
+  }
+
+  function refreshTidy() {
+    sweep.found = findTidy();
+    document.getElementById("shapesCount").textContent = sweep.found.length
+      ? `${tidySummary(sweep.found)} found`
+      : (sweep.whole ? "No shapes to tidy on this page" : "No shapes to tidy in view");
+    document.getElementById("shapesScope").textContent = sweep.whole ? "Just what's in view" : "Whole page";
+    document.getElementById("shapesApply").disabled = !sweep.found.length;
+    renderTidy();
+  }
+
+  function openTidy() {
+    if (el.shapesBar.hidden === false) { closeTidy(); return; }
+    clearSelection();
+    clearArea();
+    sweep.whole = false;
+    el.shapesBar.hidden = false;
+    refreshTidy();
+  }
+
+  function closeTidy() {
+    if (!el.shapesBar || el.shapesBar.hidden) return;
+    el.shapesBar.hidden = true;
+    sweep.found = [];
+    renderTidy();
+  }
+
+  el.shapesBtn.addEventListener("click", openTidy);
+  document.getElementById("shapesCancel").addEventListener("click", closeTidy);
+  document.getElementById("shapesScope").addEventListener("click", () => { sweep.whole = !sweep.whole; refreshTidy(); });
+  document.getElementById("shapesApply").addEventListener("click", () => {
+    const found = sweep.found;
+    closeTidy();
+    const count = applyShapes(found);
+    toast(count ? `Tidied ${count} ${count === 1 ? "shape" : "shapes"}` : "Nothing changed", count ? { label: "Undo", run: undoAction } : undefined);
+  });
 
   // Selection sidebar, Text section: font, size and bold for the typed text in the selection (a pinned problem is typed text too).
   const textSelected = () => lasso.selected.filter((stroke) => stroke.text);
@@ -6374,7 +6527,7 @@
       el.lassoLock.querySelector("span").textContent = locked ? "Unlock" : "Lock";
       el.lassoLock.title = el.lassoLock.ariaLabel = locked ? "Unlock the photo" : "Lock the photo so you can write over it";
     }
-    for (const button of [el.lassoColor, el.lassoBrackets, el.lassoText]) button.hidden = only;
+    for (const button of [el.lassoColor, el.lassoBrackets, el.lassoShapes, el.lassoText]) button.hidden = only;
     // A locked photo only offers Unlock (and Done): nothing can move or delete it by accident.
     for (const button of [el.lassoDuplicate, el.lassoDelete]) button.hidden = locked;
   }

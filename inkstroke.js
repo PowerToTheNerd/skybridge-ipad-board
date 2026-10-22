@@ -5,14 +5,15 @@
  * Points are [x, y] or [x, y, pressure].
  *
  * Holding the pen still at the end of a stroke snaps it to a clean shape, like
- * iPad Notes: a straight line, or a matrix bracket [ ] ( ) sized to the stroke.
+ * iPad Notes: a straight line, a matrix bracket [ ] ( ) sized to the stroke, a circle or ellipse, a rectangle or
+ * square, a triangle, or an arrow. snapKind() says which one it found; the lasso's Shapes and the page's Tidy shapes use it too.
  * Pen colours: PALETTE lists the extra colours, and colorOn(color, paper) keeps one readable on a
  * paper, whatever the paper (a dark pen on dark paper is lifted, a light one on light paper darkened).
  * A highlighter stroke (stroke.hl) is wide and see-through, and layered() puts it under the ink.
  * A quick zigzag over ink is a scribble: scribble() spots one, and crossed() lists what it crosses.
  * Pen types: stroke.nib picks the nib (see NIBS: fountain, ballpoint, pencil, brush, calligraphy). A stroke with no nib,
  * or one this file doesn't know, is the ordinary pen, so older notebooks and older boards draw as they always did.
- * Exposes window.SkybridgeInk = { fill, snap, hold, PALETTE, colorOn, penColorOn, paperOf, isHex, layered, scribble, crossed, inside, NIBS }.
+ * Exposes window.SkybridgeInk = { fill, snap, snapKind, hold, PALETTE, colorOn, penColorOn, paperOf, isHex, layered, scribble, crossed, inside, NIBS }.
  */
 (() => {
   "use strict";
@@ -367,13 +368,224 @@
     return startsBottom ? shape.reverse() : shape;
   }
 
-  // Returns clean points for a recognised shape, or null to leave the stroke as drawn.
-  function snap(points) {
+  // Douglas-Peucker: the corners of a hand-drawn polyline.
+  function simplifyPath(points, tol) {
+    const keep = new Array(points.length).fill(false);
+    keep[0] = true;
+    keep[points.length - 1] = true;
+    const stack = [[0, points.length - 1]];
+    while (stack.length) {
+      const [from, to] = stack.pop();
+      let far = -1;
+      let farDist = tol;
+      for (let i = from + 1; i < to; i += 1) {
+        const d = distanceToLine(points[i], points[from], points[to]);
+        if (d > farDist) { farDist = d; far = i; }
+      }
+      if (far > 0) {
+        keep[far] = true;
+        stack.push([from, far], [far, to]);
+      }
+    }
+    return points.filter((point, i) => keep[i]);
+  }
+
+  // How far the direction changes at b, in degrees (0 = straight on, 180 = doubled back).
+  function turnAngle(a, b, c) {
+    const ux = b[0] - a[0];
+    const uy = b[1] - a[1];
+    const vx = c[0] - b[0];
+    const vy = c[1] - b[1];
+    return (Math.abs(Math.atan2(ux * vy - uy * vx, ux * vx + uy * vy)) * 180) / Math.PI;
+  }
+
+  const rotate = (dx, dy, angle) => [dx * Math.cos(angle) - dy * Math.sin(angle), dx * Math.sin(angle) + dy * Math.cos(angle)];
+  const LEVEL = (8 * Math.PI) / 180; // a shape this close to level or upright is made exactly so
+
+  // The corners of a closed stroke, in order, with the seam where the pen started and stopped smoothed away.
+  function cornersOf(path, diag) {
+    let far = 0;
+    for (let i = 1; i < path.length; i += 1) if (dist(path[0], path[i]) > dist(path[0], path[far])) far = i;
+    if (far < 2 || far > path.length - 3) return null;
+    const ring = [...simplifyPath(path.slice(0, far + 1), diag * 0.05), ...simplifyPath(path.slice(far), diag * 0.05).slice(1)];
+    if (dist(ring[0], ring[ring.length - 1]) < diag * 0.25) ring.pop();
+    let changed = true;
+    while (changed && ring.length > 3) {
+      changed = false;
+      for (let i = 0; i < ring.length; i += 1) {
+        const a = ring[(i + ring.length - 1) % ring.length];
+        const b = ring[i];
+        const c = ring[(i + 1) % ring.length];
+        if (turnAngle(a, b, c) < 28 || dist(b, c) < diag * 0.1) {
+          ring.splice(i, 1);
+          changed = true;
+          break;
+        }
+      }
+    }
+    return ring;
+  }
+
+  // Closed outline from corner points, ending where it began.
+  const closedFrom = (corners) => densify([...corners, corners[0]]);
+
+  function snapRectangle(ring) {
+    if (ring.length !== 4) return null;
+    const sides = ring.map((p, i) => dist(p, ring[(i + 1) % 4]));
+    for (let i = 0; i < 4; i += 1) {
+      const turn = turnAngle(ring[(i + 3) % 4], ring[i], ring[(i + 1) % 4]);
+      if (turn < 62 || turn > 118) return null;
+    }
+    if (Math.min(sides[0], sides[2]) / Math.max(sides[0], sides[2]) < 0.65 || Math.min(sides[1], sides[3]) / Math.max(sides[1], sides[3]) < 0.65) return null;
+    // The tilt is the average edge direction, folded to a quarter turn.
+    let sin = 0;
+    let cos = 0;
+    ring.forEach((p, i) => {
+      const q = ring[(i + 1) % 4];
+      const angle = Math.atan2(q[1] - p[1], q[0] - p[0]);
+      sin += Math.sin(4 * angle);
+      cos += Math.cos(4 * angle);
+    });
+    let tilt = Math.atan2(sin, cos) / 4;
+    if (Math.abs(tilt) < LEVEL) tilt = 0;
+    const local = ring.map(([x, y]) => rotate(x, y, -tilt));
+    const lx = local.map((p) => p[0]);
+    const ly = local.map((p) => p[1]);
+    let half = [(Math.max(...lx) - Math.min(...lx)) / 2, (Math.max(...ly) - Math.min(...ly)) / 2];
+    const mid = [(Math.max(...lx) + Math.min(...lx)) / 2, (Math.max(...ly) + Math.min(...ly)) / 2];
+    const square = Math.min(...half) / Math.max(...half) > 0.88;
+    if (square) half = [(half[0] + half[1]) / 2, (half[0] + half[1]) / 2];
+    const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sy]) => rotate(mid[0] + sx * half[0], mid[1] + sy * half[1], tilt));
+    return { kind: square ? "square" : "rectangle", points: closedFrom(corners) };
+  }
+
+  function snapTriangle(ring, diag) {
+    if (ring.length !== 3) return null;
+    const sides = ring.map((p, i) => dist(p, ring[(i + 1) % 3]));
+    if (Math.min(...sides) < diag * 0.25) return null;
+    for (let i = 0; i < 3; i += 1) {
+      const interior = 180 - turnAngle(ring[(i + 2) % 3], ring[i], ring[(i + 1) % 3]);
+      if (interior < 22) return null;
+    }
+    return { kind: "triangle", points: closedFrom(ring) };
+  }
+
+  // A circle or ellipse: the tilt comes from the spread of the points, and the outline must hug the fit all the way round.
+  function snapEllipse(path, fit) {
+    const n = path.length;
+    const mx = path.reduce((sum, p) => sum + p[0], 0) / n;
+    const my = path.reduce((sum, p) => sum + p[1], 0) / n;
+    let sxx = 0;
+    let syy = 0;
+    let sxy = 0;
+    for (const [x, y] of path) {
+      sxx += (x - mx) ** 2;
+      syy += (y - my) ** 2;
+      sxy += (x - mx) * (y - my);
+    }
+    let tilt = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+    const local = path.map(([x, y]) => rotate(x - mx, y - my, -tilt));
+    const lx = local.map((p) => p[0]);
+    const ly = local.map((p) => p[1]);
+    const cu = (Math.max(...lx) + Math.min(...lx)) / 2;
+    const cv = (Math.max(...ly) + Math.min(...ly)) / 2;
+    let a = (Math.max(...lx) - Math.min(...lx)) / 2;
+    let b = (Math.max(...ly) - Math.min(...ly)) / 2;
+    if (a < 8 || b < 8) return null;
+    let sum = 0;
+    let worst = 0;
+    const seen = new Array(24).fill(false);
+    for (const [u, v] of local) {
+      const dev = Math.abs(Math.hypot((u - cu) / a, (v - cv) / b) - 1);
+      sum += dev;
+      worst = Math.max(worst, dev);
+      seen[Math.min(23, Math.floor(((Math.atan2(v - cv, u - cu) + Math.PI) / (2 * Math.PI)) * 24))] = true;
+    }
+    if (sum / n > 0.1 * fit || worst > 0.3 * fit || seen.filter(Boolean).length < 21) return null;
+    const [ox, oy] = rotate(cu, cv, tilt);
+    const centre = [mx + ox, my + oy];
+    const round = Math.min(a, b) / Math.max(a, b) > 0.84;
+    if (round) { a = (a + b) / 2; b = a; tilt = 0; }
+    else {
+      // Close to level or upright, an ellipse sits exactly level or upright.
+      const quarter = Math.round(tilt / (Math.PI / 2)) * (Math.PI / 2);
+      if (Math.abs(tilt - quarter) < LEVEL) tilt = quarter;
+    }
+    const outline = [];
+    for (let i = 0; i <= 72; i += 1) {
+      const t = (i / 72) * Math.PI * 2 - Math.PI / 2;
+      const [x, y] = rotate(a * Math.cos(t), b * Math.sin(t), tilt);
+      outline.push([centre[0] + x, centre[1] + y]);
+    }
+    return { kind: round ? "circle" : "ellipse", points: densify(outline) };
+  }
+
+  // A closed stroke: a triangle, a rectangle or square, or a circle or ellipse.
+  function snapClosed(points, diag, fit) {
+    if (diag < 40 || dist(points[0], points[points.length - 1]) > diag * 0.25 || pathLength(points) < diag * 2) return null;
+    const path = resample(points, Math.max(2, diag / 80));
+    if (path.length < 12) return null;
+    const ring = cornersOf(path, diag);
+    if (!ring) return null;
+    return snapTriangle(ring, diag) || snapRectangle(ring) || (ring.length >= 5 ? snapEllipse(path, fit) : null);
+  }
+
+  // A shaft with a two-barbed head drawn in one go: A to the tip, out along one barb, back to the tip, out along the other.
+  function snapArrow(points, diag) {
+    if (diag < 50) return null;
+    const path = resample(points, Math.max(2, diag / 80));
+    if (path.length < 12) return null;
+    const v = simplifyPath(path, diag * 0.045);
+    if (v.length !== 5) return null;
+    const [a, tip, c, again, d] = v;
+    const shaft = dist(a, tip);
+    const barbs = [dist(tip, c), dist(again, d)];
+    if (dist(tip, again) > Math.min(...barbs) * 0.45) return null;
+    if (Math.min(...barbs) < shaft * 0.12 || Math.max(...barbs) > shaft * 0.55 || Math.max(...barbs) / Math.min(...barbs) > 1.8) return null;
+    const back = Math.atan2(a[1] - tip[1], a[0] - tip[0]);
+    const swing = (end) => {
+      const angle = Math.atan2(end[1] - tip[1], end[0] - tip[0]) - back;
+      return Math.atan2(Math.sin(angle), Math.cos(angle));
+    };
+    const [sc, sd] = [swing(c), swing(d)];
+    if (sc * sd >= 0) return null; // the barbs must sit on opposite sides of the shaft
+    const spread = (Math.abs(sc) + Math.abs(sd)) / 2;
+    if (spread < (12 * Math.PI) / 180 || spread > (70 * Math.PI) / 180) return null;
+    const length = Math.min(Math.max((barbs[0] + barbs[1]) / 2, shaft * 0.1), shaft * 0.28);
+    const angle = Math.min(Math.max(spread, (20 * Math.PI) / 180), (45 * Math.PI) / 180);
+    let end = tip;
+    const heading = Math.atan2(tip[1] - a[1], tip[0] - a[0]);
+    const nearest = Math.round(heading / (Math.PI / 2)) * (Math.PI / 2);
+    if (Math.abs(heading - nearest) < LEVEL) end = [a[0] + Math.cos(nearest) * shaft, a[1] + Math.sin(nearest) * shaft];
+    const aim = Math.abs(heading - nearest) < LEVEL ? nearest : heading;
+    const wing = (side) => [end[0] + Math.cos(aim + Math.PI + side * angle) * length, end[1] + Math.sin(aim + Math.PI + side * angle) * length];
+    return densify([a, end, wing(1), end, wing(-1)]);
+  }
+
+  // Recognises a stroke: { kind, points } with clean points, or null to leave it as drawn.
+  // opts.minSize ignores anything smaller than that across (a page-wide pass skips handwriting that way);
+  // opts.careful asks for a closer fit.
+  function snapKind(points, opts = {}) {
     if (!points || points.length < 4) return null;
-    const shape = snapLine(points) || snapBracket(points);
-    if (!shape) return null;
+    const xs = points.map((p) => p[0]);
+    const ys = points.map((p) => p[1]);
+    const diag = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+    if (opts.minSize && diag < opts.minSize) return null;
+    const line = snapLine(points);
+    if (line) return { kind: "line", points: line };
+    const closed = snapClosed(points, diag, opts.careful ? 0.7 : 1);
+    if (closed) return closed;
+    const arrow = snapArrow(points, diag);
+    if (arrow) return { kind: "arrow", points: arrow };
+    const bracket = snapBracket(points);
+    return bracket ? { kind: "bracket", points: bracket } : null;
+  }
+
+  // Returns clean points for a recognised shape, or null to leave the stroke as drawn.
+  function snap(points, opts) {
+    const found = snapKind(points, opts);
     // Snapped shapes carry no pressure: they are as thick as the Width setting says, every time.
-    return shape.map(([x, y]) => [x, y]);
+    return found ? found.points.map(([x, y]) => [x, y]) : null;
   }
 
   // ---------------------------------------------------------------------------
@@ -573,5 +785,5 @@
     return on;
   }
 
-  window.SkybridgeInk = { fill, snap, hold, PALETTE, colorOn, penColorOn, paperOf, isHex, layered, scribble, crossed, inside, bounds, NIBS, setSmoothing, tidy, DEFAULT_SMOOTHING };
+  window.SkybridgeInk = { fill, snap, snapKind, hold, PALETTE, colorOn, penColorOn, paperOf, isHex, layered, scribble, crossed, inside, bounds, NIBS, setSmoothing, tidy, DEFAULT_SMOOTHING };
 })();
