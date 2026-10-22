@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="skybridge-hosted" content="1">
-  <meta name="skybridge-build" content="2026.10.23-top-menu">
+  <meta name="skybridge-build" content="2026.10.23-qol">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -57,9 +57,9 @@
             <button type="button" role="radio" data-layout="both">Both</button>
             <button type="button" role="radio" data-layout="gemini">Gemini<i class="badge" id="geminiBadge" hidden></i></button>
           </div>
-          <div class="menu-group">
-            <button type="button" class="menu-item" id="exportBtn" aria-expanded="false" aria-controls="exportSheet">Export</button>
-            <button type="button" class="menu-item" id="clearBtn" disabled>Clear</button>
+          <div class="menu-pair">
+            <button type="button" class="menu-item" id="exportBtn" aria-expanded="false" aria-controls="exportSheet"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M8 8l4-4 4 4M5 14v5h14v-5"/></svg><span>Export</span></button>
+            <button type="button" class="menu-item" id="clearBtn" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13"/></svg><span>Clear</span></button>
           </div>
         </div>
       </div>
@@ -368,6 +368,10 @@
           <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.6" cy="8.6" r="5.2"/><path d="m12.6 12.6 4 4"/></svg>
           <input type="search" class="nb-search" id="notebookSearch" placeholder="Search notebooks" aria-label="Search names, tags and handwriting" autocapitalize="off" autocorrect="off" spellcheck="false">
         </label>
+        <div class="nb-sort segmented" id="nbSort" role="radiogroup" aria-label="Order notebooks by">
+          <button type="button" role="radio" data-sort="edited">Last edited</button>
+          <button type="button" role="radio" data-sort="opened">Last opened</button>
+        </div>
         <ul class="nb-list" id="notebookList"></ul>
       </div>
       <div class="page" data-page="homework" role="tabpanel">

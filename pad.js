@@ -3150,8 +3150,7 @@
     board.remove(stroke.id);
     hits.forEach((hit) => board.remove(hit.id));
     record(name, before, []);
-    toast(`Erased ${hits.length} ${hits.length === 1 ? "stroke" : "strokes"}`, { label: "Undo", run: undoAction });
-    return true;
+    return true; // no toast: undo is on the rail, and a note for every wipe just gets in the way
   }
 
   // ---------------------------------------------------------------------------
@@ -4687,7 +4686,7 @@
     el.toast.hidden = false;
     clearTimeout(toastTimer);
     if (action?.sticky) return; // stays until tapped (a new board is ready)
-    toastTimer = setTimeout(() => { el.toast.hidden = true; }, Math.max(action ? 7000 : 2600, String(text).length * 70));
+    toastTimer = setTimeout(() => { el.toast.hidden = true; }, Math.max(action ? 4500 : 2600, String(text).length * 70));
   }
 
 
@@ -5867,6 +5866,18 @@
   }
 
   let listRun = 0;
+  // Newest first: by when the writing last changed, or by when the page was last opened.
+  let nbSort = storage("get", "skybridge.nbSort") === "opened" ? "opened" : "edited";
+  const nbSortButtons = [...document.querySelectorAll("#nbSort [data-sort]")];
+  const markNbSort = () => nbSortButtons.forEach((button) => button.setAttribute("aria-checked", String(button.dataset.sort === nbSort)));
+  nbSortButtons.forEach((button) => button.addEventListener("click", () => {
+    nbSort = button.dataset.sort;
+    storage("set", "skybridge.nbSort", nbSort);
+    markNbSort();
+    renderNotebookList();
+  }));
+  markNbSort();
+
   async function renderNotebookList() {
     if (el.notebookSheet.hidden) return;
     const Smart = window.SkybridgeSmart;
@@ -5893,6 +5904,8 @@
         if (kids.some((page) => nb && page.id === nb.id) && !closedFolders.has(folder.id)) openFolders.add(folder.id);
         rows.push(...makeFolderRows(folder, kids));
       }
+      const stamp = (book) => (nbSort === "opened" ? Number(book.updated) : Number(book.edited) || Number(book.updated)) || 0;
+      results.sort((a, b) => stamp(b.meta) - stamp(a.meta));
       const byId = new Map(results.map(({ meta, snippet }) => [meta.id, { meta, snippet }]));
       for (const { meta: book, snippet } of byId.values()) if (!book.folder || !folders.some((f) => f.id === book.folder)) rows.push(makeNotebookRow(book, snippet, query));
     }
@@ -6338,7 +6351,7 @@
     setSettingsOpen(false);
     el.notebookSheet.hidden = !open;
     el.notebookBtn.setAttribute("aria-expanded", String(open));
-    if (open) { renderNotebookUi(); renderUsage(); renderLocal(); renderLive(); showNbPage(nbPage, false); }
+    if (open) { renderNotebookUi(); renderUsage(); renderLocal(); renderLive(); showNbPage("books", false); }
   });
   el.notebookNew.addEventListener("click", async () => { await newNotebook(); renderNotebookList(); });
   el.syncRetry.addEventListener("click", () => { retryNow(); toast("Looking for your PC"); });

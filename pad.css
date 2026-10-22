@@ -1557,3 +1557,16 @@ input[type="range"] {
 .shapes-count { font: 600 14px/1.2 inherit; font-family: inherit; color: var(--text); padding-right: 6px; }
 .shapes-opt { min-height: 36px; padding: 0 12px; border: 0; border-radius: 10px; background: transparent; color: var(--text); font: 600 14px/1 inherit; font-family: inherit; }
 .shapes-bar .area-go { min-height: 36px; border: 0; color: var(--text); font: 600 14px/1 inherit; font-family: inherit; }
+
+/* Top-right menu: every row is a bordered button in the theme; Export and Clear sit side by side with icons. */
+.menu-item { border: 1px solid var(--edge); background: var(--sheen, none), var(--surface); box-shadow: var(--inner-hi, none); }
+.menu-group { gap: 6px; }
+.menu-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.menu-pair .menu-item { justify-content: center; gap: 8px; padding: 0 8px; }
+.menu-item svg { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.menu-item:disabled { opacity: 0.4; }
+.menu-seg { border-color: var(--edge); background: var(--surface); }
+.menu-seg button[aria-checked="true"] { border: 1px solid var(--accent); }
+.menu-seg button { border: 1px solid transparent; }
+.nb-sort { margin: 0 0 10px; }
+.nb-sort button { height: 36px; font-size: 14px; }
