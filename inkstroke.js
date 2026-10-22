@@ -7,6 +7,8 @@
  * Holding the pen still at the end of a stroke snaps it to a clean shape, like
  * iPad Notes: a straight line, a matrix bracket [ ] ( ) sized to the stroke, a circle or ellipse, a rectangle or
  * square, a triangle, or an arrow. snapKind() says which one it found; the lasso's Shapes and the page's Tidy shapes use it too.
+ * Paint bucket: regionAt(strokes, point) finds the area walled in around a point (holes such as windows stay empty) as the points of a
+ * stroke with `area: true`, which fill() paints see-through and layered() puts under the ink.
  * Pen colours: PALETTE lists the extra colours, and colorOn(color, paper) keeps one readable on a
  * paper, whatever the paper (a dark pen on dark paper is lifted, a light one on light paper darkened).
  * A highlighter stroke (stroke.hl) is wide and see-through, and layered() puts it under the ink.
@@ -195,6 +197,7 @@
   }
 
   function fill(target, stroke, scale = 1) {
+    if (stroke.area) return areaFill(target, stroke, scale);
     if (stroke.hl) return marker(target, stroke, scale);
     const freehand = window.PerfectFreehand;
     if (!freehand) return false;
@@ -218,6 +221,25 @@
     const outline = freehand.getStroke(points, outlineOptions(stroke, scale));
     if (!tracePath(target, outline)) return false;
     target.fill();
+    return true;
+  }
+
+  // A paint-bucket fill: stroke.points holds the outline of the filled area and of any holes in it (a window in a wall);
+  // every ring starts with a point whose third value is 0. Drawn see-through, under the ink (see layered()).
+  const AREA_ALPHA = 0.6;
+  function areaFill(target, stroke, scale) {
+    const path = new Path2D();
+    let open = false;
+    for (const [x, y, flag] of stroke.points) {
+      if (flag === 0 || !open) {
+        if (open) path.closePath();
+        path.moveTo(x * scale, y * scale);
+        open = true;
+      } else path.lineTo(x * scale, y * scale);
+    }
+    if (open) path.closePath();
+    target.globalAlpha *= AREA_ALPHA;
+    target.fill(path, "evenodd");
     return true;
   }
 
@@ -264,8 +286,8 @@
     return list;
   }
 
-  // Highlighters first, so they sit under the ink whenever they were drawn.
-  const layered = (list) => [...list.filter((stroke) => stroke.hl), ...list.filter((stroke) => !stroke.hl)];
+  // Paint-bucket fills first, then highlighters, so they sit under the ink whenever they were drawn.
+  const layered = (list) => [...list.filter((stroke) => stroke.area), ...list.filter((stroke) => stroke.hl && !stroke.area), ...list.filter((stroke) => !stroke.hl && !stroke.area)];
 
   // ---------------------------------------------------------------------------
   // Shape snapping
@@ -589,6 +611,194 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Paint bucket: the area enclosed around a point
+  // ---------------------------------------------------------------------------
+  const FILL_MAX_CELLS = 3000000;
+  const FILL_MARGIN = 24; // free space kept around the ink, so a fill that escapes reaches the edge and is refused
+
+  // Whether a stroke is a wall for the bucket: the student's own ink (not text, photos, help, pinned problems or other fills).
+  const isBarrier = (stroke) => !stroke.eraser && !stroke.hl && !stroke.area && !stroke.img && !stroke.text && !stroke.rich
+    && !stroke.help && !stroke.pin && stroke.points && stroke.points.length > 0;
+
+  // Fills the region around `at`, treating every stroke as a wall. Returns { points } (outline rings, each starting with a
+  // point whose third value is 0, to be drawn even-odd so enclosed shapes such as windows stay empty) or { error }:
+  // "line" (tapped on a line), "open" (the area is not closed) or "empty" (nothing to fill against).
+  function regionAt(strokes, at, opts = {}) {
+    const walls = strokes.filter(isBarrier);
+    if (!walls.length) return { error: "empty" };
+    let x0 = at[0];
+    let y0 = at[1];
+    let x1 = at[0];
+    let y1 = at[1];
+    for (const stroke of walls) {
+      for (const point of stroke.points) {
+        if (point[0] < x0) x0 = point[0]; else if (point[0] > x1) x1 = point[0];
+        if (point[1] < y0) y0 = point[1]; else if (point[1] > y1) y1 = point[1];
+      }
+    }
+    x0 -= FILL_MARGIN; y0 -= FILL_MARGIN; x1 += FILL_MARGIN; y1 += FILL_MARGIN;
+    const cell = Math.max(opts.cell || 1, Math.sqrt(((x1 - x0) * (y1 - y0)) / FILL_MAX_CELLS));
+    const W = Math.ceil((x1 - x0) / cell);
+    const H = Math.ceil((y1 - y0) / cell);
+    const wall = new Uint8Array(W * H);
+    // A gap in an outline smaller than this is closed.
+    const closeGap = Math.max(1, Math.round(1.5 / cell));
+    const canvas = opts.canvas ? opts.canvas(W, H) : null;
+    const draw = canvas?.getContext("2d", { willReadFrequently: true });
+    if (draw) {
+      // In the app the walls are the ink as drawn (its real outline, rounded corners and all), so the colour stops at the line.
+      draw.fillStyle = "#000";
+      draw.strokeStyle = "#000";
+      const scale = 1 / cell;
+      for (const stroke of walls) {
+        draw.save();
+        draw.translate(-x0 * scale, -y0 * scale);
+        if (!fill(draw, { ...stroke, nib: undefined, done: true }, scale)) {
+          draw.lineWidth = Math.max(stroke.width || 2, cell) * scale;
+          draw.beginPath();
+          stroke.points.forEach(([x, y], i) => (i ? draw.lineTo(x * scale, y * scale) : draw.moveTo(x * scale, y * scale)));
+          draw.stroke();
+        }
+        draw.restore();
+      }
+      const data = draw.getImageData(0, 0, W, H).data;
+      for (let i = 0; i < wall.length; i += 1) if (data[i * 4 + 3] > 24) wall[i] = 1;
+      const thick = new Uint8Array(wall);
+      for (let pass = 0; pass < closeGap; pass += 1) {
+        const next = new Uint8Array(thick);
+        for (let gy = 1; gy < H - 1; gy += 1) {
+          for (let gx = 1; gx < W - 1; gx += 1) {
+            const index = gy * W + gx;
+            if (!thick[index] && (thick[index - 1] || thick[index + 1] || thick[index - W] || thick[index + W])) next[index] = 1;
+          }
+        }
+        thick.set(next);
+      }
+      wall.set(thick);
+    } else {
+      // Without a canvas (tests) each stroke is a thick line along its points, a little thicker than its ink.
+      for (const stroke of walls) {
+        const radius = Math.max(cell, (stroke.width || 2) / 2 + 1.5);
+        const pts = stroke.points;
+        const n = pts.length;
+        for (let i = 0; i < Math.max(1, n - 1); i += 1) {
+          const [ax, ay] = pts[i];
+          const [bx, by] = pts[Math.min(i + 1, n - 1)];
+          const gx0 = Math.max(0, Math.floor((Math.min(ax, bx) - radius - x0) / cell));
+          const gx1 = Math.min(W - 1, Math.ceil((Math.max(ax, bx) + radius - x0) / cell));
+          const gy0 = Math.max(0, Math.floor((Math.min(ay, by) - radius - y0) / cell));
+          const gy1 = Math.min(H - 1, Math.ceil((Math.max(ay, by) + radius - y0) / cell));
+          const dx = bx - ax;
+          const dy = by - ay;
+          const len2 = dx * dx + dy * dy;
+          for (let gy = gy0; gy <= gy1; gy += 1) {
+            const py = y0 + (gy + 0.5) * cell;
+            for (let gx = gx0; gx <= gx1; gx += 1) {
+              const px = x0 + (gx + 0.5) * cell;
+              const t = len2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) : 0;
+              const ex = px - (ax + dx * t);
+              const ey = py - (ay + dy * t);
+              if (ex * ex + ey * ey <= radius * radius) wall[gy * W + gx] = 1;
+            }
+          }
+        }
+      }
+    }
+    // Start from the tapped cell, or the nearest open one if the tap landed on a line.
+    let sx = Math.floor((at[0] - x0) / cell);
+    let sy = Math.floor((at[1] - y0) / cell);
+    if (wall[sy * W + sx]) {
+      let found = false;
+      for (let r = 1; r <= 3 && !found; r += 1) {
+        for (let oy = -r; oy <= r && !found; oy += 1) {
+          for (let ox = -r; ox <= r && !found; ox += 1) {
+            const cx = sx + ox;
+            const cy = sy + oy;
+            if (cx >= 0 && cy >= 0 && cx < W && cy < H && !wall[cy * W + cx]) { sx = cx; sy = cy; found = true; }
+          }
+        }
+      }
+      if (!found) return { error: "line" };
+    }
+    const mask = new Uint8Array(W * H);
+    const stack = [sy * W + sx];
+    mask[sy * W + sx] = 1;
+    let escaped = false;
+    while (stack.length) {
+      const index = stack.pop();
+      const gx = index % W;
+      const gy = (index - gx) / W;
+      if (gx === 0 || gy === 0 || gx === W - 1 || gy === H - 1) { escaped = true; break; }
+      for (const next of [index - 1, index + 1, index - W, index + W]) {
+        if (!wall[next] && !mask[next]) { mask[next] = 1; stack.push(next); }
+      }
+    }
+    if (escaped) return { error: "open" };
+    // Grow the fill under the ink's own edge, so no pale halo is left between the colour and the line.
+    const grow = draw ? closeGap + 1 : Math.max(1, Math.round(1.8 / cell));
+    for (let pass = 0; pass < grow; pass += 1) {
+      const add = [];
+      for (let index = 0; index < mask.length; index += 1) {
+        if (!wall[index] || mask[index]) continue;
+        if (mask[index - 1] || mask[index + 1] || mask[index - W] || mask[index + W]) add.push(index);
+      }
+      for (const index of add) mask[index] = 1;
+    }
+    return { points: outlineRings(mask, W, H, x0, y0, cell) };
+  }
+
+  // The outlines (outer edge and holes) of a filled grid, as rings of board points, thinned to a few points per side.
+  function outlineRings(mask, W, H, ox, oy, cell) {
+    const stride = W + 1;
+    const edges = new Map(); // start vertex -> end vertices
+    const add = (from, to) => { const list = edges.get(from); if (list) list.push(to); else edges.set(from, [to]); };
+    for (let gy = 0; gy < H; gy += 1) {
+      for (let gx = 0; gx < W; gx += 1) {
+        if (!mask[gy * W + gx]) continue;
+        const a = gy * stride + gx;
+        if (gy === 0 || !mask[(gy - 1) * W + gx]) add(a, a + 1);
+        if (gx === W - 1 || !mask[gy * W + gx + 1]) add(a + 1, a + 1 + stride);
+        if (gy === H - 1 || !mask[(gy + 1) * W + gx]) add(a + 1 + stride, a + stride);
+        if (gx === 0 || !mask[gy * W + gx - 1]) add(a + stride, a);
+      }
+    }
+    const rings = [];
+    for (const [start] of edges) {
+      while (edges.get(start)?.length) {
+        const ring = [];
+        let at = start;
+        for (;;) {
+          const list = edges.get(at);
+          if (!list || !list.length) break;
+          ring.push(at);
+          at = list.pop();
+          if (at === start) break;
+        }
+        if (ring.length >= 4) rings.push(ring.map((v) => [v % stride, Math.floor(v / stride)]));
+      }
+    }
+    let tol = 1; // in grid cells
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const out = [];
+      for (const ring of rings) {
+        // Closed ring: split at the point farthest from the start, simplify both halves.
+        let far = 0;
+        for (let i = 1; i < ring.length; i += 1) if (dist(ring[0], ring[i]) > dist(ring[0], ring[far])) far = i;
+        if (!far) continue;
+        const loop = [...simplifyPath(ring.slice(0, far + 1), tol), ...simplifyPath([...ring.slice(far), ring[0]], tol).slice(1, -1)];
+        if (loop.length < 3) continue;
+        loop.forEach(([vx, vy], i) => {
+          const point = [Math.round((ox + vx * cell) * 10) / 10, Math.round((oy + vy * cell) * 10) / 10];
+          out.push(i === 0 ? [...point, 0] : point);
+        });
+      }
+      if (out.length <= 3000 || attempt === 5) return out;
+      tol *= 1.7;
+    }
+    return [];
+  }
+
+  // ---------------------------------------------------------------------------
   // Pen colours
   // ---------------------------------------------------------------------------
   // The first four pens (ink and three marks) follow the paper; these are fixed colours.
@@ -785,5 +995,5 @@
     return on;
   }
 
-  window.SkybridgeInk = { fill, snap, snapKind, hold, PALETTE, colorOn, penColorOn, paperOf, isHex, layered, scribble, crossed, inside, bounds, NIBS, setSmoothing, tidy, DEFAULT_SMOOTHING };
+  window.SkybridgeInk = { fill, snap, snapKind, regionAt, hold, PALETTE, colorOn, penColorOn, paperOf, isHex, layered, scribble, crossed, inside, bounds, NIBS, setSmoothing, tidy, DEFAULT_SMOOTHING };
 })();

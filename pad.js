@@ -62,6 +62,9 @@
     lassoDuplicate: document.getElementById("lassoDuplicate"),
     lassoMove: document.getElementById("lassoMove"),
     lassoLineTools: document.getElementById("lassoLineTools"),
+    lassoSizeTools: document.getElementById("lassoSizeTools"),
+    lassoModeScale: document.getElementById("lassoModeScale"),
+    lassoModeDim: document.getElementById("lassoModeDim"),
     lassoThinner: document.getElementById("lassoThinner"),
     lassoThicker: document.getElementById("lassoThicker"),
     lassoMatchPen: document.getElementById("lassoMatchPen"),
@@ -1693,6 +1696,10 @@
       positionArea();
       return;
     }
+    if (tool === "bucket") {
+      bucketFill(pointFrom(event));
+      return;
+    }
     if (tool === "lasso" || tool === "matrix") {
       clearSelection();
       lasso.pointer = event.pointerId;
@@ -2175,7 +2182,10 @@
     });
   });
   el.tools.forEach((button) => {
-    button.addEventListener("click", () => setTool(tool === button.dataset.tool ? "pen" : button.dataset.tool));
+    button.addEventListener("click", () => {
+      setTool(tool === button.dataset.tool ? "pen" : button.dataset.tool);
+      if (tool === "bucket") toast("Paint bucket: tap inside a closed shape to fill it with your pen colour");
+    });
   });
   const markerWidth = () => Math.max(14, Math.round(settings.width * 6));
 
@@ -3131,6 +3141,49 @@
     toast("Cleared", { label: "Undo", run: undoAction });
   });
 
+  // Paint bucket: a tap fills the area walled in around it, in the pen colour, as one stroke (its outline, see Ink.regionAt).
+  // A fill already covering the spot is replaced, so tapping again with another colour recolours it. One Undo.
+  const BUCKET_WORDS = {
+    line: "That's a line. Tap inside a shape instead.",
+    open: "That area isn't closed. Close the gap, or tap inside a shape.",
+    empty: "Draw a shape first, then tap inside it.",
+  };
+  const insideRings = (point, outline) => {
+    let on = false;
+    let ring = [];
+    const flush = () => {
+      let hit = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i];
+        const [xj, yj] = ring[j];
+        if ((yi > point[1]) !== (yj > point[1]) && point[0] < ((xj - xi) * (point[1] - yi)) / (yj - yi) + xi) hit = !hit;
+      }
+      if (hit) on = !on;
+    };
+    for (const p of outline) {
+      if (p[2] === 0 && ring.length) { flush(); ring = []; }
+      ring.push(p);
+    }
+    if (ring.length) flush();
+    return on;
+  };
+  function bucketFill(point) {
+    const at = point.slice(0, 2);
+    const found = Ink().regionAt(strokes.filter((stroke) => !live.has(stroke.id)), at, {
+      canvas: (w, h) => Object.assign(document.createElement("canvas"), { width: w, height: h }),
+    });
+    if (found.error) { toast(BUCKET_WORDS[found.error]); return; }
+    const old = strokes.filter((stroke) => stroke.area && insideRings(at, stroke.points));
+    const before = old.map((stroke) => itemOf(strokes, stroke));
+    old.forEach((stroke) => boards.mine.remove(stroke.id));
+    const stroke = { id: newId(), color: pen, eraser: false, hl: false, width: 0, sim: true, clean: true, area: true, points: found.points };
+    const item = { s: stroke, i: strokes.length };
+    boards.mine.put([item]);
+    record("mine", before, [item]);
+    lastBoard = "mine";
+    toast(old.length ? "Filled again" : "Filled", { label: "Undo", run: undoAction });
+  }
+
   // A quick zigzag over ink rubs out what it crosses, like iPadOS. Returns true when it did.
   function scribbleErase(name, stroke) {
     const Ink = window.SkybridgeInk;
@@ -3139,7 +3192,7 @@
     // Only strokes whose box meets the scribble's are looked at closely.
     const [sx0, sy0, sx1, sy1] = Ink.bounds(stroke.points);
     const near = board.list.filter((other) => {
-      if (other.img || !other.points?.length) return false;
+      if (other.img || other.area || !other.points?.length) return false;
       const box = boxOf(other);
       const pad = Math.max(3, other.width / 2 + 1) + 8;
       return box.x0 - pad <= sx1 && box.x1 + pad >= sx0 && box.y0 - pad <= sy1 && box.y1 + pad >= sy0;
@@ -3187,7 +3240,8 @@
     // One straight line selected: its two ends become handles to pull, instead of the corners.
     const ends = lasso.selected.length === 1 ? lineEnds(lasso.selected[0]) : null;
     el.lassoBox.dataset.line = String(Boolean(ends));
-    el.lassoBox.dataset.stretch = String(stretchable());
+    el.lassoBox.dataset.stretch = String(freeResize());
+    renderSizeTools();
     if (ends) {
       el.lassoEnds.forEach((node) => {
         const point = ends[node.dataset.end === "a" ? 0 : 1];
@@ -3201,12 +3255,27 @@
   // Ink (not typed text or a photo) can be stretched on its own width or height from the side handles, and clean shapes
   // (a snapped box, circle or triangle) also from the corners; handwriting keeps its proportions at the corners.
   const stretchable = () => lasso.selected.length > 0 && lasso.selected.every((stroke) => !stroke.text && !stroke.rich && !stroke.img && !stroke.eraser);
-  const freeCorners = () => stretchable() && lasso.selected.every((stroke) => stroke.clean);
+  // Dimensions (width and height on their own) or Scale (proportional): the Resize buttons in the selection bar choose, and the
+  // choice is remembered. Until one is chosen, clean shapes start in Dimensions and handwriting in Scale. Photos always scale.
+  const resizeMode = () => settings.resize || (lasso.selected.every((stroke) => stroke.clean) ? "dimension" : "scale");
+  const freeResize = () => stretchable() && resizeMode() === "dimension";
+  function renderSizeTools() {
+    const on = stretchable();
+    el.lassoSizeTools.hidden = !on;
+    if (!on) return;
+    const mode = resizeMode();
+    el.lassoModeScale.setAttribute("aria-pressed", String(mode === "scale"));
+    el.lassoModeDim.setAttribute("aria-pressed", String(mode === "dimension"));
+  }
+  const chooseResize = (mode) => { settings.resize = mode; saveSettings(); positionLasso(); };
+  el.lassoModeScale.addEventListener("click", () => chooseResize("scale"));
+  el.lassoModeDim.addEventListener("click", () => chooseResize("dimension"));
 
   // A stroke that is one straight line (a held-still line, or a drawn one that came out straight): its two ends.
   function lineEnds(stroke) {
     const pts = stroke.points;
-    if (stroke.eraser || stroke.text || stroke.rich || pts.length < 2) return null;
+    // A photo, like typed text, keeps two points that are the corners of its box, not the ends of a line.
+    if (stroke.eraser || stroke.text || stroke.rich || stroke.img || pts.length < 2) return null;
     const a = pts[0];
     const b = pts[pts.length - 1];
     const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
@@ -4206,7 +4275,7 @@
       if (sx) guides.push({ x: sx.target.v, from: Math.min(sx.target.lo, my0 + oy), to: Math.max(sx.target.hi, my1 + oy) });
       if (sy) guides.push({ y: sy.target.v, from: Math.min(sy.target.lo, mx0 + ox), to: Math.max(sy.target.hi, mx1 + ox) });
     }
-    if (lassoDrag.corner.length === 1 && stretchable()) {
+    if (lassoDrag.corner.length === 1 && freeResize()) {
       // A side handle: only that direction changes, the opposite side stays put.
       const side = lassoDrag.corner;
       const horizontal = side === "e" || side === "w";
@@ -4219,7 +4288,7 @@
         const fixed = side === "e" || side === "s" ? lo : hi;
         map = horizontal ? ([x, y]) => [fixed + (x - fixed) * scale, y] : ([x, y]) => [x, fixed + (y - fixed) * scale];
       }
-    } else if (lassoDrag.corner && freeCorners()) {
+    } else if (lassoDrag.corner.length === 2 && freeResize()) {
       // A corner of a clean shape: width and height follow the finger separately.
       const east = lassoDrag.corner.includes("e");
       const south = lassoDrag.corner.includes("s");

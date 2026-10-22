@@ -98,6 +98,9 @@
     <button type="button" class="tool icon" data-tool="area" aria-pressed="false" aria-label="Export area" title="Export area: drag a box around part of the page, then export just that part with white space around it">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path class="dash" d="M5 5h10M5 5v10M19 9v10M9 19h10" /><path d="M13 3h8v8" /><path d="M21 3l-8 8" /></svg>
     </button>
+    <button type="button" class="tool icon" data-tool="bucket" aria-pressed="false" aria-label="Paint bucket" title="Paint bucket: tap inside a closed shape to fill it with your pen colour. Windows and other shapes inside it stay empty.">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 11.5l6-6 7 7-6 6a2 2 0 0 1-2.8 0L6.5 14.3a2 2 0 0 1 0-2.8z" /><path d="M6.5 11.5h13" /><path d="M20 15.5c0 1.4 1.2 2.1 1.2 3.2a1.2 1.2 0 0 1-2.4 0c0-1.1 1.2-1.8 1.2-3.2z" /></svg>
+    </button>
     <button type="button" class="tool icon" id="shapesBtn" aria-pressed="false" aria-label="Tidy shapes" title="Tidy shapes: find hand-drawn circles, boxes, triangles, arrows and lines on this page and clean them up. You see a preview first.">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8" r="4.2" /><path d="M13.5 13.5h7v7h-7z" /><path class="dash" d="M3.5 14.5l3 5.5h-1" /></svg>
     </button>
@@ -167,6 +170,13 @@
             <button type="button" class="side-font" id="lassoSizeDown" title="Smaller" aria-label="Smaller text">A&minus;</button>
             <button type="button" class="side-font" id="lassoSizeUp" title="Bigger" aria-label="Bigger text">A+</button>
             <button type="button" class="side-font" id="lassoBold" title="Bold" aria-label="Bold text"><b>B</b></button>
+          </div>
+        </div>
+        <div class="side-text" id="lassoSizeTools" hidden>
+          <span class="side-title">Resize</span>
+          <div class="side-fonts">
+            <button type="button" class="side-font" id="lassoModeScale" title="Scale: keep the proportions" aria-label="Scale: keep the proportions" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="9" width="10" height="10" rx="1.5"/><path d="M14 10l6-6M15 4h5v5"/></svg></button>
+            <button type="button" class="side-font" id="lassoModeDim" title="Dimensions: change width and height separately" aria-label="Dimensions: change width and height separately" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M3 12h2.5M18.5 12H21M12 3v2.5M12 18.5V21M4.5 10.5L3 12l1.5 1.5M19.5 10.5L21 12l-1.5 1.5M10.5 4.5L12 3l1.5 1.5M10.5 19.5L12 21l1.5-1.5"/></svg></button>
           </div>
         </div>
         <div class="side-text" id="lassoLineTools" hidden>
