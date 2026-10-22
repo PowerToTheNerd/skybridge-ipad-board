@@ -26,7 +26,7 @@
   // the paper keep their own colours.
   const THEMES = { black: "Black", white: "White", green: "Green", purple: "Purple", custom: "Your colour" };
   const THEME_HUES = { black: 210, white: 215, green: 156, purple: 265 };
-  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", nib: "ink", nibs: {}, recent: [], palette: [], rail: true, paper: "night", theme: "green", accent: "#7c5cd6", paperColor: "#2d3b57", fxs: {}, card: {}, page: "pen", finger: "move", palm: true, penSeen: false, clock: true, weather: false, wxAt: null, grid: "dots", gridSize: 24, grain: true, layout: "mine", areaPad: 24 };
+  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", nib: "ink", nibs: {}, recent: [], palette: [], rail: true, paper: "night", theme: "green", accent: "#7c5cd6", paperColor: "#2d3b57", fxs: {}, card: {}, page: "pen", finger: "move", palm: true, penSeen: false, clock: true, weather: false, wxAt: null, grid: "dots", gridSize: 24, grain: true, layout: "mine", areaPad: 24, mode: "math" };
   const LAYOUTS = ["mine", "both", "gemini"];
 
   const el = {
@@ -90,7 +90,6 @@
     preview: document.getElementById("preview"),
     papers: document.getElementById("papers"),
     themes: document.getElementById("themes"),
-    labBtn: document.getElementById("labBtn"),
     labList: document.getElementById("labList"),
     cardFont: document.getElementById("cardFont"),
     cardSize: document.getElementById("cardSize"),
@@ -233,7 +232,9 @@
     geminiBoard: document.getElementById("whiteboardBoard"),
     geminiPane: document.getElementById("whiteboardCard"),
     geminiBadge: document.getElementById("geminiBadge"),
-    layoutBtn: document.getElementById("layoutBtn"),
+    menuBtn: document.getElementById("menuBtn"),
+    barMenu: document.getElementById("barMenu"),
+    modes: [...document.querySelectorAll("#modeSeg [data-mode]")],
     layoutMenu: document.getElementById("layoutMenu"),
     layoutBadge: document.getElementById("layoutBadge"),
   };
@@ -282,6 +283,7 @@
   if (!GRIDS.includes(settings.grid)) settings.grid = DEFAULTS.grid;
   settings.gridSize = Math.min(48, Math.max(12, Number(settings.gridSize) || DEFAULTS.gridSize));
   if (!LAYOUTS.includes(settings.layout)) settings.layout = DEFAULTS.layout;
+  if (settings.mode !== "math" && settings.mode !== "notes") settings.mode = DEFAULTS.mode;
   // Smoothing and tidy got stronger defaults; settings saved before that start over on them.
   if (settings.sv !== DEFAULTS.sv) Object.assign(settings, { smooth: DEFAULTS.smooth, tidy: DEFAULTS.tidy, sv: DEFAULTS.sv });
   if (!Array.isArray(settings.recent)) settings.recent = [];
@@ -917,8 +919,7 @@
     updateButtons();
     el.layouts.forEach((button) => button.setAttribute("aria-checked", String(button.dataset.layout === settings.layout)));
     const name = settings.layout === "gemini" ? "Gemini" : settings.layout === "both" ? "Both" : "Mine";
-    el.layoutBtn.setAttribute("aria-label", `Which board to show: ${name}`);
-    el.layoutBtn.title = `Showing: ${name}`;
+    el.menuBtn.title = `Menu (showing ${name})`;
     if (settings.layout !== "mine") {
       el.geminiBadge.hidden = true;
       el.layoutBadge.hidden = true;
@@ -932,18 +933,35 @@
       settings.layout = button.dataset.layout;
       saveSettings();
       renderLayout();
-      setLayoutMenu(false);
+      setBarMenu(false);
     });
   });
-  function setLayoutMenu(open) {
-    el.layoutMenu.hidden = !open;
-    el.layoutBtn.setAttribute("aria-expanded", String(open));
+  // The one menu at the top right: its contents follow the mode (Maths adds the checkers; Notes leaves them out).
+  function setBarMenu(open) {
+    el.barMenu.hidden = !open;
+    el.menuBtn.setAttribute("aria-expanded", String(open));
   }
-  el.layoutBtn.addEventListener("click", () => setLayoutMenu(el.layoutMenu.hidden));
+  function renderMode() {
+    document.documentElement.dataset.mode = settings.mode;
+    el.modes.forEach((button) => button.setAttribute("aria-checked", String(button.dataset.mode === settings.mode)));
+    if (settings.mode !== "math") {
+      const mulSheet = document.getElementById("mulSheet");
+      if (mulSheet) mulSheet.hidden = true;
+    }
+  }
+  el.modes.forEach((button) => button.addEventListener("click", () => {
+    settings.mode = button.dataset.mode;
+    saveSettings();
+    renderMode();
+  }));
+  el.menuBtn.addEventListener("click", () => setBarMenu(el.barMenu.hidden));
+  // Picking an action closes the menu; picking a board or a mode leaves it open for the next choice.
+  el.barMenu.addEventListener("click", (event) => { if (event.target.closest(".menu-item")) setBarMenu(false); });
   document.addEventListener("pointerdown", (event) => {
-    if (!el.layoutMenu.hidden && !event.target.closest(".layout-pick")) setLayoutMenu(false);
+    if (!el.barMenu.hidden && !event.target.closest(".menu-pick")) setBarMenu(false);
   }, true);
-  document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !el.layoutMenu.hidden) setLayoutMenu(false); });
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !el.barMenu.hidden) setBarMenu(false); });
+  renderMode();
 
   // ---------------------------------------------------------------------------
   // Writing on Gemini's board. The PC lays the board out and sends its width and
@@ -1798,8 +1816,10 @@
   }, { passive: false });
 
   // The colour a pen picks up from the sheet; a pen swatch or the highlighter button changes the tool too.
+  let lastInkColor = null; // the last pen colour that wasn't a highlighter one, so the main Pen button can go back to it
   function setPen(name, remember = true, fromSheet = false) {
     pen = name;
+    if (!/^mark-/.test(name)) lastInkColor = name;
     if (!fromSheet) slot = settings.palette.indexOf(name);
     if (tool === "eraser") tool = beforeEraser;
     renderTools();
@@ -2147,8 +2167,10 @@
       if (button.dataset.pen === "eraser") {
         setTool(tool === "eraser" ? beforeEraser : "eraser");
       } else {
+        // The Pen button keeps the colour you were writing with; only a highlighter colour is swapped for the last pen colour.
         setTool("pen");
-        setPen(button.dataset.pen);
+        const own = button.dataset.pen === "ink" && !/^mark-/.test(pen);
+        setPen(own ? pen : button.dataset.pen === "ink" && lastInkColor ? lastInkColor : button.dataset.pen);
       }
     });
   });
@@ -3005,13 +3027,6 @@
       el.colorSheet.hidden = true;
     }
   }
-  el.labBtn.addEventListener("click", () => {
-    const open = el.settings.hidden || settings.page !== "lab";
-    settings.page = "lab";
-    saveSettings();
-    setSettingsOpen(open);
-    if (open) showPage("lab", false);
-  });
   el.settingsBtn.addEventListener("click", () => setSettingsOpen(el.settings.hidden));
   // Starting to write closes the panel.
   el.canvas.addEventListener("pointerdown", () => setSettingsOpen(false), true);
@@ -3173,6 +3188,7 @@
     // One straight line selected: its two ends become handles to pull, instead of the corners.
     const ends = lasso.selected.length === 1 ? lineEnds(lasso.selected[0]) : null;
     el.lassoBox.dataset.line = String(Boolean(ends));
+    el.lassoBox.dataset.stretch = String(stretchable());
     if (ends) {
       el.lassoEnds.forEach((node) => {
         const point = ends[node.dataset.end === "a" ? 0 : 1];
@@ -3182,6 +3198,11 @@
     }
     el.lassoBox.hidden = false;
   }
+
+  // Ink (not typed text or a photo) can be stretched on its own width or height from the side handles, and clean shapes
+  // (a snapped box, circle or triangle) also from the corners; handwriting keeps its proportions at the corners.
+  const stretchable = () => lasso.selected.length > 0 && lasso.selected.every((stroke) => !stroke.text && !stroke.rich && !stroke.img && !stroke.eraser);
+  const freeCorners = () => stretchable() && lasso.selected.every((stroke) => stroke.clean);
 
   // A stroke that is one straight line (a held-still line, or a drawn one that came out straight): its two ends.
   function lineEnds(stroke) {
@@ -4186,7 +4207,30 @@
       if (sx) guides.push({ x: sx.target.v, from: Math.min(sx.target.lo, my0 + oy), to: Math.max(sx.target.hi, my1 + oy) });
       if (sy) guides.push({ y: sy.target.v, from: Math.min(sy.target.lo, mx0 + ox), to: Math.max(sy.target.hi, mx1 + ox) });
     }
-    if (lassoDrag.corner) {
+    if (lassoDrag.corner.length === 1 && stretchable()) {
+      // A side handle: only that direction changes, the opposite side stays put.
+      const side = lassoDrag.corner;
+      const horizontal = side === "e" || side === "w";
+      const lo = horizontal ? x0 : y0;
+      const hi = horizontal ? x1 : y1;
+      const size = hi - lo;
+      if (size > 1) {
+        const pull = horizontal ? dx : dy;
+        const scale = Math.min(10, Math.max(0.1, (side === "e" || side === "s" ? size + pull : size - pull) / size));
+        const fixed = side === "e" || side === "s" ? lo : hi;
+        map = horizontal ? ([x, y]) => [fixed + (x - fixed) * scale, y] : ([x, y]) => [x, fixed + (y - fixed) * scale];
+      }
+    } else if (lassoDrag.corner && freeCorners()) {
+      // A corner of a clean shape: width and height follow the finger separately.
+      const east = lassoDrag.corner.includes("e");
+      const south = lassoDrag.corner.includes("s");
+      const anchor = [east ? x0 : x1, south ? y0 : y1];
+      const spanX = x1 - x0;
+      const spanY = y1 - y0;
+      const sx = spanX > 1 ? Math.min(10, Math.max(0.1, (east ? spanX + dx : spanX - dx) / spanX)) : 1;
+      const sy = spanY > 1 ? Math.min(10, Math.max(0.1, (south ? spanY + dy : spanY - dy) / spanY)) : 1;
+      map = ([x, y]) => [anchor[0] + (x - anchor[0]) * sx, anchor[1] + (y - anchor[1]) * sy];
+    } else if (lassoDrag.corner) {
       const east = lassoDrag.corner.includes("e");
       const south = lassoDrag.corner.includes("s");
       const anchor = [east ? x0 : x1, south ? y0 : y1];

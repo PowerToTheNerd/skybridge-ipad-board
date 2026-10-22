@@ -1032,6 +1032,20 @@ input[type="range"] {
 .lasso-end::after { content: ""; position: absolute; inset: -14px; }
 .lasso-box[data-line="true"] .lasso-end { display: block; }
 .lasso-box[data-line="true"] .lasso-handle { display: none; }
+/* Edge handles: pull a side to make the selection wider or taller on its own (a shorter or longer box). */
+.lasso-edge {
+  position: absolute; display: none;
+  border: 2px solid var(--pen-accent, var(--accent)); border-radius: 8px; background: var(--surface-raised); touch-action: none;
+}
+.lasso-edge::after { content: ""; position: absolute; inset: -12px; }
+.lasso-box[data-stretch="true"] .lasso-edge { display: block; }
+.lasso-box[data-line="true"] .lasso-edge, .lasso-box[data-locked="true"] .lasso-edge { display: none; }
+.lasso-edge[data-corner="n"], .lasso-edge[data-corner="s"] { left: 50%; width: 30px; height: 12px; margin-left: -15px; cursor: ns-resize; }
+.lasso-edge[data-corner="e"], .lasso-edge[data-corner="w"] { top: 50%; width: 12px; height: 30px; margin-top: -15px; cursor: ew-resize; }
+.lasso-edge[data-corner="n"] { top: -7px; }
+.lasso-edge[data-corner="s"] { bottom: -7px; }
+.lasso-edge[data-corner="w"] { left: -7px; }
+.lasso-edge[data-corner="e"] { right: -7px; }
 
 /* Longer toasts (why a page was not named) wrap instead of running off the screen. */
 .toast { width: max-content; max-width: min(560px, calc(100vw - 32px)); border-radius: 22px; line-height: 1.35; }
@@ -1295,25 +1309,29 @@ input[type="range"] {
 /* Top bar: the board switch is one icon that drops down; Clear, Export, Check and Send sit together on the right. */
 .status { flex: 0 1 auto; max-width: 150px; }
 .bar-right { display: flex; align-items: center; gap: 6px; margin-left: auto; flex: none; }
-.layout-pick { position: relative; flex: none; }
-.layout-btn { display: flex; align-items: center; justify-content: center; gap: 2px; padding: 0 8px; min-width: 52px; }
-.layout-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.layout-btn .lay-chev { width: 14px; height: 14px; opacity: 0.7; }
-.layout-btn .lay-ic { display: none; }
-:root[data-layout="mine"] .layout-btn .lay-mine,
-:root[data-layout="both"] .layout-btn .lay-both,
-:root[data-layout="gemini"] .layout-btn .lay-gemini { display: block; }
-.layout-btn[aria-expanded="true"] { border-color: var(--accent); color: var(--text); }
-.layout-btn .badge { top: 6px; right: 4px; }
-.layouts[hidden] { display: none; }
-.layout-pick .layouts {
-  position: absolute; top: calc(100% + 6px); left: 0; z-index: 30;
-  flex-direction: column; min-width: 150px; padding: 5px; gap: 2px;
-  border: 1px solid var(--edge); border-radius: 14px; overflow: visible;
+.menu-pick { position: relative; flex: none; }
+.menu-btn, .icon-only { display: grid; place-items: center; width: 48px; padding: 0; }
+.menu-btn svg, .icon-only svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.menu-btn[aria-expanded="true"], .icon-only[aria-expanded="true"] { border-color: var(--accent); color: var(--text); }
+.menu-btn .badge { top: 8px; right: 8px; }
+.bar-menu[hidden] { display: none; }
+.bar-menu {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 30;
+  display: flex; flex-direction: column; gap: 6px; width: 250px; padding: 10px;
+  border: 1px solid var(--edge); border-radius: 16px;
   background: var(--surface); box-shadow: var(--shadow-2);
 }
-.layout-pick .layouts button { height: 44px; padding: 0 14px; text-align: left; font-size: 16px; border-radius: 10px; display: flex; align-items: center; }
-.layout-pick .layouts button .badge { top: 50%; right: 12px; margin-top: -3.5px; }
+.menu-label { padding: 2px 4px 0; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.menu-group { display: flex; flex-direction: column; gap: 2px; }
+.menu-group + .menu-label, .menu-group + .menu-group { margin-top: 2px; }
+.menu-seg { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 12px; }
+.menu-seg button { position: relative; flex: 1; height: 40px; padding: 0 6px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font: inherit; font-size: 15px; }
+.menu-seg button[aria-checked="true"] { background: rgba(var(--acc-rgb), 0.18); color: var(--text); }
+.menu-seg button .badge { top: 8px; right: 6px; }
+.menu-item { height: 46px; padding: 0 12px; border: 0; border-radius: 10px; background: transparent; color: var(--text); font: inherit; font-size: 16px; text-align: left; display: flex; align-items: center; }
+.menu-item:active { background: rgba(var(--acc-rgb), 0.14); }
+.menu-item:disabled { opacity: 0.4; }
+:root[data-mode="notes"] [data-for-mode="math"] { display: none; }
 
 /* Smart features footer: keep the same side margin as the rows above it. */
 #bgReads { padding: 6px 18px 0; }
@@ -1337,7 +1355,7 @@ input[type="range"] {
 .bar-right { justify-self: end; gap: 14px; margin-left: 0; }
 .bar-set { display: flex; align-items: center; gap: 6px; }
 .bar-right .send { margin-left: -4px; }
-.bar .tool, .bar .send, .bar .layout-btn { height: 44px; }
+.bar .tool, .bar .send { height: 44px; }
 .bar .status { height: 44px; padding: 0 14px; }
 @media (max-width: 1000px) {
   .bar { gap: 10px; }
@@ -1501,7 +1519,7 @@ input[type="range"] {
 .review-bar .tool { height: 38px; padding: 0 16px; }
 .review-btn { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 /* With a review on the page its button needs room: Check keeps its short name. */
-:root[data-review-has="1"] .bar .check .long, :root[data-review-has="1"] #settingsBtn .long { display: none; }
+
 @media (max-width: 1150px) { #reviewBtnLong { display: none; } }
 .review-btn[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 /* On a review page there is nothing to check: Check waits until you are back on your own page. */
