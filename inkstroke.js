@@ -12,7 +12,7 @@
  * A quick zigzag over ink is a scribble: scribble() spots one, and crossed() lists what it crosses.
  * Pen types: stroke.nib picks the nib (see NIBS: fountain, ballpoint, pencil, brush, calligraphy). A stroke with no nib,
  * or one this file doesn't know, is the ordinary pen, so older notebooks and older boards draw as they always did.
- * Exposes window.SkybridgeInk = { fill, snap, hold, PALETTE, colorOn, paperOf, isHex, layered, scribble, crossed, inside, NIBS }.
+ * Exposes window.SkybridgeInk = { fill, snap, hold, PALETTE, colorOn, penColorOn, paperOf, isHex, layered, scribble, crossed, inside, NIBS }.
  */
 (() => {
   "use strict";
@@ -454,6 +454,13 @@
     return color;
   }
 
+  // A pen's colour on a paper: the built-in colours (PALETTE) are nudged to stay readable, but a colour you
+  // picked yourself (the wheel, the eyedropper, a saved palette colour) is drawn exactly as picked, white included.
+  const builtIn = new Set(PALETTE.map(({ color }) => color.toLowerCase()));
+  function penColorOn(color, paper) {
+    return builtIn.has(String(color).toLowerCase()) ? colorOn(color, paper) : color;
+  }
+
   // Calls onHold when the pen stays put for HOLD_MS mid-stroke. move(point) on every
   // sample, stop() when the stroke ends.
   function hold(onHold) {
@@ -566,5 +573,5 @@
     return on;
   }
 
-  window.SkybridgeInk = { fill, snap, hold, PALETTE, colorOn, paperOf, isHex, layered, scribble, crossed, inside, bounds, NIBS, setSmoothing, tidy, DEFAULT_SMOOTHING };
+  window.SkybridgeInk = { fill, snap, hold, PALETTE, colorOn, penColorOn, paperOf, isHex, layered, scribble, crossed, inside, bounds, NIBS, setSmoothing, tidy, DEFAULT_SMOOTHING };
 })();

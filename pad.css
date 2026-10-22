@@ -1507,3 +1507,20 @@ input[type="range"] {
 /* On a review page there is nothing to check: Check waits until you are back on your own page. */
 :root[data-review="open"] #checkBtn { display: none; }
 @media (max-width: 900px) { .review-btn span { max-width: 7.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
+
+/* Export area: a dashed box with its export buttons on the top-right corner. */
+.area-box { position: absolute; border: 1.5px dashed var(--pen-accent, var(--accent)); background: rgba(var(--acc-rgb), 0.05); pointer-events: none; z-index: 1; }
+.area-box .lasso-handle { pointer-events: auto; }
+.area-margin { position: absolute; border: 1px dotted var(--pen-accent, var(--accent)); opacity: 0.6; pointer-events: none; }
+.area-bar {
+  position: absolute; right: -2px; bottom: calc(100% + 14px);
+  display: flex; align-items: center; gap: 6px; padding: 5px 6px; white-space: nowrap;
+  border: 1px solid var(--edge-hi, var(--edge)); border-radius: 14px;
+  background: var(--surface-raised); box-shadow: var(--shadow-1); pointer-events: auto; touch-action: manipulation;
+}
+.area-box[data-flip="true"] .area-bar { bottom: auto; top: calc(100% + 14px); }
+.area-pad { display: inline-flex; align-items: center; gap: 2px; padding-right: 6px; border-right: 1px solid var(--edge); }
+.area-pad button, .area-go { min-width: 36px; min-height: 36px; border: 0; border-radius: 10px; background: transparent; color: var(--text); font: 600 15px/1 inherit; font-family: inherit; }
+.area-pad output { min-width: 30px; text-align: center; font: 600 13px/1 inherit; font-variant-numeric: tabular-nums; color: var(--text); }
+.area-go { padding: 0 12px; background: rgba(var(--acc-rgb), 0.18); }
+.area-go:disabled { opacity: 0.5; }

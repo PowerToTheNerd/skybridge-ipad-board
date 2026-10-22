@@ -26,7 +26,7 @@
   // the paper keep their own colours.
   const THEMES = { black: "Black", white: "White", green: "Green", purple: "Purple", custom: "Your colour" };
   const THEME_HUES = { black: 210, white: 215, green: 156, purple: 265 };
-  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", nib: "ink", nibs: {}, recent: [], palette: [], rail: true, paper: "night", theme: "green", accent: "#7c5cd6", paperColor: "#2d3b57", fxs: {}, card: {}, page: "pen", finger: "move", palm: true, penSeen: false, clock: true, weather: false, wxAt: null, grid: "dots", gridSize: 24, grain: true, layout: "mine" };
+  const DEFAULTS = { width: 2.6, pressure: 100, smooth: 80, tidy: true, eraser: 26, sv: 2, pen: "ink", nib: "ink", nibs: {}, recent: [], palette: [], rail: true, paper: "night", theme: "green", accent: "#7c5cd6", paperColor: "#2d3b57", fxs: {}, card: {}, page: "pen", finger: "move", palm: true, penSeen: false, clock: true, weather: false, wxAt: null, grid: "dots", gridSize: 24, grain: true, layout: "mine", areaPad: 24 };
   const LAYOUTS = ["mine", "both", "gemini"];
 
   const el = {
@@ -37,6 +37,7 @@
     undo: document.getElementById("undoBtn"),
     redo: document.getElementById("redoBtn"),
     lassoBox: document.getElementById("lassoBox"),
+    areaBox: document.getElementById("areaBox"),
     lassoBar: document.getElementById("lassoBar"),
     lassoColor: document.getElementById("lassoColor"),
     lassoPresets: document.getElementById("lassoPresets"),
@@ -317,6 +318,7 @@
   // Undo and redo steps per board (see "Undo and redo" below).
   const hist = { mine: { undo: [], redo: [] }, gemini: { undo: [], redo: [] } };
   const lasso = { path: null, pointer: null, selected: [] };
+  const area = { rect: null, pointer: null, anchor: null, corner: "", busy: false }; // the Export area box, in board units
   let selectionColorTarget = "all";
   let selectionColorKey = "";
   let guides = []; // alignment lines shown while dragging: { x|y, from, to } in board coordinates
@@ -345,24 +347,27 @@
   // Read once per pass: a page of strokes asks for the same few colours thousands of times, and each ask is a style lookup.
   // The cache is dropped as soon as the current task ends, so a theme change is always seen.
   let colorCache = null;
+  // While the page is being drawn (withColors), each colour is looked up once. Anywhere else it is read fresh:
+  // a paper or theme set a moment earlier in the same step (the paper swatches, settings on startup) must show.
   function cssColor(name) {
-    if (!colorCache) {
-      colorCache = new Map();
-      queueMicrotask(() => { colorCache = null; });
-    }
-    let value = colorCache.get(name);
+    let value = colorCache?.get(name);
     if (value === undefined) {
       value = getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim() || "#e3ece6";
-      colorCache.set(name, value);
+      colorCache?.set(name, value);
     }
     return value;
+  }
+  function withColors(draw) {
+    if (colorCache) return draw();
+    colorCache = new Map();
+    try { return draw(); } finally { colorCache = null; }
   }
 
   // Fixed palette colours are nudged only as far as needed to read on this paper; the
   // paper-following pens (ink and the three marks) already do.
   function strokeColor(name) {
     const Ink = window.SkybridgeInk;
-    return Ink?.isHex(name) ? Ink.colorOn(name, cssColor("paper")) : cssColor(name);
+    return Ink?.isHex(name) ? Ink.penColorOn(name, cssColor("paper")) : cssColor(name);
   }
 
   // Typed text on the page (a "Place on page" from To text): a stroke with a `text`, whose two points
@@ -517,7 +522,9 @@
   }
 
   function rebuildBase() {
-    colorCache = null;
+    withColors(drawBase);
+  }
+  function drawBase() {
     clearTimeout(settleTimer);
     settleTimer = 0;
     slid = false;
@@ -638,7 +645,9 @@
 
   function paint() {
     frame = 0;
-    colorCache = null;
+    withColors(paintFrame);
+  }
+  function paintFrame() {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, el.canvas.width, el.canvas.height);
     if (dragging || (hasPhotos && live.size)) freshBase();
@@ -1496,7 +1505,7 @@
   // set in Pen & paper). A resting palm is ignored while the Pencil writes.
   // ---------------------------------------------------------------------------
   let pen = "ink"; // pen colour (restored below once the palette exists)
-  let tool = "pen"; // pen, marker (highlighter), eraser, lasso or matrix (brackets; stays until another tool is picked)
+  let tool = "pen"; // pen, marker (highlighter), eraser, lasso, area (export box) or matrix (brackets; stays until another tool is picked)
   let slot = -1; // the palette slot being edited: the one whose colour is the pen's
   let beforeEraser = "pen";
   let current = null;
@@ -1642,7 +1651,7 @@
     }
     if (event.pointerType === "touch") {
       // Fingers never draw while the Pencil is writing, or just was: that's a palm.
-      if (current?.pen || lasso.path || isPalm(event)) return;
+      if (current?.pen || lasso.path || area.pointer !== null || isPalm(event)) return;
       if (settings.finger === "move" || touches.size) {
         startPan(event);
         return;
@@ -1650,9 +1659,17 @@
     }
     if (event.pointerType === "pen") touches.clear(); // the Pencil wins over a resting hand
     if (event.pointerType === "mouse" && event.button !== 0) return;
-    if (current || lasso.path) return;
+    if (current || lasso.path || area.pointer !== null) return;
     event.preventDefault();
     try { el.canvas.setPointerCapture(event.pointerId); } catch {}
+    if (tool === "area") {
+      area.pointer = event.pointerId;
+      area.corner = "";
+      area.anchor = pointFrom(event).slice(0, 2);
+      area.rect = [...area.anchor, ...area.anchor];
+      positionArea();
+      return;
+    }
     if (tool === "lasso" || tool === "matrix") {
       clearSelection();
       lasso.pointer = event.pointerId;
@@ -1690,6 +1707,12 @@
   el.canvas.addEventListener("pointermove", (event) => {
     if (event.pointerType === "pen") notePen();
     if (movePan(event)) return;
+    if (area.pointer === event.pointerId) {
+      const [x, y] = pointFrom(event);
+      area.rect = normalRect(area.anchor, [x, y]);
+      positionArea();
+      return;
+    }
     if (lasso.path && event.pointerId === lasso.pointer) {
       const samples = event.getCoalescedEvents?.() || [event];
       for (const sample of samples.length ? samples : [event]) lasso.path.push(pointFrom(sample).slice(0, 2));
@@ -1712,6 +1735,10 @@
   function endStroke(event) {
     endPan(event);
     if (event.pointerType === "pen") notePen();
+    if (area.pointer === event.pointerId) {
+      finishArea();
+      return;
+    }
     if (lasso.path && event.pointerId === lasso.pointer) {
       finishLasso();
       return;
@@ -1762,6 +1789,7 @@
     if (name === "eraser" && tool !== "eraser") beforeEraser = tool;
     tool = name;
     if (name !== "lasso" && name !== "matrix") clearSelection();
+    if (name !== "area") clearArea();
     el.canvas.parentElement.dataset.tool = name;
     renderTools();
   }
@@ -2013,6 +2041,10 @@
   // or the paper where nothing is written.
   function colorAt(clientX, clientY) {
     const rect = el.canvas.getBoundingClientRect();
+    // On a stroke: its own colour, exactly as it was picked (the drawn pixels are softened at the edges,
+    // textured by some pens, and built-in colours are nudged for the paper).
+    const hit = strokeAt([(clientX - rect.left) / view.zoom + view.x, (clientY - rect.top) / view.zoom + view.y]);
+    if (hit && !hit.img && hit.color) return { hex: cssToHex(window.SkybridgeInk?.isHex(hit.color) ? hit.color : strokeColor(hit.color)) };
     const sx = base.width / rect.width;
     const sy = base.height / rect.height;
     const cx = Math.round((clientX - rect.left) * sx);
@@ -2084,7 +2116,7 @@
 
   function toggleEraser() {
     setTool(tool === "eraser" ? beforeEraser : "eraser");
-    toast(tool === "eraser" ? "Eraser" : { pen: nibLabel(settings.nib), marker: "Highlighter", lasso: "Lasso", matrix: "Matrix brackets" }[tool]);
+    toast(tool === "eraser" ? "Eraser" : { pen: nibLabel(settings.nib), marker: "Highlighter", lasso: "Lasso", matrix: "Matrix brackets", area: "Export area" }[tool]);
   }
 
   el.pens.forEach((button) => {
@@ -2747,6 +2779,7 @@
     el.railToggle.title = el.railToggle.ariaLabel = settings.rail ? "Hide the tool rail" : "Show the tool rail";
     window.SkybridgeInk?.setSmoothing(settings.smooth);
     paintColors();
+    renderPalette(); // built-in colours show as they draw on this paper
     el.papers.querySelectorAll("[data-paper]").forEach((button) => {
       button.setAttribute("aria-checked", String(button.dataset.paper === settings.paper));
     });
@@ -3100,6 +3133,7 @@
   }
 
   function positionLasso() {
+    positionArea();
     renderSelectionColorTools();
     if (!lasso.selected.length) {
       el.lassoBox.hidden = true;
@@ -3231,6 +3265,104 @@
     }
     return null;
   }
+
+  // ---------------------------------------------------------------------------
+  // Export area: drag a box on the page. Its top-right corner has the export buttons and a
+  // padding stepper (white space added around the box). Corners resize it; drawing again replaces it.
+  // ---------------------------------------------------------------------------
+  const AREA_PADS = [0, 8, 16, 24, 32, 48, 64, 96, 128, 200];
+  const normalRect = (a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
+
+  function clearArea() {
+    area.rect = null;
+    area.pointer = null;
+    area.corner = "";
+    if (el.areaBox) el.areaBox.hidden = true;
+  }
+
+  function positionArea() {
+    if (!el.areaBox) return;
+    if (!area.rect) { el.areaBox.hidden = true; return; }
+    const [x0, y0, x1, y1] = area.rect;
+    const left = (x0 - view.x) * view.zoom;
+    const top = (y0 - view.y) * view.zoom;
+    Object.assign(el.areaBox.style, { left: `${left}px`, top: `${top}px`, width: `${(x1 - x0) * view.zoom}px`, height: `${(y1 - y0) * view.zoom}px` });
+    const edge = settings.areaPad * view.zoom;
+    Object.assign(document.getElementById("areaMargin").style, { left: `${-edge}px`, top: `${-edge}px`, right: `${-edge}px`, bottom: `${-edge}px` });
+    el.areaBox.dataset.flip = String(top < 74);
+    el.areaBox.dataset.drawing = String(area.pointer !== null && !area.corner);
+    document.getElementById("areaBar").hidden = area.pointer !== null;
+    document.getElementById("areaPadVal").textContent = String(settings.areaPad);
+    el.areaBox.hidden = false;
+  }
+
+  function finishArea() {
+    area.pointer = null;
+    area.corner = "";
+    const [x0, y0, x1, y1] = area.rect || [0, 0, 0, 0];
+    // A tap, or a sliver, is not a box.
+    if (Math.min(x1 - x0, y1 - y0) * view.zoom < 24) {
+      area.rect = null;
+      if (Math.max(x1 - x0, y1 - y0) * view.zoom >= 4) toast("Drag out a bigger box");
+    }
+    positionArea();
+  }
+
+  el.areaBox?.addEventListener("pointerdown", (event) => {
+    const corner = event.target.dataset?.corner;
+    if (!corner || !area.rect) return;
+    event.preventDefault();
+    event.stopPropagation();
+    try { el.areaBox.setPointerCapture(event.pointerId); } catch {}
+    const [x0, y0, x1, y1] = area.rect;
+    area.pointer = event.pointerId;
+    area.corner = corner;
+    area.anchor = [corner.includes("w") ? x1 : x0, corner.includes("n") ? y1 : y0]; // the opposite corner stays put
+  });
+  el.areaBox?.addEventListener("pointermove", (event) => {
+    if (!area.corner || area.pointer !== event.pointerId) return;
+    const rect = el.canvas.getBoundingClientRect();
+    area.rect = normalRect(area.anchor, [(event.clientX - rect.left) / view.zoom + view.x, (event.clientY - rect.top) / view.zoom + view.y]);
+    positionArea();
+  });
+  for (const type of ["pointerup", "pointercancel"]) {
+    el.areaBox?.addEventListener(type, (event) => {
+      if (area.corner && area.pointer === event.pointerId) finishArea();
+    });
+  }
+
+  function stepAreaPad(direction) {
+    const now = settings.areaPad;
+    const next = direction > 0 ? AREA_PADS.find((step) => step > now) : [...AREA_PADS].reverse().find((step) => step < now);
+    if (next === undefined) return;
+    settings.areaPad = next;
+    saveSettings();
+    positionArea();
+  }
+  document.getElementById("areaPadDown")?.addEventListener("click", () => stepAreaPad(-1));
+  document.getElementById("areaPadUp")?.addEventListener("click", () => stepAreaPad(1));
+
+  async function exportArea(kind) {
+    if (!area.rect || area.busy || !window.SkybridgeExport) return;
+    const buttons = [document.getElementById("areaPng"), document.getElementById("areaPdf")];
+    const button = kind === "pdf" ? buttons[1] : buttons[0];
+    const label = button.textContent;
+    area.busy = true;
+    buttons.forEach((node) => { node.disabled = true; });
+    button.textContent = "…";
+    try {
+      const message = await window.SkybridgeExport.exportArea(area.rect, settings.areaPad, kind);
+      if (message) toast(message);
+    } catch (error) {
+      toast(error?.message || "Couldn't export that area");
+    } finally {
+      area.busy = false;
+      button.textContent = label;
+      buttons.forEach((node) => { node.disabled = false; });
+    }
+  }
+  document.getElementById("areaPng")?.addEventListener("click", () => exportArea("png"));
+  document.getElementById("areaPdf")?.addEventListener("click", () => exportArea("pdf"));
 
   function finishLasso() {
     const path = lasso.path || [];

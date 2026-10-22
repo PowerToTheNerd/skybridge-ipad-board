@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="skybridge-hosted" content="1">
-  <meta name="skybridge-build" content="2026.10.21-pens-big-pages">
+  <meta name="skybridge-build" content="2026.10.22-export-area">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -95,6 +95,9 @@
     <button type="button" class="tool icon" data-tool="matrix" aria-pressed="false" aria-label="Matrix brackets" title="Matrix brackets: circle the numbers and the brackets are drawn around them">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 4.5h-3v15h3M15.5 4.5h3v15h-3" /><path d="M10 9.5h.01M14 9.5h.01M10 14.5h.01M14 14.5h.01" /></svg>
     </button>
+    <button type="button" class="tool icon" data-tool="area" aria-pressed="false" aria-label="Export area" title="Export area: drag a box around part of the page, then export just that part with white space around it">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path class="dash" d="M5 5h10M5 5v10M19 9v10M9 19h10" /><path d="M13 3h8v8" /><path d="M21 3l-8 8" /></svg>
+    </button>
     <button type="button" class="tool icon" id="imageBtn" aria-label="Add a photo" title="Add a photo: from Photos, Files or the camera. You can also paste or drop one.">
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2.5" /><circle cx="9" cy="10" r="1.6" /><path d="m4 17 5-4.5 3.5 3 3-2.5 4.5 4" /></svg>
     </button>
@@ -169,6 +172,21 @@
             <button type="button" class="side-font" id="lassoMatchPen" title="Match the pen width" aria-label="Match the pen width">Pen</button>
           </div>
         </div>
+      </div>
+    </div>
+    <!-- Export area: a box drawn on the page; its top-right corner holds the export buttons. -->
+    <div class="area-box" id="areaBox" hidden>
+      <i class="area-margin" id="areaMargin"></i>
+      <i class="lasso-handle" data-corner="nw"></i><i class="lasso-handle" data-corner="ne"></i>
+      <i class="lasso-handle" data-corner="sw"></i><i class="lasso-handle" data-corner="se"></i>
+      <div class="area-bar" id="areaBar" role="toolbar" aria-label="Export this area">
+        <span class="area-pad" title="White space around the box, in board units">
+          <button type="button" id="areaPadDown" aria-label="Less white space">&minus;</button>
+          <output id="areaPadVal">24</output>
+          <button type="button" id="areaPadUp" aria-label="More white space">+</button>
+        </span>
+        <button type="button" id="areaPng" class="area-go">PNG</button>
+        <button type="button" id="areaPdf" class="area-go">PDF</button>
       </div>
     </div>
   </main>

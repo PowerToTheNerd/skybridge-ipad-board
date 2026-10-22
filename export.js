@@ -305,13 +305,12 @@
     return new Promise((resolve, reject) => canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("The image was too big to save."))), "image/png"));
   }
 
-  async function savePng() {
-    const { canvas } = await renderBoard();
-    const blob = await toBlob(canvas);
-    const file = new File([blob], `skybridge-board-${stamp()}.png`, { type: "image/png" });
+  // The PNG goes to the share sheet, else it downloads.
+  async function shareBlob(blob, name, title) {
+    const file = new File([blob], name, { type: "image/png" });
     if (navigator.canShare?.({ files: [file] })) {
       try {
-        await navigator.share({ files: [file], title: "Skybridge board" });
+        await navigator.share({ files: [file], title });
         return "Saved";
       } catch (error) {
         if (error?.name === "AbortError") return "";
@@ -327,6 +326,11 @@
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
     return "Image saved";
+  }
+
+  async function savePng() {
+    const { canvas } = await renderBoard();
+    return shareBlob(await toBlob(canvas), `skybridge-board-${stamp()}.png`, "Skybridge board");
   }
 
   // ---------------------------------------------------------------------------
@@ -606,6 +610,52 @@
     return "";
   }
 
+  // Just a box of the page, with `padding` board units of paper around it. Photos, typeset problems
+  // and the paper match the whole-board export; help sheets stay out.
+  async function renderArea(rect, padding) {
+    const strokes = pad.strokes.filter((stroke) => stroke.points.length && !stroke.help);
+    await window.SkybridgeImages?.ensure(strokes);
+    await window.SkybridgeTypeset?.prepare(strokes);
+    const edge = Math.max(0, Number(padding) || 0);
+    const box = { x0: rect[0] - edge, y0: rect[1] - edge, x1: rect[2] + edge, y1: rect[3] + edge };
+    const width = box.x1 - box.x0;
+    const height = box.y1 - box.y0;
+    const scale = fitScale(width, height);
+    const out = makeCanvas(width * scale, height * scale);
+    const ctx = out.getContext("2d");
+    paint(ctx, out.width, out.height, scale, pad.cssColor("paper"), pad.settings.grid !== "none" ? pad.cssColor("grid") : "", box.x0, box.y0, pad.settings.grid, pad.settings.gridSize);
+    ctx.drawImage(inkLayer(strokes, box, scale, out.width, out.height), 0, 0);
+    return { canvas: out, width, height, scale };
+  }
+
+  async function exportArea(rect, padding, kind = "png") {
+    if (kind === "pdf") {
+      // Open the window first: browsers only allow it straight after the tap.
+      const win = window.open("", "skybridge-export");
+      if (!win) throw new Error("Allow pop-ups for this page, then try again.");
+      win.document.write("<!doctype html><title>Exporting…</title><body style='font:16px sans-serif;padding:24px'>Exporting…</body>");
+      try {
+        const { canvas } = await renderArea(rect, padding);
+        win.document.open();
+        win.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Skybridge board</title><style>
+body{margin:0;padding:16px;font:16px -apple-system,sans-serif;background:#fff;color:#111}
+img{display:block;max-width:100%;height:auto;margin:0 0 12px;border:1px solid #ccc}
+button{font:inherit;padding:10px 16px;margin:0 0 12px;border-radius:10px;border:1px solid #888;background:#f3f3f3}
+@page{margin:10mm}@media print{button{display:none}img{border:0;max-height:270mm;object-fit:contain}body{padding:0}}
+</style></head><body><button onclick="print()">Save as PDF</button><img src="${canvas.toDataURL("image/png")}" alt="Selected area"></body></html>`);
+        win.document.close();
+        win.focus();
+        return "";
+      } catch (error) {
+        win.close();
+        throw error;
+      }
+    }
+    const { canvas } = await renderArea(rect, padding);
+    return shareBlob(await toBlob(canvas), `skybridge-area-${stamp()}.png`, "Skybridge board");
+  }
+
   async function savePdf() {
     // Open the window first: browsers only allow it straight after the tap.
     const win = window.open("", "skybridge-export");
@@ -772,5 +822,5 @@ button{font:inherit;padding:10px 16px;margin:0 0 12px;border-radius:10px;border:
     run(el.openDrawing, () => openDrawing(file));
   });
   pad.stage.addEventListener("pointerdown", () => setSheet(false), true);
-  window.SkybridgeExport = { renderBoard, geminiPicture, savePng, savePdf, exportFolder, folderPages, drawingFile, sendToLumen, openDrawing, onRelay };
+  window.SkybridgeExport = { renderBoard, renderArea, exportArea, geminiPicture, savePng, savePdf, exportFolder, folderPages, drawingFile, sendToLumen, openDrawing, onRelay };
 })();
